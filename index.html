@@ -144,7 +144,18 @@ const $ = id => document.getElementById(id);
 // share one code path — swapping provider is a base URL and a model name, nothing more.
 const PROVIDERS = {
   gemini:     { label: 'Google Gemini',  model: 'gemini-3.6-flash', api: 'gemini',
-                keys: 'https://aistudio.google.com/apikey', free: '20 requests a day' },
+                keys: 'https://aistudio.google.com/apikey',
+                free: '20 requests a day per model, several models',
+                // The free tier meters 20 requests a day *per model*, and the busy aliases
+                // return 503 independently of each other. Both faults are therefore fixed
+                // the same way: move to the next model. Six of these is 120 requests a day.
+                // Ordered by what actually held up under testing. gemini-flash-latest is
+                // deliberately absent: it returned 503 on every attempt across a session and
+                // then an empty body. The lite models are quick but dropped a row, so they
+                // sit below the full ones.
+                fallbacks: ['gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-3.7-flash',
+                            'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite',
+                            'gemini-flash-lite-latest'] },
   claude:     { label: 'Anthropic Claude', model: 'claude-haiku-4-5-20251001', api: 'claude',
                 keys: 'https://console.anthropic.com/settings/keys', free: 'paid' },
   openrouter: { label: 'OpenRouter',     api: 'openai', base: 'https://openrouter.ai/api/v1',
@@ -404,42 +415,72 @@ async function callModel(frames) {
   let done = 0;
   const fn = { gemini: callGemini, claude: callClaude, openai: callOpenAI }[spec.api];
   if (spec.api === 'openai' && !base) throw new Error('This provider needs an endpoint base URL.');
+  const chain = modelChain();
+  const switched = new Set();
   const results = await Promise.all(batches.map(async b => {
-    const rows = await withRetry(() => fn(b, model, key, base));
+    const rows = await withFallback(m => fn(b, m, key, base), chain, m => switched.add(m));
     done++; setProg(0.5 + 0.5 * done / batches.length);
-    log(`read ${done} of ${batches.length} batches…`);
+    log(`read ${done} of ${batches.length} batches…`
+        + (switched.size ? `  (fell back to ${[...switched].join(', ')})` : ''));
     return rows;
   }));
   return results.flat();
 }
 
-// The shared flash aliases are busy often enough that a first-try failure is routine
-// rather than exceptional; a couple of backed-off retries turn it into a non-event.
-async function withRetry(fn, tries = 4) {
+// A 503 means this model alias is saturated right now; a 429 means this model's daily
+// allowance is gone. Neither improves by asking the same model again, and both are fixed
+// by asking a different one — the free tier's 20-a-day is metered per model, so each
+// fallback brings its own budget. Only genuine transients get a same-model retry.
+function modelChain() {
+  const spec = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
+  const first = $('model').value.trim() || spec.model;
+  return [first, ...(spec.fallbacks || []).filter(m => m !== first)];
+}
+const isBusy      = e => /\b(429|500|502|503|504)\b/.test(e.message);
+const isExhausted = e => /\b429\b/.test(e.message) || /\b503\b/.test(e.message);
+
+async function withFallback(call, chain, note) {
   let last;
-  for (let i = 0; i < tries; i++) {
-    try { return await fn(); }
-    catch (e) {
-      last = e;
-      // a daily quota is not going to clear in four seconds; only retry transient faults
-      if (/\b429\b/.test(e.message) && /quota|per day|PerDay/i.test(e.message)) throw e;
-      if (!/\b(429|500|502|503|504)\b/.test(e.message)) throw e;
-      await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+  for (let mi = 0; mi < chain.length; mi++) {
+    const model = chain[mi];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const rows = await call(model);
+        if (mi > 0) note(model);
+        return rows;
+      } catch (e) {
+        last = e;
+        if (!isBusy(e)) throw e;              // real error: surface it
+        if (isExhausted(e)) break;            // busy or spent: next model, do not wait
+        await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
+      }
     }
   }
   throw last;
 }
 
+// Parse row objects individually rather than requiring one well-formed array. A long
+// batch can be cut off mid-object when it runs into the output limit, and demanding
+// valid JSON throws away the fifty good rows that arrived before the cut. Frames overlap
+// heavily, so a salvaged tail costs nothing; a hard failure costs the whole batch.
 function parseJSON(text) {
-  const m = text.match(/\[[\s\S]*\]/);
-  if (!m) throw new Error('model did not return JSON:\n' + text.slice(0, 300));
-  return JSON.parse(m[0]);
+  const objs = text.match(/\{[^{}]*\}/g) || [];
+  const rows = [];
+  for (const o of objs) {
+    try {
+      const r = JSON.parse(o);
+      if (typeof r.points === 'number' && (r.name || r.plain)) rows.push(r);
+    } catch { /* a half-written object at the cut: skip it */ }
+  }
+  if (!rows.length) throw new Error('model returned no readable rows:\n' + text.slice(0, 200));
+  return rows;
 }
+
 async function callGemini(batch, model, key, noThinking = true) {
   // Reading a leaderboard is perception, not reasoning. Left to its own devices the model
   // spends far longer thinking than looking — turning that off cut a batch from 36s to 8s
   // and, if anything, returned more rows.
-  const cfg = { temperature: 0, maxOutputTokens: 8192 };
+  const cfg = { temperature: 0, maxOutputTokens: 32768 };
   if (noThinking) cfg.thinkingConfig = { thinkingLevel: 'low' };
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
@@ -466,7 +507,7 @@ async function callClaude(batch, model, key) {
                'anthropic-version': '2023-06-01',
                'anthropic-dangerous-direct-browser-access': 'true' },
     body: JSON.stringify({
-      model, max_tokens: 8192, temperature: 0,
+      model, max_tokens: 16384, temperature: 0,
       messages: [{ role: 'user', content: [
         ...batch.map(d => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: d } })),
         { type: 'text', text: PROMPT }] }]
@@ -484,7 +525,7 @@ async function callOpenAI(batch, model, key, base) {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + key },
     body: JSON.stringify({
-      model, temperature: 0, max_tokens: 8192,
+      model, temperature: 0, max_tokens: 16384,
       messages: [{ role: 'user', content: [
         ...batch.map(d => ({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + d } })),
         { type: 'text', text: PROMPT }] }]

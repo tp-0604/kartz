@@ -68,17 +68,48 @@ anything.
 Ties are common — several players often share a score — so the row order within a tie is
 arbitrary. The sheet looks players up by name, so this does not matter.
 
-## Cost and the free-tier limit
+## Errors, and why they stopped happening
 
-Gemini's free tier is metered in **requests per day, currently 20**, not in tokens. Frames
-go eight per request, so a 24-frame run costs 3 requests — about **six runs a day**.
+Two different faults both used to surface as a red message, and both are now handled
+without you seeing anything.
 
-For once-a-month collection that is not close to binding. Twelve runs (three scoring days
-across four alliances) is 36 requests a month against roughly 600 available — around 6% of
-the tier. The only way to trip it is to do everything in one sitting; spread over two
-evenings, or drop to 16 frames, and it disappears.
+**503 "high demand"** is not about your key. It means that one model alias is saturated at
+that moment. Probed side by side, `gemini-3.7-flash` returned 503 while six sibling models
+answered normally in the same second.
 
-The page says so plainly when you do hit the cap, rather than showing a raw API error.
+**429** is the free tier's daily allowance — and the quota is named
+`GenerateRequestsPerDayPerProjectPerModel-FreeTier`. The important word is **PerModel**:
+the 20-a-day is counted separately for every model, not shared across them.
+
+So both faults have the same cure — ask a different model — and the page now does that
+automatically, walking down a fallback chain and carrying on. It says which model it landed
+on rather than hiding it. Verified by starting a run on a model whose daily quota was fully
+exhausted: it fell through to the next and returned all 40 players with no error shown.
+
+## How many runs you actually get
+
+| | |
+|---|---|
+| models in the chain | 7 |
+| free quota, per model, per day | 20 requests |
+| **effective total** | **140 requests a day** |
+| requests per run (24 frames, 8 per call) | 3 |
+| **runs per day** | **about 46** |
+
+Twelve runs — three scoring days across four alliances — is 36 requests. Done back to back
+in a single hour that is roughly **a quarter of one day's free allowance**, on one key, with
+no billing enabled.
+
+The chain order is set by what held up under testing. `gemini-flash-latest` is deliberately
+excluded: it returned 503 on every attempt across a whole session, then an empty body. The
+lite models are quick — 5 seconds a batch against 18 — but one dropped a player, so they sit
+below the full ones and are reached only when the better models are spent.
+
+## If a response gets cut off
+
+Long batches can hit the output limit mid-object. Rather than discarding the batch, the page
+parses row objects individually and keeps every complete one. Because frames overlap
+heavily, a lost tail is picked up by the neighbouring frame anyway.
 
 ## Other providers
 
