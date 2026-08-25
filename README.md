@@ -68,7 +68,34 @@ anything.
 Ties are common — several players often share a score — so the row order within a tie is
 arbitrary. The sheet looks players up by name, so this does not matter.
 
-## Cost
+## Cost and the free-tier limit
 
-At the default 24 frames, about US$0.002 per recording on Gemini Flash, and comfortably
-inside the free tier for normal use.
+About US$0.015 per recording — but the number that actually bites is that the Gemini free
+tier is metered in **requests per day, currently 20**, not in tokens. Frames are sent eight
+per request, so the default 24 frames costs 3 requests and you get roughly **six runs a
+day**. If you need more, either lower *Frames to send*, or enable billing on the key, at
+which point the per-run cost is fractions of a cent and the limit goes away.
+
+The page tells you plainly when you have hit the cap rather than showing a raw API error.
+
+## Measured on a real recording
+
+A 50-second recording of 40 players, run end to end in the browser:
+
+| | |
+|---|---|
+| total time | 18–24 seconds |
+| players found | 40 of 40 |
+| points errors | none |
+| matched to roster automatically | 28 |
+| needing confirmation | 12 — all genuinely absent from the roster |
+| sent to the API | ~800 KB, versus a 250 MB upload |
+
+The model read `ᵇᵃᵗᵐᵃⁿ`, `尺乇爪爪`, `PΞΔĊĦ`, `GHÖS†` and `ÈXÎLÉ` correctly, including the
+gold, silver and bronze medals that stand in for ranks 1 to 3.
+
+## If it is slow
+
+Thinking is disabled deliberately — reading a leaderboard is perception, not reasoning, and
+leaving it on made a batch take 36 seconds instead of 8. `gemini-flash-latest` is often
+overloaded and returns 503; `gemini-3.6-flash` is the default because it is reliable.

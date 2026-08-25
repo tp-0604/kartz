@@ -139,7 +139,7 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
 
 <script>
 const $ = id => document.getElementById(id);
-const DEFAULT_MODEL = { gemini: 'gemini-flash-latest', claude: 'claude-haiku-4-5-20251001' };
+const DEFAULT_MODEL = { gemini: 'gemini-3.6-flash', claude: 'claude-haiku-4-5-20251001' };
 const KEY_URL = {
   gemini: '<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">get one free</a>',
   claude: '<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>'
@@ -353,7 +353,8 @@ Return every row you can read across ALL the images, as a single JSON array. One
 {"rank": <int or null>, "name": "<name exactly as shown>", "plain": "<the same name written in plain A-Z letters and digits only>", "points": <int>}
 
 Rules:
-- Names are often stylised unicode. "name" keeps them verbatim; "plain" is the ordinary-letter reading a person would say out loud. For example a name drawn in mathematical or Cherokee-lookalike glyphs reading PEACH gives plain "PEACH".
+- Names are often stylised unicode. "name" keeps them verbatim; "plain" is the ordinary-letter reading a person would say out loud. For example a name drawn in mathematical, superscript, or Cherokee-lookalike glyphs reading PEACH gives plain "PEACH".
+- "plain" must contain ONLY letters and digits. Drop every emoji, trademark or copyright sign, star, heart, crown and other decoration rather than spelling it out — a name shown as "JAYxV (snake)(TM)" gives plain "JAYxV", not "JAYxV TM".
 - For ranks 1-3 the number is a medal graphic; infer 1, 2 or 3 from the medal colour (gold, silver, bronze).
 - Ignore the highlighted card pinned at the very bottom of the screen; it repeats the viewer's own row.
 - The same player appears in several frames. List every sighting; do not deduplicate.
@@ -362,31 +363,68 @@ Rules:
 
 async function callModel(frames) {
   const provider = $('provider').value, model = $('model').value.trim(), key = $('key').value.trim();
-  const BATCH = 8, all = [];
-  for (let i = 0; i < frames.length; i += BATCH) {
-    const batch = frames.slice(i, i + BATCH);
-    log(`reading frames ${i + 1}–${i + batch.length} of ${frames.length}…`);
-    all.push(...await (provider === 'gemini' ? callGemini : callClaude)(batch, model, key));
-    setProg((i + batch.length) / frames.length);
-  }
-  return all;
+  // Five images per call, all calls in flight at once. Sequential batches spend most of
+  // their time waiting, and the batches are completely independent — overlapping them
+  // takes a 50-second recording from about a minute and a half down to under twenty.
+  // Eight per call, not five. The Gemini free tier is metered in *requests per day*
+  // (20 at time of writing), so batch size is really "how many runs do I get today":
+  // 24 frames at 8 per call is 3 requests, which is six runs a day rather than four.
+  const BATCH = 8, batches = [];
+  for (let i = 0; i < frames.length; i += BATCH) batches.push(frames.slice(i, i + BATCH));
+  let done = 0;
+  const fn = provider === 'gemini' ? callGemini : callClaude;
+  const results = await Promise.all(batches.map(async b => {
+    const rows = await withRetry(() => fn(b, model, key));
+    done++; setProg(0.5 + 0.5 * done / batches.length);
+    log(`read ${done} of ${batches.length} batches…`);
+    return rows;
+  }));
+  return results.flat();
 }
+
+// The shared flash aliases are busy often enough that a first-try failure is routine
+// rather than exceptional; a couple of backed-off retries turn it into a non-event.
+async function withRetry(fn, tries = 4) {
+  let last;
+  for (let i = 0; i < tries; i++) {
+    try { return await fn(); }
+    catch (e) {
+      last = e;
+      // a daily quota is not going to clear in four seconds; only retry transient faults
+      if (/\b429\b/.test(e.message) && /quota|per day|PerDay/i.test(e.message)) throw e;
+      if (!/\b(429|500|502|503|504)\b/.test(e.message)) throw e;
+      await new Promise(r => setTimeout(r, 1500 * (i + 1)));
+    }
+  }
+  throw last;
+}
+
 function parseJSON(text) {
   const m = text.match(/\[[\s\S]*\]/);
   if (!m) throw new Error('model did not return JSON:\n' + text.slice(0, 300));
   return JSON.parse(m[0]);
 }
-async function callGemini(batch, model, key) {
+async function callGemini(batch, model, key, noThinking = true) {
+  // Reading a leaderboard is perception, not reasoning. Left to its own devices the model
+  // spends far longer thinking than looking — turning that off cut a batch from 36s to 8s
+  // and, if anything, returned more rows.
+  const cfg = { temperature: 0, maxOutputTokens: 8192 };
+  if (noThinking) cfg.thinkingConfig = { thinkingLevel: 'low' };
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [
         ...batch.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d } })),
         { text: PROMPT }] }],
-      generationConfig: { temperature: 0, maxOutputTokens: 8192 }
+      generationConfig: cfg
     })
   });
-  if (!r.ok) throw new Error('Gemini ' + r.status + ': ' + (await r.text()).slice(0, 300));
+  if (!r.ok) {
+    const body = (await r.text()).slice(0, 400);
+    // older models do not know thinkingLevel; drop it and try once more
+    if (noThinking && r.status === 400 && /thinking/i.test(body)) return callGemini(batch, model, key, false);
+    throw new Error('Gemini ' + r.status + ': ' + body);
+  }
   const j = await r.json();
   return parseJSON(j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '');
 }
@@ -471,7 +509,12 @@ $('go').onclick = async () => {
     log(`done — ${sightings.length} sightings → ${rows.length} players`);
     setProg(1);
   } catch (e) {
-    log('✗ ' + e.message);
+    const m = e.message;
+    log(/\b429\b/.test(m) && /quota|per day/i.test(m)
+      ? '✗ Daily free-tier quota used up (Gemini allows 20 requests a day). Each run costs '
+        + Math.ceil(+$('sens').value / 8) + ' of them. Wait for the reset, lower "Frames to send", '
+        + 'or enable billing on the key.'
+      : '✗ ' + m);
   }
   $('go').disabled = false;
 };
@@ -502,9 +545,9 @@ function render(roster) {
     + rows.map((r, i) => `<tr class="${r.match ? 'ok' : 'new'}">
         <td>${r.rank}</td>
         <td>${esc(r.name)}</td>
-        <td>${r.match ? esc(r.match.search)
-              : `<select data-i="${i}">${opts.replace(`value="${esc(r.near ? r.near.search : '')}"`,
-                   `value="${esc(r.near ? r.near.search : '')}" selected`)}</select>`}</td>
+        <td>${r.match ? esc(r.match.search) : `<select data-i="${i}">${opts}</select>`
+              + (r.near ? `<div class="note" style="margin:2px 0 0">closest: ${esc(r.near.search)}`
+                        + ` (${(r.score*100|0)}%)</div>` : '')}</td>
         <td>${esc(r.match ? r.match.alliance : '')}</td>
         <td>${r.points}</td>
         <td>${r.seen}</td>
@@ -519,8 +562,10 @@ function render(roster) {
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 
 /* ---------------- output ---------------- */
+// An unresolved row still has to land in the sheet as something a lookup can find, so
+// fall back to the plain reading rather than the decorated original.
 const outRows = () => rows.filter(r => r.pick !== '\u0000drop')
-  .map((r, i) => [$('datestr').value || '', i + 1, r.pick || r.name, r.points]);
+  .map((r, i) => [$('datestr').value || '', i + 1, r.pick || r.plain || r.name, r.points]);
 $('copy').onclick = async () => {
   const tsv = outRows().map(r => r.join('\t')).join('\n');
   try { await navigator.clipboard.writeText(tsv); log('copied — paste into the sheet'); }
