@@ -70,13 +70,37 @@ arbitrary. The sheet looks players up by name, so this does not matter.
 
 ## Cost and the free-tier limit
 
-About US$0.015 per recording — but the number that actually bites is that the Gemini free
-tier is metered in **requests per day, currently 20**, not in tokens. Frames are sent eight
-per request, so the default 24 frames costs 3 requests and you get roughly **six runs a
-day**. If you need more, either lower *Frames to send*, or enable billing on the key, at
-which point the per-run cost is fractions of a cent and the limit goes away.
+Gemini's free tier is metered in **requests per day, currently 20**, not in tokens. Frames
+go eight per request, so a 24-frame run costs 3 requests — about **six runs a day**.
 
-The page tells you plainly when you have hit the cap rather than showing a raw API error.
+For once-a-month collection that is not close to binding. Twelve runs (three scoring days
+across four alliances) is 36 requests a month against roughly 600 available — around 6% of
+the tier. The only way to trip it is to do everything in one sitting; spread over two
+evenings, or drop to 16 frames, and it disappears.
+
+The page says so plainly when you do hit the cap, rather than showing a raw API error.
+
+## Other providers
+
+The page speaks three dialects: Gemini, Anthropic, and the OpenAI chat-completions shape
+that almost everyone else implements. Picking one of the OpenAI-compatible providers fills
+in its endpoint and a sensible model; **Other OpenAI-compatible** takes any base URL, so a
+provider that does not exist yet still works without touching the code.
+
+| provider | free vision | notes |
+|---|---|---|
+| **Gemini** | 20 requests/day | the default; measured 40/40 on a real recording |
+| **OpenRouter** | ~50 requests/day | 8 free vision models, incl. `google/gemma-4-31b-it:free` |
+| **Groq** | generous | very fast; Llama 4 Scout has vision |
+| **Mistral** | free tier | Pixtral |
+| **Anthropic** | paid | no free tier |
+
+All of the above allow browser calls. **GitHub Models does not** — it sends no CORS headers,
+so a static page cannot reach it at all.
+
+Only Gemini has been measured on this task. The others are wired up and structurally
+verified, but a smaller free model may well read the stylised names less reliably — check
+one run against a sheet you trust before relying on it.
 
 ## Measured on a real recording
 

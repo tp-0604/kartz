@@ -75,15 +75,16 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
   <div class="row">
     <div>
       <label for="provider">Model</label>
-      <select id="provider">
-        <option value="gemini">Google Gemini (fast, large free tier)</option>
-        <option value="claude">Anthropic Claude</option>
-      </select>
+      <select id="provider"></select>
     </div>
     <div>
       <label for="model">Model ID</label>
       <input id="model" spellcheck="false">
     </div>
+  </div>
+  <div id="baseWrap" class="hide">
+    <label for="base">Endpoint base URL</label>
+    <input id="base" spellcheck="false" placeholder="https://openrouter.ai/api/v1">
   </div>
   <label for="key">API key <span id="keyHint"></span></label>
   <input id="key" type="password" spellcheck="false" placeholder="stored only in this browser">
@@ -139,10 +140,24 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
 
 <script>
 const $ = id => document.getElementById(id);
-const DEFAULT_MODEL = { gemini: 'gemini-3.6-flash', claude: 'claude-haiku-4-5-20251001' };
-const KEY_URL = {
-  gemini: '<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">get one free</a>',
-  claude: '<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>'
+// Everything below the first two speaks the OpenAI chat-completions dialect, so they all
+// share one code path — swapping provider is a base URL and a model name, nothing more.
+const PROVIDERS = {
+  gemini:     { label: 'Google Gemini',  model: 'gemini-3.6-flash', api: 'gemini',
+                keys: 'https://aistudio.google.com/apikey', free: '20 requests a day' },
+  claude:     { label: 'Anthropic Claude', model: 'claude-haiku-4-5-20251001', api: 'claude',
+                keys: 'https://console.anthropic.com/settings/keys', free: 'paid' },
+  openrouter: { label: 'OpenRouter',     api: 'openai', base: 'https://openrouter.ai/api/v1',
+                model: 'google/gemma-4-31b-it:free',
+                keys: 'https://openrouter.ai/keys', free: 'free models, ~50 requests a day' },
+  groq:       { label: 'Groq',           api: 'openai', base: 'https://api.groq.com/openai/v1',
+                model: 'meta-llama/llama-4-scout-17b-16e-instruct',
+                keys: 'https://console.groq.com/keys', free: 'generous free tier' },
+  mistral:    { label: 'Mistral',        api: 'openai', base: 'https://api.mistral.ai/v1',
+                model: 'pixtral-12b-2409',
+                keys: 'https://console.mistral.ai/api-keys', free: 'free tier' },
+  custom:     { label: 'Other OpenAI-compatible', api: 'openai', base: '', model: '',
+                keys: '', free: 'whatever your endpoint allows' },
 };
 
 /* ---------------- persistence ---------------- */
@@ -152,14 +167,23 @@ const store = {
 };
 
 function loadSetup() {
+  $('provider').innerHTML = Object.entries(PROVIDERS)
+    .map(([k, p]) => `<option value="${k}">${p.label} — ${p.free}</option>`).join('');
   $('provider').value = store.get('provider') || 'gemini';
-  $('model').value    = store.get('model')    || DEFAULT_MODEL[$('provider').value];
+  const p = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
+  $('model').value    = store.get('model')    || p.model;
+  $('base').value     = store.get('base')     || p.base || '';
   $('key').value      = store.get('key')      || '';
   $('roster').value   = store.get('rosterRaw')|| '';
   $('datestr').value  = store.get('datestr')  || '';
   syncHint(); refreshState();
 }
-function syncHint() { $('keyHint').innerHTML = '&mdash; ' + KEY_URL[$('provider').value]; }
+function syncHint() {
+  const p = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
+  $('keyHint').innerHTML = p.keys
+    ? `&mdash; <a href="${p.keys}" target="_blank" rel="noopener">get a key</a>` : '';
+  $('baseWrap').classList.toggle('hide', p.api !== 'openai');
+}
 function refreshState() {
   const ok = $('key').value.trim() && parseRoster($('roster').value).length;
   $('setupState').className = 'pill ' + (ok ? 'p-ok' : 'p-new');
@@ -168,9 +192,13 @@ function refreshState() {
     : 'not configured';
   $('go').disabled = !(ok && videoFile);
 }
-$('provider').onchange = () => { $('model').value = DEFAULT_MODEL[$('provider').value]; syncHint(); };
+$('provider').onchange = () => {
+  const p = PROVIDERS[$('provider').value];
+  $('model').value = p.model; $('base').value = p.base || '';
+  syncHint(); refreshState();
+};
 $('save').onclick = () => {
-  ['provider','model','key','datestr'].forEach(k => store.set(k, $(k === 'datestr' ? 'datestr' : k).value));
+  ['provider','model','key','base','datestr'].forEach(k => store.set(k, $(k).value));
   store.set('rosterRaw', $('roster').value);
   refreshState(); log('setup saved');
 };
@@ -362,7 +390,9 @@ Rules:
 - Output raw JSON only. No markdown fence, no commentary.`;
 
 async function callModel(frames) {
-  const provider = $('provider').value, model = $('model').value.trim(), key = $('key').value.trim();
+  const spec = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
+  const model = $('model').value.trim(), key = $('key').value.trim();
+  const base = $('base').value.trim().replace(/\/+$/, '');
   // Five images per call, all calls in flight at once. Sequential batches spend most of
   // their time waiting, and the batches are completely independent — overlapping them
   // takes a 50-second recording from about a minute and a half down to under twenty.
@@ -372,9 +402,10 @@ async function callModel(frames) {
   const BATCH = 8, batches = [];
   for (let i = 0; i < frames.length; i += BATCH) batches.push(frames.slice(i, i + BATCH));
   let done = 0;
-  const fn = provider === 'gemini' ? callGemini : callClaude;
+  const fn = { gemini: callGemini, claude: callClaude, openai: callOpenAI }[spec.api];
+  if (spec.api === 'openai' && !base) throw new Error('This provider needs an endpoint base URL.');
   const results = await Promise.all(batches.map(async b => {
-    const rows = await withRetry(() => fn(b, model, key));
+    const rows = await withRetry(() => fn(b, model, key, base));
     done++; setProg(0.5 + 0.5 * done / batches.length);
     log(`read ${done} of ${batches.length} batches…`);
     return rows;
@@ -444,6 +475,26 @@ async function callClaude(batch, model, key) {
   if (!r.ok) throw new Error('Claude ' + r.status + ': ' + (await r.text()).slice(0, 300));
   const j = await r.json();
   return parseJSON(j.content?.map(c => c.text || '').join('') || '');
+}
+
+// OpenRouter, Groq, Mistral, Cerebras and most self-hosted servers all expose the same
+// chat-completions shape, so one function covers every one of them and any future arrival.
+async function callOpenAI(batch, model, key, base) {
+  const r = await fetch(base + '/chat/completions', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + key },
+    body: JSON.stringify({
+      model, temperature: 0, max_tokens: 8192,
+      messages: [{ role: 'user', content: [
+        ...batch.map(d => ({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + d } })),
+        { type: 'text', text: PROMPT }] }]
+    })
+  });
+  if (!r.ok) throw new Error(r.status + ': ' + (await r.text()).slice(0, 400));
+  const j = await r.json();
+  const msg = j.choices?.[0]?.message;
+  return parseJSON(typeof msg?.content === 'string' ? msg.content
+                 : (msg?.content || []).map(c => c.text || '').join(''));
 }
 
 /* ---------------- consolidate ---------------- */
