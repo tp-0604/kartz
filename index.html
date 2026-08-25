@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kartz Extractor</title>
+<style>
+:root{
+  --bg:#f4f5f8; --panel:#fff; --ink:#15181f; --muted:#666e7d; --line:#dfe3ea;
+  --accent:#3b5bdb; --ok:#2b8a3e; --warn:#c26a00; --bad:#c92a2a;
+  --okbg:#e9f7ed; --warnbg:#fff4e2; --badbg:#fdecec;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#12141a; --panel:#1a1d25; --ink:#e8eaef; --muted:#98a0b0; --line:#2b303c;
+  --accent:#748ffc; --ok:#69db7c; --warn:#ffc078; --bad:#ff8787;
+  --okbg:#17301e; --warnbg:#33270f; --badbg:#361a1a;
+}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  padding:16px;padding-bottom:64px}
+.wrap{max-width:960px;margin:0 auto}
+h1{font-size:19px;margin:0 0 2px}
+.sub{color:var(--muted);font-size:13px;margin:0 0 18px}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  padding:14px 16px;margin-bottom:12px}
+h2{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);
+  margin:0 0 10px;font-weight:600}
+label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+input,select,textarea,button{font:inherit;color:var(--ink);background:var(--panel);
+  border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%}
+textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;resize:vertical}
+button{background:var(--accent);color:#fff;border:0;font-weight:600;cursor:pointer}
+button:disabled{opacity:.45;cursor:default}
+button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line);font-weight:500}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>*{flex:1;min-width:150px}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:26px 16px;text-align:center;
+  color:var(--muted);cursor:pointer}
+.drop.on{border-color:var(--accent);color:var(--accent)}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:10px}
+.bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s}
+.log{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted);
+  white-space:pre-wrap;margin-top:8px}
+.strip{display:flex;gap:5px;overflow-x:auto;margin-top:10px;padding-bottom:4px}
+.strip img{height:88px;border-radius:5px;border:1px solid var(--line);flex:none}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:600px}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+tr.ok td:nth-child(3){color:var(--ok)}
+tr.new{background:var(--warnbg)}
+.pill{font-size:11px;padding:2px 7px;border-radius:20px;font-weight:600;white-space:nowrap}
+.p-ok{background:var(--okbg);color:var(--ok)}
+.p-new{background:var(--warnbg);color:var(--warn)}
+.p-bad{background:var(--badbg);color:var(--bad)}
+td select{padding:4px 6px;font-size:12px;min-width:150px}
+.note{font-size:12px;color:var(--muted);margin-top:8px}
+.warnbox{background:var(--warnbg);color:var(--warn);border-radius:8px;padding:9px 12px;
+  font-size:13px;margin-top:10px}
+.okbox{background:var(--okbg);color:var(--ok);border-radius:8px;padding:9px 12px;
+  font-size:13px;margin-top:10px}
+details summary{cursor:pointer;font-size:13px;color:var(--muted)}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Kartz Extractor</h1>
+<p class="sub">Screen recording &rarr; paste-ready rows. Runs in the browser on any device. Your video never leaves the phone; only a handful of cropped frames go to the model.</p>
+
+<section>
+  <h2>1 &middot; Setup <span id="setupState" class="pill p-new">not configured</span></h2>
+  <div class="row">
+    <div>
+      <label for="provider">Model</label>
+      <select id="provider">
+        <option value="gemini">Google Gemini (fast, large free tier)</option>
+        <option value="claude">Anthropic Claude</option>
+      </select>
+    </div>
+    <div>
+      <label for="model">Model ID</label>
+      <input id="model" spellcheck="false">
+    </div>
+  </div>
+  <label for="key">API key <span id="keyHint"></span></label>
+  <input id="key" type="password" spellcheck="false" placeholder="stored only in this browser">
+  <label for="roster">Roster &mdash; paste from the InputRoster tab (search name, in-game name, alliance)</label>
+  <textarea id="roster" rows="4" spellcheck="false" placeholder="Kodiak&#9;Kodiak&#9;698N"></textarea>
+  <div class="row" style="margin-top:10px">
+    <button class="ghost" id="save">Save setup</button>
+    <button class="ghost" id="clear">Clear key</button>
+  </div>
+  <p class="note">The key is kept in this browser's local storage and sent straight to the model vendor. Nothing is stored on the site. Never commit a key into the repository.</p>
+</section>
+
+<section>
+  <h2>2 &middot; Recording</h2>
+  <div class="drop" id="drop">
+    <strong>Choose or drop the screen recording</strong><br>
+    <span id="fileName">on a phone this opens your camera roll</span>
+  </div>
+  <input id="file" type="file" accept="video/*" class="hide">
+  <div class="row" style="margin-top:12px">
+    <div>
+      <label for="datestr">Date String for the sheet</label>
+      <input id="datestr" placeholder="Aug26" spellcheck="false">
+    </div>
+    <div>
+      <label for="sens">Frames to send <span id="sensVal" class="note"></span></label>
+      <input id="sens" type="range" min="8" max="40" step="2" value="24">
+    </div>
+  </div>
+  <button id="go" style="margin-top:12px" disabled>Extract</button>
+  <div class="bar"><i id="prog"></i></div>
+  <div class="log" id="log"></div>
+  <div class="strip" id="strip"></div>
+</section>
+
+<section id="out" class="hide">
+  <h2>3 &middot; Results</h2>
+  <div id="verdict"></div>
+  <div class="tablewrap"><table id="tbl"></table></div>
+  <div class="row" style="margin-top:12px">
+    <button id="copy">Copy for sheet</button>
+    <button class="ghost" id="csv">Download CSV</button>
+    <button class="ghost" id="learn">Remember my fixes</button>
+  </div>
+  <p class="note">Anything you resolve by hand, then save with <em>Remember my fixes</em>, is matched automatically from the next run onward.</p>
+</section>
+
+<details style="margin-top:14px">
+  <summary>How it works &amp; costs</summary>
+  <p class="note">The browser decodes the video with a plain <code>&lt;video&gt;</code> element and samples frames onto a canvas, keeping only frames where the list actually moved &mdash; typically 15&ndash;30 frames from a 50-second recording, about 400&nbsp;KB total instead of a 250&nbsp;MB upload. Those frames go to a vision model that reads rank, name and points, and also writes each stylised name out in plain letters. That plain form is fuzzy-matched against your roster, so <code>&#x1D4DF;&#x1D4F8;&#x1D4F6;</code>-style tags resolve without anyone retyping them. Roughly a fifth of a cent per recording on Gemini Flash, and inside the free tier in normal use.</p>
+</details>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const DEFAULT_MODEL = { gemini: 'gemini-flash-latest', claude: 'claude-haiku-4-5-20251001' };
+const KEY_URL = {
+  gemini: '<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">get one free</a>',
+  claude: '<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>'
+};
+
+/* ---------------- persistence ---------------- */
+const store = {
+  get: k => { try { return JSON.parse(localStorage.getItem('kartz.' + k)); } catch { return null; } },
+  set: (k, v) => localStorage.setItem('kartz.' + k, JSON.stringify(v)),
+};
+
+function loadSetup() {
+  $('provider').value = store.get('provider') || 'gemini';
+  $('model').value    = store.get('model')    || DEFAULT_MODEL[$('provider').value];
+  $('key').value      = store.get('key')      || '';
+  $('roster').value   = store.get('rosterRaw')|| '';
+  $('datestr').value  = store.get('datestr')  || '';
+  syncHint(); refreshState();
+}
+function syncHint() { $('keyHint').innerHTML = '&mdash; ' + KEY_URL[$('provider').value]; }
+function refreshState() {
+  const ok = $('key').value.trim() && parseRoster($('roster').value).length;
+  $('setupState').className = 'pill ' + (ok ? 'p-ok' : 'p-new');
+  $('setupState').textContent = ok
+    ? parseRoster($('roster').value).length + ' roster names'
+    : 'not configured';
+  $('go').disabled = !(ok && videoFile);
+}
+$('provider').onchange = () => { $('model').value = DEFAULT_MODEL[$('provider').value]; syncHint(); };
+$('save').onclick = () => {
+  ['provider','model','key','datestr'].forEach(k => store.set(k, $(k === 'datestr' ? 'datestr' : k).value));
+  store.set('rosterRaw', $('roster').value);
+  refreshState(); log('setup saved');
+};
+$('clear').onclick = () => { $('key').value=''; store.set('key',''); refreshState(); };
+['key','roster'].forEach(k => $(k).addEventListener('input', refreshState));
+
+/* ---------------- roster + matching ---------------- */
+function parseRoster(text) {
+  return text.split(/\r?\n/).map(l => l.split(/\t|,/).map(s => s.trim()))
+             .filter(c => c[0]).map(c => ({ search: c[0], ingame: c[1] || c[0], alliance: c[2] || '' }))
+             .filter(r => !/^search\s*name/i.test(r.search));
+}
+// stylised-unicode tags collapse onto plain ascii; the model also gives us a plain
+// reading of its own, so this only has to catch what slips through.
+const FOLD = { 'Ꭱ':'R','Ꭲ':'T','Ꮮ':'L','Ꮯ':'C','Ꮋ':'H','Ꭺ':'A','Ꭼ':'E','Ꮲ':'P','Ꮪ':'S','Ꮶ':'K',
+  'Ꮇ':'M','Ꮃ':'W','Ꭰ':'D','Ꮖ':'I','Ꮷ':'J','Ø':'O','Ð':'D','Þ':'P','Ł':'L','ß':'B','€':'E',
+  'Δ':'A','Ć':'C','Ħ':'H','Ƥ':'P','Ñ':'N','Ɐ':'A' };
+function fold(s) {
+  if (!s) return '';
+  s = s.normalize('NFKD').split('').map(c => FOLD[c] || c).join('');
+  return s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+function sim(a, b) {                       // levenshtein similarity
+  if (a === b) return 1;
+  if (!a.length || !b.length) return 0;
+  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++)
+      cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+    prev = cur;
+  }
+  return 1 - prev[b.length] / Math.max(a.length, b.length);
+}
+const CONF = 0.82;
+function buildIndex(roster) {
+  const ix = [];
+  for (const r of roster) for (const v of new Set([fold(r.search), fold(r.ingame)]))
+    if (v) ix.push({ k: v, r });
+  return ix;
+}
+function resolve(name, plain, ix, aliases) {
+  for (const cand of [fold(name), fold(plain)]) {
+    if (!cand) continue;
+    if (aliases[cand]) {
+      const hit = ix.find(e => e.k === fold(aliases[cand]));
+      return hit ? { r: hit.r, score: 1 } : { r: { search: aliases[cand], ingame: aliases[cand], alliance: '' }, score: 1 };
+    }
+    const exact = ix.find(e => e.k === cand);
+    if (exact) return { r: exact.r, score: 1 };
+  }
+  let best = null, score = 0;
+  for (const cand of [fold(name), fold(plain)]) {
+    if (!cand) continue;
+    for (const e of ix) { const s = sim(cand, e.k); if (s > score) { score = s; best = e.r; } }
+  }
+  return score >= CONF ? { r: best, score } : { r: null, score, near: best };
+}
+
+/* ---------------- frame extraction ---------------- */
+let videoFile = null;
+const log = m => { $('log').textContent = m; };
+const setProg = p => { $('prog').style.width = (p * 100) + '%'; };
+
+$('drop').onclick = () => $('file').click();
+$('file').onchange = e => pickFile(e.target.files[0]);
+['dragover','dragenter'].forEach(ev => $('drop').addEventListener(ev, e => {
+  e.preventDefault(); $('drop').classList.add('on'); }));
+['dragleave','drop'].forEach(ev => $('drop').addEventListener(ev, e => {
+  e.preventDefault(); $('drop').classList.remove('on'); }));
+$('drop').addEventListener('drop', e => pickFile(e.dataTransfer.files[0]));
+function pickFile(f) {
+  if (!f) return;
+  videoFile = f;
+  $('fileName').textContent = f.name + '  ·  ' + (f.size / 1e6).toFixed(0) + ' MB';
+  refreshState();
+}
+$('sens').oninput = () => { $('sensVal').textContent = $('sens').value + ' — more is safer, and costs more'; };
+$('sens').oninput();
+
+const once = (el, ev) => new Promise(res => el.addEventListener(ev, res, { once: true }));
+
+// A leaderboard of near-identical cards defeats any whole-frame difference metric —
+// scrolled or not, the picture looks about the same. So instead measure how far the
+// list has actually travelled: reduce each frame to a vertical brightness profile of
+// the text column, then slide consecutive profiles against each other to recover the
+// scroll offset in pixels. Keep a frame each time the list has moved far enough that
+// the next screenful still overlaps the last kept one by roughly a third.
+const TOP_MASK = 0.10, BOT_MASK = 0.84;   // ignore the fixed title bar and the pinned own-rank card
+
+// How much the list moved between two frames. Deliberately only a *rate* of change,
+// never a displacement: the leaderboard is a run of near-identical cards, so matching
+// one frame against another is genuinely ambiguous — several offsets, one card pitch
+// apart, fit equally well. Measuring "is it moving" instead of "how far" sidesteps that
+// entirely, and integrating it over the recording is all the pacing we actually need.
+const MW = 96, MH = 96;
+function motionGrid(cx, W, H) {
+  const yA = Math.round(H * TOP_MASK), yB = Math.round(H * BOT_MASK);
+  const tmp = motionGrid.cv || (motionGrid.cv =
+    Object.assign(document.createElement('canvas'), { width: MW, height: MH }));
+  const tc = motionGrid.cx || (motionGrid.cx = tmp.getContext('2d', { willReadFrequently: true }));
+  tc.drawImage(cx.canvas, 0, yA, W, yB - yA, 0, 0, MW, MH);
+  const d = tc.getImageData(0, 0, MW, MH).data;
+  const g = new Float32Array(MW * MH);
+  for (let i = 0; i < g.length; i++)
+    g[i] = (d[i*4] * .299 + d[i*4+1] * .587 + d[i*4+2] * .114) / 255;
+  return g;
+}
+const gridDiff = (a, b) => {
+  let s = 0; for (let i = 0; i < a.length; i++) s += Math.abs(a[i] - b[i]);
+  return s / a.length;
+};
+
+async function openVideo(file) {
+  const video = document.createElement('video');
+  video.preload = 'auto'; video.muted = true; video.playsInline = true;
+  video.src = URL.createObjectURL(file);
+  await once(video, 'loadedmetadata');
+  // iOS refuses to paint into a canvas until the pipeline has decoded at least once
+  try { await video.play(); video.pause(); } catch {}
+  return video;
+}
+const seek = async (video, t) => {
+  video.currentTime = t;
+  await Promise.race([once(video, 'seeked'), new Promise(r => setTimeout(r, 1500))]);
+};
+
+// Two passes. The first is cheap — no JPEG encoding — and just builds a motion profile,
+// which tells us how this particular recording was scrolled. The second spends the frame
+// budget evenly across accumulated motion, so a slow careful scroll and a fast flick both
+// come out with the same coverage and the same cost.
+async function extractFrames(file, budget, onProg) {
+  const video = await openVideo(file);
+  const dur = video.duration;
+  const W = 560, H = Math.round(W * video.videoHeight / video.videoWidth);
+  const cv = Object.assign(document.createElement('canvas'), { width: W, height: H });
+  const cx = cv.getContext('2d', { willReadFrequently: true });
+  const step = 0.25;
+
+  const times = [], motion = [];
+  let prev = null, total = 0;
+  for (let t = 0; t < dur; t += step) {
+    await seek(video, Math.min(t, dur - 0.05));
+    cx.drawImage(video, 0, 0, W, H);
+    const g = motionGrid(cx, W, H);
+    const d = prev ? gridDiff(prev, g) : 0;
+    prev = g; total += d;
+    times.push(t); motion.push(total);
+    onProg(0.6 * t / dur, 0);
+  }
+
+  // pick timestamps at equal increments of accumulated motion
+  const picks = [times[0]];
+  if (total > 1e-6) {
+    const gap = total / (budget - 1);
+    let want = gap;
+    for (let i = 1; i < times.length; i++)
+      if (motion[i] >= want && picks.length < budget - 1) { picks.push(times[i]); want = motion[i] + gap; }
+  }
+  const last = times[times.length - 1];
+  if (picks[picks.length - 1] !== last) picks.push(last);
+
+  const frames = [];
+  for (let i = 0; i < picks.length; i++) {
+    await seek(video, Math.min(picks[i], dur - 0.05));
+    cx.drawImage(video, 0, 0, W, H);
+    frames.push(cv.toDataURL('image/jpeg', 0.62).split(',')[1]);
+    onProg(0.6 + 0.4 * (i + 1) / picks.length, frames.length);
+  }
+  URL.revokeObjectURL(video.src);
+  return frames;
+}
+
+/* ---------------- vision model ---------------- */
+const PROMPT = `These are frames from a screen recording of a mobile game leaderboard called "Ranking".
+Each visible row has: a rank number (or a gold/silver/bronze medal for ranks 1, 2 and 3),
+a player name, and a line reading "Contribution (Pt): <number>".
+
+Return every row you can read across ALL the images, as a single JSON array. One object per row:
+{"rank": <int or null>, "name": "<name exactly as shown>", "plain": "<the same name written in plain A-Z letters and digits only>", "points": <int>}
+
+Rules:
+- Names are often stylised unicode. "name" keeps them verbatim; "plain" is the ordinary-letter reading a person would say out loud. For example a name drawn in mathematical or Cherokee-lookalike glyphs reading PEACH gives plain "PEACH".
+- For ranks 1-3 the number is a medal graphic; infer 1, 2 or 3 from the medal colour (gold, silver, bronze).
+- Ignore the highlighted card pinned at the very bottom of the screen; it repeats the viewer's own row.
+- The same player appears in several frames. List every sighting; do not deduplicate.
+- If a row is cut off at the top or bottom edge and you cannot read it fully, skip it.
+- Output raw JSON only. No markdown fence, no commentary.`;
+
+async function callModel(frames) {
+  const provider = $('provider').value, model = $('model').value.trim(), key = $('key').value.trim();
+  const BATCH = 8, all = [];
+  for (let i = 0; i < frames.length; i += BATCH) {
+    const batch = frames.slice(i, i + BATCH);
+    log(`reading frames ${i + 1}–${i + batch.length} of ${frames.length}…`);
+    all.push(...await (provider === 'gemini' ? callGemini : callClaude)(batch, model, key));
+    setProg((i + batch.length) / frames.length);
+  }
+  return all;
+}
+function parseJSON(text) {
+  const m = text.match(/\[[\s\S]*\]/);
+  if (!m) throw new Error('model did not return JSON:\n' + text.slice(0, 300));
+  return JSON.parse(m[0]);
+}
+async function callGemini(batch, model, key) {
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [
+        ...batch.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d } })),
+        { text: PROMPT }] }],
+      generationConfig: { temperature: 0, maxOutputTokens: 8192 }
+    })
+  });
+  if (!r.ok) throw new Error('Gemini ' + r.status + ': ' + (await r.text()).slice(0, 300));
+  const j = await r.json();
+  return parseJSON(j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '');
+}
+async function callClaude(batch, model, key) {
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-api-key': key,
+               'anthropic-version': '2023-06-01',
+               'anthropic-dangerous-direct-browser-access': 'true' },
+    body: JSON.stringify({
+      model, max_tokens: 8192, temperature: 0,
+      messages: [{ role: 'user', content: [
+        ...batch.map(d => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: d } })),
+        { type: 'text', text: PROMPT }] }]
+    })
+  });
+  if (!r.ok) throw new Error('Claude ' + r.status + ': ' + (await r.text()).slice(0, 300));
+  const j = await r.json();
+  return parseJSON(j.content?.map(c => c.text || '').join('') || '');
+}
+
+/* ---------------- consolidate ---------------- */
+// a player's score holds steady across frames; their name does not. so sightings that
+// share a score and read similarly are the same person, however badly the tag rendered.
+function consolidate(sightings, frameCount) {
+  const groups = new Map();
+  for (const s of sightings) {
+    if (!s || typeof s.points !== 'number') continue;
+    const k = fold(s.plain || s.name);
+    if (!k) continue;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(s);
+  }
+  const clusters = [];
+  for (const [k, g] of [...groups].sort((a, b) => b[1].length - a[1].length)) {
+    const pts = mode(g.map(x => x.points));
+    const hit = clusters.find(c => c.points === pts && sim(k, c.key) >= 0.55);
+    if (hit) hit.all.push(...g); else clusters.push({ key: k, points: pts, all: [...g] });
+  }
+  // With 200 frames a lone sighting is usually motion blur; with 20 it is the top of
+  // the list, seen once before the scroll began. Scale the floor to the evidence.
+  const floor = frameCount >= 25 ? 2 : 1;
+  return clusters.filter(c => c.all.length >= floor).map(c => ({
+    points: c.points,
+    name:   mode(c.all.map(x => x.name)),
+    plain:  mode(c.all.map(x => x.plain || x.name)),
+    rank:   mode(c.all.map(x => x.rank).filter(r => typeof r === 'number' && r > 0)),
+    seenRank: Math.max(0, ...c.all.map(x => x.rank).filter(r => typeof r === 'number' && r > 0)),
+    seen:   c.all.length,
+  })).sort((a, b) => b.points - a.points || (a.rank || 999) - (b.rank || 999));
+}
+const mode = arr => {
+  const c = new Map(); let best = null, n = 0;
+  for (const v of arr) { const k = c.get(v) || 0; c.set(v, k + 1); if (k + 1 > n) { n = k + 1; best = v; } }
+  return best;
+};
+
+/* ---------------- run ---------------- */
+let rows = [], index = [], aliases = {};
+$('go').onclick = async () => {
+  $('go').disabled = true; $('out').classList.add('hide');
+  try {
+    const roster = parseRoster($('roster').value);
+    index = buildIndex(roster);
+    aliases = store.get('aliases') || {};
+
+    log('decoding video…'); setProg(0);
+    const frames = await extractFrames(videoFile, +$('sens').value,
+      (p, n) => { setProg(p * 0.5); log(`sampling video — ${n} frames kept`); });
+    if (!frames.length) throw new Error('no frames captured');
+    $('strip').innerHTML = frames.slice(0, 24)
+      .map(f => `<img src="data:image/jpeg;base64,${f}">`).join('');
+    log(`${frames.length} frames (${(frames.join('').length * 0.75 / 1024 | 0)} KB) — sending…`);
+
+    const sightings = await callModel(frames);
+    rows = consolidate(sightings, frames.length).map(r => {
+      const m = resolve(r.name, r.plain, index, aliases);
+      return { ...r, match: m.r, score: m.score, near: m.near, pick: m.r ? m.r.search : '' };
+    });
+    rows.forEach((r, i) => { if (!r.rank || r.rank !== i + 1) r.rank = i + 1; });
+    render(roster);
+    log(`done — ${sightings.length} sightings → ${rows.length} players`);
+    setProg(1);
+  } catch (e) {
+    log('✗ ' + e.message);
+  }
+  $('go').disabled = false;
+};
+
+function render(roster) {
+  const need = rows.filter(r => !r.match).length;
+  const thin = rows.filter(r => r.seen < 2).length;
+  // The model reports the rank it saw; we renumber by score. Where the two disagree,
+  // a row between them was probably never captured — worth saying out loud, because a
+  // silently short list is the one failure the sheet cannot catch downstream.
+  const seenRanks = rows.map(r => r.seenRank).filter(n => typeof n === 'number' && n > 0);
+  const top = Math.max(0, ...seenRanks);
+  const gap = top > rows.length;
+  $('verdict').innerHTML =
+    `<div class="${need || gap ? 'warnbox' : 'okbox'}">${rows.length} players &middot; `
+    + `${rows.length - need} matched to the roster`
+    + (need ? ` &middot; <strong>${need} to confirm below</strong>` : '')
+    + (thin ? ` &middot; ${thin} seen only once` : '') + `</div>`
+    + (gap ? `<div class="warnbox">The game showed a rank as high as ${top} but only `
+        + `${rows.length} rows came through — ${top - rows.length} row(s) were probably `
+        + `never captured. Raise <em>Frames to send</em> and run it again.</div>` : '');
+  const opts = ['<option value="">— new player —</option>',
+                '<option value="\u0000drop">— not a real row, discard —</option>']
+    .concat(roster.map(r => `<option value="${esc(r.search)}">${esc(r.search)}</option>`)).join('');
+  $('tbl').innerHTML =
+    '<thead><tr><th>#</th><th>Name in video</th><th>Sheet name</th><th>Alliance</th>'
+    + '<th>Points</th><th>Frames</th><th></th></tr></thead><tbody>'
+    + rows.map((r, i) => `<tr class="${r.match ? 'ok' : 'new'}">
+        <td>${r.rank}</td>
+        <td>${esc(r.name)}</td>
+        <td>${r.match ? esc(r.match.search)
+              : `<select data-i="${i}">${opts.replace(`value="${esc(r.near ? r.near.search : '')}"`,
+                   `value="${esc(r.near ? r.near.search : '')}" selected`)}</select>`}</td>
+        <td>${esc(r.match ? r.match.alliance : '')}</td>
+        <td>${r.points}</td>
+        <td>${r.seen}</td>
+        <td>${r.match ? `<span class="pill p-ok">${r.score === 1 ? 'exact' : (r.score*100|0)+'%'}</span>`
+                      : '<span class="pill p-new">confirm</span>'}</td>
+      </tr>`).join('') + '</tbody>';
+  $('tbl').querySelectorAll('select').forEach(sel => sel.onchange = () => {
+    rows[+sel.dataset.i].pick = sel.value;
+    sel.closest('tr').style.opacity = sel.value === '\u0000drop' ? .4 : 1; });
+  $('out').classList.remove('hide');
+}
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+/* ---------------- output ---------------- */
+const outRows = () => rows.filter(r => r.pick !== '\u0000drop')
+  .map((r, i) => [$('datestr').value || '', i + 1, r.pick || r.name, r.points]);
+$('copy').onclick = async () => {
+  const tsv = outRows().map(r => r.join('\t')).join('\n');
+  try { await navigator.clipboard.writeText(tsv); log('copied — paste into the sheet'); }
+  catch { prompt('Copy these rows:', tsv); }
+};
+$('csv').onclick = () => {
+  const csv = 'Date String,Rank,Search Name,Points\n'
+    + outRows().map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+    download: `kartz-${$('datestr').value || 'export'}.csv` });
+  a.click(); URL.revokeObjectURL(a.href);
+};
+$('learn').onclick = () => {
+  const a = store.get('aliases') || {};
+  let n = 0;
+  for (const r of rows)
+    if (!r.match && r.pick && r.pick !== '\u0000drop') { a[fold(r.plain || r.name)] = r.pick; n++; }
+  store.set('aliases', a);
+  log(n ? `remembered ${n} name${n>1?'s':''} — they will match automatically next time`
+        : 'nothing new to remember');
+};
+
+
+loadSetup();
+</script>
+</body>
+</html>
