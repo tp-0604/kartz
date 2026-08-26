@@ -280,35 +280,44 @@ time instead of in parallel, and a 429 there is waited out using the server's ow
 Use it if you like the model or Gemini is down. For twelve runs in one sitting, Gemini is
 roughly twenty times quicker.
 
-### Cloudflare Workers AI
+### Cloudflare Workers AI — measured, and not recommended for this
 
-Reachable, but only through your own Worker — never from the page. Its REST API answers a
-CORS preflight with **405** and sets no allow-origin header on the response either, so a
-static site cannot call it however the request is shaped. That is the same wall GitHub
-Models hits.
+Reachable only through the Worker: the REST API answers a CORS preflight with 405 and sends
+no allow-origin header, so a page cannot call it however the request is shaped. Through the
+Worker it does work, and Llama 4 Scout does accept images.
 
-Since the Worker exists anyway to hold the Gemini key, running Cloudflare's models there
-costs almost nothing extra: `wrangler.toml` gains an `[ai]` binding, and the Worker
-translates the page's Gemini-shaped request into the messages format Workers AI wants and
-wraps the reply back. The page needs no new dialect, and no token reaches the browser at
-all — the binding is ambient inside the Worker.
+It reads the *numbers* perfectly — every rank and score matched what Gemini produced. Names
+are the problem, and on a 153-player list they are the problem badly:
 
-Pick **Cloudflare Workers AI (via your Worker)**, point it at the Worker URL, and enter the
-shared phrase. Deploy with the `[ai]` block present:
+| | players found | matched to roster |
+|---|---|---|
+| Gemini | 147 | 134 (**91%**) |
+| Llama 4 Scout | 158 | 129 (82%) |
 
-```toml
-[ai]
-binding = "AI"
-```
+Finding 158 players in a list of 153 is itself the symptom: a name read differently in two
+frames becomes two rows. Mid-list it is respectable — 89 to 96% on a sample of eight frames —
+but the stylised names at the top defeat it, and those are the ranks people look at.
 
-Free allowance is 10,000 neurons a day.
+One setting matters a great deal if you use it. Measured on the same eight frames:
 
-**Unverified.** I have no Cloudflare account, so this path is tested only against a stand-in
-binding: routing, translation, the reply shape, and every access check pass, and the page
-drives it end to end. What I could not check is whether Cloudflare's deployment of Llama 4
-Scout accepts images at all — the model is multimodal in principle, but a provider can serve
-a text-only build — nor how many runs 10,000 neurons buys, nor how well it reads stylised
-names. Try one recording against a sheet you trust before relying on it.
+| frames per call | rows read per frame |
+|---|---|
+| 8 | 3.5 |
+| 4 | 4.1 |
+| **2** | **5.8** |
+| 1 | 6.0 |
+
+Given eight images at once the model stops reading partway through, and the rows it skips are
+exactly what the majority vote needs. Two per call is now the default for this provider, and
+it lifted a full run from 203 sightings to 310, with players-seen-only-once falling from 139
+to 38. It did not rescue the match rate, because more readings of a name do not help when the
+readings disagree with each other rather than converging.
+
+There is no fallback model configured: `llama-3.2-11b-vision-instruct` refuses every request
+until Meta's terms are accepted by hand in the Cloudflare dashboard.
+
+Use it if you want everything on one Cloudflare account with no keys anywhere, and you are
+willing to confirm more names by hand. For accuracy, use Gemini.
 
 | provider | free vision | notes |
 |---|---|---|

@@ -202,11 +202,22 @@ const PROVIDERS = {
   cfai:       { label: 'Cloudflare Workers AI', api: 'proxy', base: '/api',
                 model: '@cf/meta/llama-4-scout-17b-16e-instruct',
                 keys: '', free: '10k neurons/day, no key in the browser',
+                // Two frames a call, not the eight Gemini takes. Measured on the same eight
+                // mid-list frames: at eight per call this model returned 3.5 rows per frame,
+                // at two it returned 5.8 — it simply stops reading partway through a long
+                // batch. Those missing rows are what starve the majority vote that decides
+                // names, so the fix shows up as better names, not just more rows.
+                batch: 2,
+                // and it rate-limits when several calls land at once
+                paced: true,
                 // Workers AI cannot be called from the page — its REST API answers a CORS
                 // preflight with 405 and sends no allow-origin header — so it goes through
-                // the same Worker that holds the Gemini key. The Worker needs an [ai]
-                // binding; see wrangler.toml.
-                fallbacks: ['@cf/meta/llama-3.2-11b-vision-instruct'] },
+                // the Worker; see wrangler.toml for the [ai] binding.
+                //
+                // No fallback listed. The obvious candidate, llama-3.2-11b-vision-instruct,
+                // refuses every request until Meta's terms are accepted by hand in the
+                // dashboard, so listing it only spends a call to earn a 502.
+                fallbacks: [] },
   custom:     { label: 'Other OpenAI-compatible', api: 'openai', base: '', model: '',
                 keys: '', free: 'whatever your endpoint allows' },
 };
