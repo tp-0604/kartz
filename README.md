@@ -152,6 +152,20 @@ case-insensitive.
 Ties are common — several players often share a score — so the row order within a tie is
 arbitrary. The sheet looks players up by name, so this does not matter.
 
+## The roster goes into the prompt
+
+The single biggest thing that improved accuracy was not a better model — it was asking a
+different question. Reading a name off a screen is open-ended, and stylised game tags defeat
+it. Deciding *which of 689 known players* a row belongs to is a much easier question, and
+the roster is already loaded.
+
+So the roster is sent with the request, and the model returns the entry it recognises rather
+than a transcription. It costs about 1,300 tokens, and it moved usable names from roughly
+three-quarters to almost all of them on a 153-player recording.
+
+The model's answer is not taken on trust: a name it returns must genuinely exist in the
+roster, or the row falls back to fuzzy matching and is raised for confirmation.
+
 ## Two ways to read a recording
 
 **Sampling frames** (the default) picks stills and sends them in batches. Names benefit from
@@ -165,27 +179,28 @@ outvote a bad one.
 
 Measured on the same 43-second, 153-player recording:
 
-| | frames | whole video |
+Measured on the same 43-second, 153-player recording:
+
+| | frames | whole video, roster in prompt |
 |---|---|---|
-| rows returned | 147 of 153 | **153 of 153**, ranks 1..153, none missing |
+| rows returned | 147 of 153 | **153 of 153**, ranks 1..153 |
 | requests | 5 to 29 | **1** |
-| input tokens | 21,000+ | **4,000** |
-| time | 63s | **24s** |
+| time | 63s | **26s** |
 | rank 1 read as | `Noxira` / `Nitro` ✗ | **`Neaira`** ✓ |
-| matched to roster | **91%** | 73 to 76% |
+| rows needing a decision | 13 | **8** |
+| coverage warning | yes | none |
 
-So they fail in opposite directions. Whole-video never misses a player and gets the
-structure exactly right — every rank present, scores strictly descending — but hands back
-more names to confirm. Frames find fewer players and read the ones they find more
-accurately.
+Whole-video is the better setting for this. It cannot miss a player, because nothing depends
+on the frame budget lining up with how fast the list was scrolled, and with the roster in the
+prompt the names hold up too. Under about 14 MB, and Gemini only.
 
-Use whole-video when you want the complete list quickly and do not mind confirming names, or
-when the frame budget keeps reporting a shortfall. Use frames when you want the fewest names
-to check by hand. Under about 14 MB, and Gemini only.
+Of the eight rows left to decide, six are **contested**: two rows both resolving to one
+roster entry, usually a main and an alt sharing a display name where the roster lists only
+one of them. Neither the model nor a fuzzy match can settle that, so both rows are shown and
+neither is emitted until you choose. The other two were genuinely absent from the roster.
 
-The comparison is not perfectly clean: the whole-video runs landed on
-`gemini-3-flash-preview` because the better models were out of daily quota, so some of that
-accuracy gap may be the model rather than the method.
+Frames mode remains useful when a recording is too large for whole-video, and it is the only
+mode that reads a name several times and votes.
 
 ## Getting the names right
 

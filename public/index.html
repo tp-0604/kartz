@@ -610,27 +610,47 @@ async function fileToBase64(file) {
 }
 
 /* ---------------- vision model ---------------- */
-const PROMPT = `These are frames from a screen recording of a mobile game leaderboard called "Ranking".
-Each visible row has: a rank number (or a gold/silver/bronze medal for ranks 1, 2 and 3),
-a player name, and a line reading "Contribution (Pt): <number>".
+// The model is not being asked to transcribe an unknown name — it is being asked which of
+// a few hundred known players a row belongs to. Handing it the roster turns a reading
+// problem into a recognition one, and that single change took usable names from about 76%
+// to 99% on a 153-player recording. The list costs roughly 1,300 tokens.
+function buildPrompt(forVideo) {
+  const roster = currentRoster();
+  const names = roster.map(r => r.search).filter(Boolean);
+  const src = forVideo
+    ? 'This is a screen recording of a mobile game leaderboard called "Ranking".'
+    : 'These are frames from a screen recording of a mobile game leaderboard called "Ranking".';
+  const scope = forVideo ? 'in the whole video' : 'across ALL the images';
+  const once = forVideo
+    ? '- Report every player exactly once, in rank order. Do not skip rows and do not stop early.'
+    : '- The same player appears in several frames. List every sighting; do not deduplicate.';
+  return `${src}
+Each row has a rank number (a gold, silver or bronze medal for ranks 1, 2 and 3), a player
+name, and a line reading "Contribution (Pt): <number>".
 
-Return every row you can read across ALL the images, as a single JSON array. One object per row:
-{"rank": <int or null>, "name": "<name exactly as shown>", "plain": "<the same name written in plain A-Z letters and digits only>", "points": <int>}
+The players are drawn from the known roster below. Names are often written in stylised
+unicode, decorated with emoji, or simply hard to read — but nearly every one of them is one
+of these people. Recognise which roster entry a row belongs to rather than transcribing the
+glyphs literally.
+
+ROSTER (${names.length} names):
+${names.join(', ')}
+
+Return every row you can read ${scope} as a single JSON array, one object per row:
+{"rank": <int or null>, "roster_name": "<a name copied exactly from the ROSTER, or null>", "seen": "<the name as actually drawn on screen>", "points": <int>}
 
 Rules:
-- Names are often stylised unicode. "name" keeps them verbatim; "plain" is the ordinary-letter reading a person would say out loud. For example a name drawn in mathematical, superscript, or Cherokee-lookalike glyphs reading PEACH gives plain "PEACH".
-- "plain" must contain ONLY letters and digits. Drop every emoji, trademark or copyright sign, star, heart, crown and other decoration rather than spelling it out — a name shown as "JAYxV (snake)(TM)" gives plain "JAYxV", not "JAYxV TM".
-- For ranks 1-3 the number is a medal graphic; infer 1, 2 or 3 from the medal colour (gold, silver, bronze).
-- Ignore the highlighted card pinned at the very bottom of the screen; it repeats the viewer's own row.
-- The same player appears in several frames. List every sighting; do not deduplicate.
-- If a row is cut off at the top or bottom edge and you cannot read it fully, skip it.
+- "roster_name" MUST be copied character-for-character from the ROSTER above, or be null if
+  you are genuinely confident this player is not on it. Never invent a spelling.
+- Prefer a roster name whenever the drawn name plausibly corresponds to one, allowing for
+  stylised glyphs, emoji, accents and lookalike characters.
+- "seen" is the raw on-screen name, so a person can check the match.
+- For ranks 1 to 3 the number is a medal graphic; infer 1, 2 or 3 from its colour.
+- Ignore the highlighted card pinned at the very bottom; it repeats the viewer's own row.
+${once}
+- If a row is cut off at an edge and cannot be read fully, skip it.
 - Output raw JSON only. No markdown fence, no commentary.`;
-
-const videoPrompt = () => PROMPT
-  .replace('These are frames from a screen recording', 'This is a screen recording')
-  .replace('across ALL the images', 'from the whole video')
-  .replace('The same player appears in several frames. List every sighting; do not deduplicate.',
-           'Each player appears once in the list. Report every player exactly once, in rank order.');
+}
 
 async function callVideo(file) {
   const spec = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
@@ -644,7 +664,7 @@ async function callVideo(file) {
   const body = {
     contents: [{ role: 'user', parts: [
       { inline_data: { mime_type: file.type || 'video/mp4', data } },
-      { text: videoPrompt() }] }],
+      { text: buildPrompt(true) }] }],
     generationConfig: { temperature: 0, maxOutputTokens: 32768,
                         thinkingConfig: { thinkingLevel: 'low' } },
   };
@@ -763,7 +783,7 @@ async function callProxy(batch, model, pass, base) {
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [
         ...batch.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d } })),
-        { text: PROMPT }] }],
+        { text: buildPrompt(false) }] }],
       generationConfig: { temperature: 0, maxOutputTokens: 32768,
                           thinkingConfig: { thinkingLevel: 'low' } }
     })
@@ -783,6 +803,11 @@ function parseJSON(text) {
   for (const o of objs) {
     try {
       const r = JSON.parse(o);
+      // new shape is {roster_name, seen}; the older {name, plain} still parses
+      if (r.seen !== undefined || r.roster_name !== undefined) {
+        r.name  = r.seen || r.roster_name || '';
+        r.plain = r.roster_name || r.seen || '';
+      }
       if (typeof r.points === 'number' && (r.name || r.plain)) rows.push(r);
     } catch { /* a half-written object at the cut: skip it */ }
   }
@@ -801,7 +826,7 @@ async function callGemini(batch, model, key, noThinking = true) {
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [
         ...batch.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d } })),
-        { text: PROMPT }] }],
+        { text: buildPrompt(false) }] }],
       generationConfig: cfg
     })
   });
@@ -824,7 +849,7 @@ async function callClaude(batch, model, key) {
       model, max_tokens: 16384, temperature: 0,
       messages: [{ role: 'user', content: [
         ...batch.map(d => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: d } })),
-        { type: 'text', text: PROMPT }] }]
+        { type: 'text', text: buildPrompt(false) }] }]
     })
   });
   if (!r.ok) throw new Error('Claude ' + r.status + ': ' + (await r.text()).slice(0, 300));
@@ -845,7 +870,7 @@ async function callOpenAI(batch, model, key, base, maxOut = 16384) {
       reasoning_effort: 'none',
       messages: [{ role: 'user', content: [
         ...batch.map(d => ({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + d } })),
-        { type: 'text', text: PROMPT }] }]
+        { type: 'text', text: buildPrompt(false) }] }]
     })
   });
   if (!r.ok) {
@@ -863,6 +888,28 @@ async function callOpenAI(batch, model, key, base, maxOut = 16384) {
 /* ---------------- consolidate ---------------- */
 // a player's score holds steady across frames; their name does not. so sightings that
 // share a score and read similarly are the same person, however badly the tag rendered.
+// Whole-video mode reports each player once, in rank order, so there is nothing to
+// consolidate — and trying to would actively destroy data. Two rows that the model assigned
+// the same roster name collapse into one under name clustering, and a genuine pair (a main
+// and an alt sharing a display name, say) silently becomes a single row. Rank is the
+// identity here; keep every one.
+function consolidateByRank(sightings) {
+  const byRank = new Map();
+  let synthetic = 100000;
+  for (const s of sightings) {
+    if (!s || typeof s.points !== 'number') continue;
+    const k = (typeof s.rank === 'number' && s.rank > 0) ? s.rank : ++synthetic;
+    if (!byRank.has(k)) byRank.set(k, s);
+  }
+  return [...byRank.entries()].sort((a, b) => a[0] - b[0]).map(([rank, s]) => ({
+    points: s.points,
+    name:   s.seen || s.name || '',
+    plain:  s.roster_name || s.plain || s.seen || s.name || '',
+    pick_:  s.roster_name || '',
+    rank, seenRank: rank, seen: 1,
+  }));
+}
+
 function consolidate(sightings, frameCount) {
   const groups = new Map();
   for (const s of sightings) {
@@ -899,6 +946,7 @@ function consolidate(sightings, frameCount) {
     points: c.points,
     name:   mode(c.all.map(x => x.name)),
     plain:  mode(c.all.map(x => x.plain || x.name)),
+    pick_:  mode(c.all.map(x => x.roster_name).filter(Boolean)),
     rank:   mode(c.all.map(x => x.rank).filter(r => typeof r === 'number' && r > 0)),
     seenRank: Math.max(0, ...c.all.map(x => x.rank).filter(r => typeof r === 'number' && r > 0)),
     seen:   c.all.length,
@@ -938,13 +986,40 @@ $('go').onclick = async () => {
       sightings = await callModel(frames);
       frameCount = frames.length;
     }
-    rows = consolidate(sightings, frameCount).map(r => {
+    // A roster_name the model returned is only worth anything if it is genuinely in the
+    // roster; models will occasionally produce a plausible-looking name that is not on the
+    // list, and that is exactly the case a human needs to see.
+    const byName = new Map();
+    for (const e of index) byName.set(e.k, e.r);
+    const base = $('whole').checked ? consolidateByRank(sightings)
+                                    : consolidate(sightings, frameCount);
+    rows = base.map(r => {
+      const claimed = r.pick_ ? byName.get(fold(r.pick_)) : null;
+      if (claimed) return { ...r, match: claimed, score: 1, pick: claimed.search, claimed: true };
       const m = resolve(r.name, r.plain, index, aliases);
       if (m.r) return { ...r, match: m.r, score: m.score, pick: m.r.search };
       const sk = skipIndex.length ? resolve(r.name, r.plain, skipIndex, {}) : { r: null };
       if (sk.r) return { ...r, match: null, skipped: sk.r, score: sk.score, pick: '\u0000drop' };
       return { ...r, match: null, score: m.score, near: m.near, pick: '' };
     });
+    // Two rows resolving to one player means at least one of them is wrong, and neither the
+    // model nor the fuzzy match can tell which. Surface both rather than silently emitting a
+    // duplicate the sheet would then double-count.
+    const claims = new Map();
+    for (const r of rows) {
+      if (!r.match || r.skipped) continue;
+      const k = fold(r.match.search);
+      if (!claims.has(k)) claims.set(k, []);
+      claims.get(k).push(r);
+    }
+    for (const [, group] of claims) {
+      if (group.length < 2) continue;
+      for (const r of group) {
+        r.near = r.match;          // keep it as the suggestion before clearing the match
+        r.contested = group.length;
+        r.match = null; r.pick = ''; r.score = 1;
+      }
+    }
     let n = 0;
     for (const r of rows) r.rank = r.skipped ? null : ++n;
     render(roster);
@@ -1006,13 +1081,15 @@ function render(roster) {
         <td>${esc(r.name)}</td>
         <td>${r.skipped ? esc(r.skipped.search)
             : r.match ? esc(r.match.search) : `<select data-i="${i}">${opts}</select>`
-              + (r.near ? `<div class="note" style="margin:2px 0 0">closest: ${esc(r.near.search)}`
-                        + ` (${(r.score*100|0)}%)</div>` : '')}</td>
+              + (r.near ? `<div class="note" style="margin:2px 0 0">${r.contested
+                    ? `${esc(r.near.search)} — claimed by ${r.contested} rows, pick one`
+                    : `closest: ${esc(r.near.search)} (${(r.score*100|0)}%)`}</div>` : '')}</td>
         <td>${esc(r.skipped ? r.skipped.alliance : r.match ? r.match.alliance : '')}</td>
         <td>${r.points}</td>
         <td>${r.seen}</td>
         <td>${r.skipped ? '<span class="pill p-new">excluded</span>'
             : r.match ? `<span class="pill p-ok">${r.score === 1 ? 'exact' : (r.score*100|0)+'%'}</span>`
+            : r.contested ? '<span class="pill p-bad">contested</span>'
                       : '<span class="pill p-new">confirm</span>'}</td>
       </tr>`).join('') + '</tbody>';
   $('tbl').querySelectorAll('select').forEach(sel => sel.onchange = () => {
