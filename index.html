@@ -83,18 +83,25 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
     </div>
   </div>
   <div id="baseWrap" class="hide">
-    <label for="base">Endpoint base URL</label>
+    <label for="base"><span id="baseLabel">Endpoint base URL</span></label>
     <input id="base" spellcheck="false" placeholder="https://openrouter.ai/api/v1">
   </div>
-  <label for="key">API key <span id="keyHint"></span></label>
+  <label for="key"><span id="keyLabel">API key</span> <span id="keyHint"></span></label>
   <input id="key" type="password" spellcheck="false" placeholder="stored only in this browser">
-  <label for="roster">Roster &mdash; paste from the InputRoster tab (search name, in-game name, alliance)</label>
-  <textarea id="roster" rows="4" spellcheck="false" placeholder="Kodiak&#9;Kodiak&#9;698N"></textarea>
+  <label for="sheet">Roster sheet &mdash; link to the Alliance Rosters tab</label>
+  <div class="row" style="flex-wrap:nowrap">
+    <input id="sheet" spellcheck="false" placeholder="https://docs.google.com/spreadsheets/d/…">
+    <button class="ghost" id="pull" style="flex:0 0 auto;min-width:110px;width:auto">Pull roster</button>
+  </div>
+  <details style="margin-top:8px">
+    <summary>or paste it by hand</summary>
+    <textarea id="roster" rows="4" spellcheck="false" placeholder="Kodiak&#9;Kodiak&#9;698N"></textarea>
+  </details>
   <div class="row" style="margin-top:10px">
     <button class="ghost" id="save">Save setup</button>
     <button class="ghost" id="clear">Clear key</button>
   </div>
-  <p class="note">The key is kept in this browser's local storage and sent straight to the model vendor. Nothing is stored on the site. Never commit a key into the repository.</p>
+  <p class="note" id="keyNote"></p>
 </section>
 
 <section>
@@ -167,6 +174,11 @@ const PROVIDERS = {
   mistral:    { label: 'Mistral',        api: 'openai', base: 'https://api.mistral.ai/v1',
                 model: 'pixtral-12b-2409',
                 keys: 'https://console.mistral.ai/api-keys', free: 'free tier' },
+  shared:     { label: 'Shared key (team Worker)', api: 'proxy', base: '',
+                model: 'gemini-3.6-flash', keys: '', free: 'uses the key on the Worker',
+                fallbacks: ['gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-3.7-flash',
+                            'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite',
+                            'gemini-flash-lite-latest'] },
   custom:     { label: 'Other OpenAI-compatible', api: 'openai', base: '', model: '',
                 keys: '', free: 'whatever your endpoint allows' },
 };
@@ -186,6 +198,8 @@ function loadSetup() {
   $('base').value     = store.get('base')     || p.base || '';
   $('key').value      = store.get('key')      || '';
   $('roster').value   = store.get('rosterRaw')|| '';
+  $('sheet').value    = store.get('sheet')    || '';
+  rosterCache         = store.get('roster')   || null;
   $('datestr').value  = store.get('datestr')  || '';
   syncHint(); refreshState();
 }
@@ -193,14 +207,24 @@ function syncHint() {
   const p = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
   $('keyHint').innerHTML = p.keys
     ? `&mdash; <a href="${p.keys}" target="_blank" rel="noopener">get a key</a>` : '';
-  $('baseWrap').classList.toggle('hide', p.api !== 'openai');
+  $('baseWrap').classList.toggle('hide', p.api !== 'openai' && p.api !== 'proxy');
+  $('baseLabel').textContent = p.api === 'proxy' ? 'Worker URL' : 'Endpoint base URL';
+  $('keyLabel').textContent  = p.api === 'proxy' ? 'Shared phrase' : 'API key';
+  $('key').placeholder = p.api === 'proxy'
+    ? 'the phrase your admin gave you — not an API key'
+    : 'stored only in this browser';
+  $('keyNote').textContent = p.api === 'proxy'
+    ? 'No API key is used here. The key lives on the Worker and never reaches this page, '
+      + 'so anyone with the phrase can run the tool without getting a key of their own.'
+    : "The key is kept in this browser's local storage and sent straight to the model "
+      + 'vendor. Nothing is stored on the site. Never commit a key into the repository.';
 }
 function refreshState() {
-  const ok = $('key').value.trim() && parseRoster($('roster').value).length;
+  const spec = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
+  const names = currentRoster().length;
+  const ok = (spec.api === 'proxy' || $('key').value.trim()) && names;
   $('setupState').className = 'pill ' + (ok ? 'p-ok' : 'p-new');
-  $('setupState').textContent = ok
-    ? parseRoster($('roster').value).length + ' roster names'
-    : 'not configured';
+  $('setupState').textContent = ok ? names + ' roster names' : 'not configured';
   $('go').disabled = !(ok && videoFile);
 }
 $('provider').onchange = () => {
@@ -209,14 +233,75 @@ $('provider').onchange = () => {
   syncHint(); refreshState();
 };
 $('save').onclick = () => {
-  ['provider','model','key','base','datestr'].forEach(k => store.set(k, $(k).value));
+  ['provider','model','key','base','sheet','datestr'].forEach(k => store.set(k, $(k).value));
   store.set('rosterRaw', $('roster').value);
   refreshState(); log('setup saved');
 };
 $('clear').onclick = () => { $('key').value=''; store.set('key',''); refreshState(); };
 ['key','roster'].forEach(k => $(k).addEventListener('input', refreshState));
 
-/* ---------------- roster + matching ---------------- */
+$('pull').onclick = async () => {
+  const link = $('sheet').value.trim();
+  $('pull').disabled = true;
+  const was = $('pull').textContent; $('pull').textContent = 'Pulling…';
+  try {
+    rosterCache = await pullRoster(link);
+    store.set('sheet', link);
+    store.set('roster', rosterCache);            // cached so a later run works offline
+    log(`roster: ${rosterCache.length} names pulled from the sheet`);
+  } catch (e) { log('✗ ' + e.message); }
+  $('pull').textContent = was; $('pull').disabled = false;
+  refreshState();
+};
+
+/* ---------------- roster ---------------- */
+// Google serves any link-readable sheet as CSV from /export, with permissive CORS, so the
+// page can read the live roster itself. Pasting was per-person busywork that also went
+// stale the moment someone was added; this cannot drift.
+function sheetCsvUrl(link) {
+  const id = (link.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/) || [])[1];
+  if (!id) throw new Error('That does not look like a Google Sheets link.');
+  const gid = (link.match(/[#&?]gid=(\d+)/) || [])[1] || '0';
+  return `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${gid}`;
+}
+// Minimal RFC4180 reader — roster names legitimately contain commas and newlines.
+function parseCsv(text) {
+  const rows = [[]]; let cell = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"' && text[i+1] === '"') { cell += '"'; i++; }
+      else if (c === '"') q = false;
+      else cell += c;
+    } else if (c === '"') q = true;
+    else if (c === ',') { rows[rows.length-1].push(cell); cell = ''; }
+    else if (c === '\n') { rows[rows.length-1].push(cell); cell = ''; rows.push([]); }
+    else if (c !== '\r') cell += c;
+  }
+  rows[rows.length-1].push(cell);
+  return rows.filter(r => r.some(x => x.trim()));
+}
+async function pullRoster(link) {
+  const r = await fetch(sheetCsvUrl(link));
+  if (!r.ok) throw new Error(r.status === 401 || r.status === 403
+    ? 'The sheet is not readable by link. In Google Sheets: Share → General access → Anyone with the link → Viewer.'
+    : 'Could not read the sheet (' + r.status + ').');
+  const text = await r.text();
+  if (/^\s*<(!doctype|html)/i.test(text)) throw new Error('Google returned a sign-in page — the sheet is not link-readable.');
+  const rows = parseCsv(text);
+  const out = rows.map(c => ({ search: (c[0]||'').trim(), ingame: (c[1]||c[0]||'').trim(),
+                               alliance: (c[2]||'').trim() }))
+                  .filter(r => r.search && !/^search\s*name/i.test(r.search));
+  if (!out.length) throw new Error('No roster rows found in that tab.');
+  return out;
+}
+
+/* ---------------- matching ---------------- */
+let rosterCache = null;
+function currentRoster() {
+  if (rosterCache && rosterCache.length) return rosterCache;
+  return parseRoster($('roster').value);
+}
 function parseRoster(text) {
   return text.split(/\r?\n/).map(l => l.split(/\t|,/).map(s => s.trim()))
              .filter(c => c[0]).map(c => ({ search: c[0], ingame: c[1] || c[0], alliance: c[2] || '' }))
@@ -413,8 +498,9 @@ async function callModel(frames) {
   const BATCH = 8, batches = [];
   for (let i = 0; i < frames.length; i += BATCH) batches.push(frames.slice(i, i + BATCH));
   let done = 0;
-  const fn = { gemini: callGemini, claude: callClaude, openai: callOpenAI }[spec.api];
-  if (spec.api === 'openai' && !base) throw new Error('This provider needs an endpoint base URL.');
+  const fn = { gemini: callGemini, claude: callClaude, openai: callOpenAI, proxy: callProxy }[spec.api];
+  if ((spec.api === 'openai' || spec.api === 'proxy') && !base)
+    throw new Error('This provider needs an endpoint base URL.');
   const chain = modelChain();
   const switched = new Set();
   const results = await Promise.all(batches.map(async b => {
@@ -463,6 +549,25 @@ async function withFallback(call, chain, note) {
 // batch can be cut off mid-object when it runs into the output limit, and demanding
 // valid JSON throws away the fifty good rows that arrived before the cut. Frames overlap
 // heavily, so a salvaged tail costs nothing; a hard failure costs the whole batch.
+// Same request the direct Gemini path sends, aimed at the team Worker instead. No key
+// travels with it; the Worker holds that and adds it upstream.
+async function callProxy(batch, model, pass, base) {
+  const r = await fetch(base + '/' + encodeURIComponent(model), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(pass ? { 'x-kartz-pass': pass } : {}) },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [
+        ...batch.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d } })),
+        { text: PROMPT }] }],
+      generationConfig: { temperature: 0, maxOutputTokens: 32768,
+                          thinkingConfig: { thinkingLevel: 'low' } }
+    })
+  });
+  if (!r.ok) throw new Error(r.status + ': ' + (await r.text()).slice(0, 300));
+  const j = await r.json();
+  return parseJSON(j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '');
+}
+
 function parseJSON(text) {
   const objs = text.match(/\{[^{}]*\}/g) || [];
   const rows = [];
@@ -579,7 +684,8 @@ let rows = [], index = [], aliases = {};
 $('go').onclick = async () => {
   $('go').disabled = true; $('out').classList.add('hide');
   try {
-    const roster = parseRoster($('roster').value);
+    const roster = currentRoster();
+    if (!roster.length) throw new Error('No roster loaded — paste the sheet link and press Pull roster.');
     index = buildIndex(roster);
     aliases = store.get('aliases') || {};
 

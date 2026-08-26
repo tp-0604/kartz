@@ -18,18 +18,43 @@ Then in the repository: **Settings → Pages → Source: `main` / root**. The pa
 `https://<you>.github.io/kartz/` a minute later. On a phone, use Share → Add to Home Screen
 and it behaves like an app.
 
-## First-time setup (once per device)
+## First-time setup
 
-1. Get an API key — [Google AI Studio](https://aistudio.google.com/apikey) is free and is the
-   default. Anthropic also works if you prefer it.
-2. Paste the key into the page.
-3. Paste the roster: select columns A, B and C of the **InputRoster** tab and copy. Tab or
-   comma separated, header row optional.
-4. Press **Save setup**.
+Paste the link to the **Alliance Rosters** tab and press **Pull roster**. That is it — the
+page reads the sheet itself and caches it, so nobody has to copy 828 rows, and nobody is
+working from a stale copy after a new member joins. The sheet must be readable by link:
+*Share → General access → Anyone with the link → Viewer*.
 
-The key lives in that browser's local storage and is sent only to the model vendor.
-**Do not put a key in the repository** — the page is public, but each person using it
-brings their own key, which is the point.
+Then either paste your own API key, or — if your admin has set up the Worker below — pick
+**Shared key (team Worker)**, enter the Worker URL and the shared phrase, and skip keys
+entirely.
+
+## Sharing one key with your officers
+
+**A static page cannot keep a secret.** Anything `index.html` sends, a viewer can read out
+of the browser's network tab in about ten seconds. Obfuscating a key in JavaScript is not
+security, and a leaked key means anyone can spend your quota or run up your bill.
+
+The real fix is for the key to live somewhere the browser never sees. `worker.js` is that:
+a small Cloudflare Worker holding the key, which the page talks to instead of Google.
+
+```bash
+npm i -g wrangler && wrangler login
+wrangler deploy
+wrangler secret put GEMINI_KEY     # your key, at the prompt
+wrangler secret put SHARED_PASS    # any phrase you hand your officers
+```
+
+Then edit `ALLOWED_ORIGINS` at the top of `worker.js` to your Pages URL and `wrangler deploy`
+again. In the page, choose **Shared key (team Worker)**, give people the Worker URL and the
+phrase, and they never touch an API key.
+
+Two things gate it, because a public page in front of a public Worker is otherwise a public
+API: requests must come from an origin you listed, and must carry the shared phrase. Status
+codes pass through untouched so the model fallback chain still works through the proxy.
+
+Cloudflare's free tier is 100,000 requests a day and needs no card. Your ceiling stays the
+Gemini quota, not the Worker.
 
 ## Each run
 
