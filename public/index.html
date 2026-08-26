@@ -264,9 +264,17 @@ let rosterCache = null;            // { active, skipped }
 // Narrowing to the alliance being recorded cuts the candidate list from a few hundred to
 // well under two, which both shortens the prompt and removes the chance of a name being
 // matched to a player from an alliance that was never in this event.
-function currentRoster() {
-  const all = (rosterCache && rosterCache.active && rosterCache.active.length)
+function fullRoster() {
+  return (rosterCache && rosterCache.active && rosterCache.active.length)
     ? rosterCache.active : parseRoster($('roster').value);
+}
+// The alliance choice narrows what the model is *shown*, which shortens the prompt and
+// steers it toward the right people. It deliberately does NOT narrow what a row may be
+// matched against: a Kartz list turns out to contain guests from other alliances — filtering
+// this recording to 698W dropped 27 players who were plainly correct — so matching always
+// falls back to the full roster.
+function currentRoster() {
+  const all = fullRoster();
   const a = ($('alli') && $('alli').value || '').trim().toLowerCase();
   if (!a) return all;
   const narrowed = all.filter(r => (r.alliance || '').trim().toLowerCase() === a);
@@ -548,17 +556,18 @@ unicode, decorated with emoji, or simply hard to read — but nearly every one o
 of these people. Recognise which roster entry a row belongs to rather than transcribing the
 glyphs literally.
 
-ROSTER (${names.length} players). Where a player is written differently in the game, both
-forms are given as "sheet name = name as drawn in game"; always answer with the sheet name:
+Known players (${names.length}). Where someone is written differently in the game, both forms
+are given as "sheet name = name as drawn in game"; always answer with the sheet name.
+This list is reference material — never report a word from it as a row you saw.
 ${names.join(', ')}
 
 Return every row you can read ${scope} as a single JSON array, one object per row:
 {"rank": <int or null>, "roster_name": "<a name copied exactly from the ROSTER, or null>", "seen": "<the name as actually drawn on screen>", "points": <int>}
 
 Rules:
-- "roster_name" MUST be copied character-for-character from the ROSTER above, or be null if
+- "roster_name" MUST be copied character-for-character from the list above, or be null if
   you are genuinely confident this player is not on it. Never invent a spelling.
-- Prefer a roster name whenever the drawn name plausibly corresponds to one, allowing for
+- Prefer a known player whenever the drawn name plausibly corresponds to one, allowing for
   stylised glyphs, emoji, accents and lookalike characters.
 - "seen" is the raw on-screen name, so a person can check the match.
 - For ranks 1 to 3 the number is a medal graphic; infer 1, 2 or 3 from its colour.
@@ -673,7 +682,10 @@ function parseJSON(text) {
   // frames from before the Ranking panel was open, and since the model is now told to
   // ignore other screens it correctly returns nothing for those. Treat a well-formed empty
   // answer as empty, and only complain when the reply had no JSON in it at all.
-  if (!rows.length && !objs.length)
+  // A bare "[]" is the same legitimate answer as a list of nulls: these frames held no
+  // Ranking rows. Only complain when the reply contains no JSON array at all, which is what
+  // a refusal or a truncated preamble looks like.
+  if (!rows.length && !objs.length && !/\[\s*\]/.test(text) && !/^\s*\[/.test(text.trim()))
     throw new Error('model returned no readable rows:\n' + text.slice(0, 200));
   return rows;
 }
@@ -749,13 +761,14 @@ const mode = arr => {
 };
 
 /* ---------------- run ---------------- */
-let rows = [], index = [], skipIndex = [], aliases = {};
+let rows = [], index = [], wideIndex = [], skipIndex = [], aliases = {};
 $('go').onclick = async () => {
   $('go').disabled = true; $('out').classList.add('hide');
   try {
     const roster = currentRoster();
     if (!roster.length) throw new Error('No roster loaded — paste the sheet link and press Pull roster.');
     index = buildIndex(roster);
+    wideIndex = buildIndex(fullRoster());
     skipIndex = buildIndex(skippedRoster());
     aliases = store.get('aliases') || {};
 
@@ -772,13 +785,18 @@ $('go').onclick = async () => {
     // roster; models will occasionally produce a plausible-looking name that is not on the
     // list, and that is exactly the case a human needs to see.
     const byName = new Map();
-    for (const e of index) byName.set(e.k, e.r);
+    for (const e of wideIndex.length ? wideIndex : index) byName.set(e.k, e.r);
     sightings = dropForeignRows(sightings);
     const base = consolidate(sightings, frameCount);
     rows = base.map(r => {
       const claimed = r.pick_ ? byName.get(fold(r.pick_)) : null;
       if (claimed) return { ...r, match: claimed, score: 1, pick: claimed.search, claimed: true };
-      const m = resolve(r.name, r.plain, index, aliases);
+      let m = resolve(r.name, r.plain, index, aliases);
+      // not in the chosen alliance? try everyone before giving up
+      if (!m.r && wideIndex.length > index.length) {
+        const w = resolve(r.name, r.plain, wideIndex, aliases);
+        if (w.r) m = w;
+      }
       if (m.r) return { ...r, match: m.r, score: m.score, pick: m.r.search };
       const sk = skipIndex.length ? resolve(r.name, r.plain, skipIndex, {}) : { r: null };
       if (sk.r) return { ...r, match: null, skipped: sk.r, score: sk.score, pick: '\u0000drop' };
@@ -895,7 +913,9 @@ function render(roster) {
 function refreshRosterList() {
   let dl = document.getElementById('rosterNames');
   if (!dl) { dl = document.createElement('datalist'); dl.id = 'rosterNames'; document.body.appendChild(dl); }
-  dl.innerHTML = currentRoster()
+  // every player, not just the chosen alliance — the whole point of correcting a row by
+  // hand is that the automatic answer was wrong, which includes being wrong about alliance
+  dl.innerHTML = fullRoster()
     .map(r => `<option value="${esc(r.search)}">${esc(r.alliance || '')}</option>`).join('');
 }
 

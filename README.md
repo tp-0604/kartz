@@ -48,87 +48,18 @@ The badge next to *Setup* turns green and shows the roster count when it is read
 
 ### Each run
 
-Pick the recording, set the date, and choose **the alliance this recording is for**. That
-narrows the candidate list from a few hundred names to well under two hundred, which both
-shortens the prompt and removes any chance of matching a player who was never in this event.
-Leave it on *All alliances* if the list spans several.
+Pick the recording, set the date, and choose **the alliance this recording is for**.
 
-In the results, a row that needs a decision has a **search box** rather than a long dropdown:
-type a few letters and the browser filters your roster. The **✕** beside it marks a row as
-not a real one, so it is left out of the copied rows.
+That choice narrows what the model is *shown* — a few hundred names becomes well under two
+hundred, which shortens the prompt and steers it toward the right people. It deliberately
+does **not** narrow what a row can be matched to. A Kartz list turns out to contain guests
+from other alliances: filtering one 148-player recording to 698W dropped 27 players who were
+plainly correct, taking the match rate from 95% down to 76%. Matching always falls back to
+the whole roster, and the search box lists everyone.
 
-### Checking the server side is alive
-
-If a run fails with a 403 or 502, the quickest check is whether the API half of the site is
-answering at all. In a terminal:
-
-```bash
-curl -i -X POST https://kartz.<your-subdomain>.workers.dev/api/@cf/meta/llama-4-scout-17b-16e-instruct -H 'content-type: application/json' -d '{"contents":[{"parts":[{"text":"hi"}]}]}'
-```
-
-- **403** — expected from curl when no phrase is set: it means the Function is deployed and
-  refusing a non-browser caller, which is correct. Add `-H 'x-kartz-pass: <your phrase>'`
-  to get past it.
-- **502 with "no AI binding"** — the Workers AI binding is missing. Add it in project
-  settings and redeploy.
-- **404, or the HTML of the page** — the request never reached `worker.js`. Check that
-  `wrangler.toml` still has `main = "worker.js"` alongside the `[assets]` block.
-
-## Sharing it with your officers
-
-Send them the `.workers.dev` URL and, if you set one, the shared phrase. That is all — they
-pull the roster themselves and never touch an API key, because the key lives in Cloudflare
-and the browser never sees it.
-
-**A static page cannot keep a secret.** Anything `index.html` sends, a viewer can read out
-of the browser's network tab. That is the whole reason the model call happens server-side in
-`worker.js` rather than in the page: keys stay in the project's settings, not in the
-repository and not in anyone's browser. Never commit a key.
-
-## Each run
-
-Pick the recording, check the date, press **Extract**. Then **Copy for sheet** and paste.
-
-The output is four columns, in this order:
-
-| Date | Rank | Game Name | Kartz Points |
-|---|---|---|---|
-| 2026-08-26 | 1 | Neaira | 810 |
-
-The date defaults to today and is always written `YYYY-MM-DD`. **Game Name** is the roster
-name the player was matched to, not the decorated tag from the video — that is the form the
-sheet's lookups need. Where a player could not be matched, the plain reading is used
-instead. Rank is renumbered over the rows that actually ship, so it is always a gap-free
-1..N and the on-screen table agrees with what lands in the clipboard.
-
-## Alliances that get skipped
-
-**Skip these alliances** defaults to `z3.?, z1.Transferred` and is applied when the roster
-is pulled — of 828 rows, 689 are kept and 139 set aside.
-
-Those 139 are not simply discarded, because deleting them would make things worse rather
-than better: a transferred player who still appears in the recording would stop matching
-anything and turn up in the review list as an unknown name, to be dealt with by hand every
-single month. Instead they are kept to one side and used only for recognition. If one shows
-up in a video the row is identified, greyed out with its alliance, marked **excluded**, and
-left out of the copied rows. The count is stated up front — *2 excluded (z3.?,
-z1.Transferred)* — so it is visible rather than silent.
-
-Edit the field to change it; it is saved with the rest of the setup. Matching is
-case-insensitive.
-
-## Reading the results
-
-- **exact / 92%** — matched to the roster, nothing to do.
-- **confirm** — not in the roster. Pick the right player from the dropdown, leave it as a new
-  player, or discard it if it is not a real row.
-- **A coverage warning** means the game showed a rank higher than the number of rows that
-  came through, so players were missed. Raise *Frames to send*.
-- **A "seen in a single frame" warning** is a different complaint and the more common cause
-  of wrong names. The list can be complete and still be full of misreadings.
-
-Ties are common — several players often share a score — so the row order within a tie is
-arbitrary. The sheet looks players up by name, so this does not matter.
+In the results, a row needing a decision gets a **search box** rather than a long dropdown:
+type a few letters and the browser filters. The **✕** beside it marks a row as not real, so
+it stays out of the copied rows.
 
 ## The roster goes into the prompt
 
