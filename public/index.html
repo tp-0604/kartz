@@ -373,7 +373,9 @@ function parseRoster(text) {
 // reading of its own, so this only has to catch what slips through.
 const FOLD = { 'Ꭱ':'R','Ꭲ':'T','Ꮮ':'L','Ꮯ':'C','Ꮋ':'H','Ꭺ':'A','Ꭼ':'E','Ꮲ':'P','Ꮪ':'S','Ꮶ':'K',
   'Ꮇ':'M','Ꮃ':'W','Ꭰ':'D','Ꮖ':'I','Ꮷ':'J','Ø':'O','Ð':'D','Þ':'P','Ł':'L','ß':'B','€':'E',
-  'Δ':'A','Ć':'C','Ħ':'H','Ƥ':'P','Ñ':'N','Ɐ':'A' };
+  'Δ':'A','Ć':'C','Ħ':'H','Ƥ':'P','Ñ':'N','Ɐ':'A',
+  'Ŋ':'N','ŋ':'n','Ų':'U','ų':'u','Ɓ':'B','ɓ':'b','Į':'I','į':'i','Ə':'E','Ɔ':'O',
+  'Ʌ':'A','Ƨ':'S','Ƽ':'S','Ʈ':'T','Ɗ':'D','Ɖ':'D','Ƙ':'K','Ɲ':'N','Ɍ':'R','Ɏ':'Y' };
 function fold(s) {
   if (!s) return '';
   s = s.normalize('NFKD').split('').map(c => FOLD[c] || c).join('');
@@ -549,7 +551,12 @@ let lastCropBox = null;
 async function extractFrames(file, budget, onProg) {
   const video = await openVideo(file);
   const dur = video.duration;
-  const W = 560, H = Math.round(W * video.videoHeight / video.videoWidth);
+  // Keep the recording's own resolution. 560 was chosen when the worry was payload size,
+  // but token cost turns out to be near enough flat per image, so the downscale bought
+  // nothing and cost the fine detail in stylised names: at 560 the glyphs "ŊŲƁĮ" came back
+  // as "MB" and "DJ", while the same row read at the phone's native width resolves to Nubi.
+  const W = Math.min(video.videoWidth || 720, 1080);
+  const H = Math.round(W * video.videoHeight / video.videoWidth);
   const cv = Object.assign(document.createElement('canvas'), { width: W, height: H });
   const cx = cv.getContext('2d', { willReadFrequently: true });
   const step = 0.25;
@@ -588,7 +595,7 @@ async function extractFrames(file, budget, onProg) {
     await seek(video, Math.min(picks[i], dur - 0.05));
     cx.drawImage(video, 0, 0, W, H);
     const send = cropFrame(cv, W, H, box);
-    frames.push(send.toDataURL('image/jpeg', 0.62).split(',')[1]);
+    frames.push(send.toDataURL('image/jpeg', 0.82).split(',')[1]);
     onProg(0.6 + 0.4 * (i + 1) / picks.length, frames.length);
   }
   URL.revokeObjectURL(video.src);
@@ -616,7 +623,20 @@ async function fileToBase64(file) {
 // to 99% on a 153-player recording. The list costs roughly 1,300 tokens.
 function buildPrompt(forVideo) {
   const roster = currentRoster();
-  const names = roster.map(r => r.search).filter(Boolean);
+  // Give both forms. Column B holds the name as it is actually drawn in the game — the
+  // stylised one the model is looking at — and for about a fifth of the roster it differs
+  // from the name the sheet uses. Some of those pairs no string comparison could ever
+  // bridge: "ERank" is Aalonsoj ALT, "TRD" is AcE, and one player renders as glyphs that
+  // normalise to an empty string. Listing the mapping is the only thing that resolves them.
+  const names = roster.map(r => {
+    const a = (r.search || '').trim(), b = (r.ingame || '').trim();
+    if (!a) return '';
+    // Compare the literal strings, not the folded ones. Folding is deliberately aggressive
+    // — it is what lets "ŊŲƁĮ" reduce to "nubi" — but that is exactly the pair the model
+    // most needs to be shown. Judging sameness after folding hid every case the mapping
+    // exists to solve.
+    return (b && b !== a) ? `${a} = ${b}` : a;
+  }).filter(Boolean);
   const src = forVideo
     ? 'This is a screen recording of a mobile game leaderboard called "Ranking".'
     : 'These are frames from a screen recording of a mobile game leaderboard called "Ranking".';
@@ -633,7 +653,8 @@ unicode, decorated with emoji, or simply hard to read — but nearly every one o
 of these people. Recognise which roster entry a row belongs to rather than transcribing the
 glyphs literally.
 
-ROSTER (${names.length} names):
+ROSTER (${names.length} players). Where a player is written differently in the game, both
+forms are given as "sheet name = name as drawn in game"; always answer with the sheet name:
 ${names.join(', ')}
 
 Return every row you can read ${scope} as a single JSON array, one object per row:
@@ -646,6 +667,9 @@ Rules:
   stylised glyphs, emoji, accents and lookalike characters.
 - "seen" is the raw on-screen name, so a person can check the match.
 - For ranks 1 to 3 the number is a medal graphic; infer 1, 2 or 3 from its colour.
+- Read ONLY rows inside the "Ranking" panel. A recording often opens on another screen, or
+  passes over a different leaderboard on the way; ignore anything that is not the Ranking
+  list, however clearly you can read it.
 - Ignore the highlighted card pinned at the very bottom; it repeats the viewer's own row.
 ${once}
 - If a row is cut off at an edge and cannot be read fully, skip it.
@@ -811,7 +835,12 @@ function parseJSON(text) {
       if (typeof r.points === 'number' && (r.name || r.plain)) rows.push(r);
     } catch { /* a half-written object at the cut: skip it */ }
   }
-  if (!rows.length) throw new Error('model returned no readable rows:\n' + text.slice(0, 200));
+  // "I found nothing here" is a legitimate answer, not a failure: a batch can hold only
+  // frames from before the Ranking panel was open, and since the model is now told to
+  // ignore other screens it correctly returns nothing for those. Treat a well-formed empty
+  // answer as empty, and only complain when the reply had no JSON in it at all.
+  if (!rows.length && !objs.length)
+    throw new Error('model returned no readable rows:\n' + text.slice(0, 200));
   return rows;
 }
 
@@ -883,6 +912,25 @@ async function callOpenAI(batch, model, key, base, maxOut = 16384) {
   const msg = j.choices?.[0]?.message;
   return parseJSON(typeof msg?.content === 'string' ? msg.content
                  : (msg?.content || []).map(c => c.text || '').join(''));
+}
+
+// Rows carried in from another screen. The opening seconds of a recording often show a
+// different leaderboard whose scores are an order of magnitude larger, and raising the frame
+// resolution made those legible enough to be read too. Everything in one Kartz list sits in
+// the same range, so a reading far outside the bulk did not come from this list.
+function dropForeignRows(sightings) {
+  const pts = sightings.map(s => s && s.points).filter(n => typeof n === 'number' && n > 0)
+                       .sort((a, b) => a - b);
+  if (pts.length < 8) return sightings;
+  const median = pts[pts.length >> 1];
+  const ceiling = median * 8;
+  // A zero or negative score is never a real Kartz row either — the phone's own UI leaks in
+  // at the start of a recording ("Not Playing" from the music widget turned up as a player).
+  const kept = sightings.filter(s => typeof s?.points === 'number'
+                                  && s.points > 0 && s.points <= ceiling);
+  const lost = sightings.length - kept.length;
+  if (lost) log(`ignored ${lost} row(s) from another screen (scores far outside the list)`);
+  return kept;
 }
 
 /* ---------------- consolidate ---------------- */
@@ -991,6 +1039,7 @@ $('go').onclick = async () => {
     // list, and that is exactly the case a human needs to see.
     const byName = new Map();
     for (const e of index) byName.set(e.k, e.r);
+    sightings = dropForeignRows(sightings);
     const base = $('whole').checked ? consolidateByRank(sightings)
                                     : consolidate(sightings, frameCount);
     rows = base.map(r => {

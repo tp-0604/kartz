@@ -154,17 +154,32 @@ arbitrary. The sheet looks players up by name, so this does not matter.
 
 ## The roster goes into the prompt
 
-The single biggest thing that improved accuracy was not a better model — it was asking a
-different question. Reading a name off a screen is open-ended, and stylised game tags defeat
-it. Deciding *which of 689 known players* a row belongs to is a much easier question, and
-the roster is already loaded.
+The biggest single improvement was not a better model — it was asking a different question.
+Reading a name off a screen is open-ended, and stylised game tags defeat it. Deciding *which
+of 689 known players* a row is, is a far easier question, and the roster is already loaded.
 
-So the roster is sent with the request, and the model returns the entry it recognises rather
-than a transcription. It costs about 1,300 tokens, and it moved usable names from roughly
-three-quarters to almost all of them on a 153-player recording.
+So the roster is sent with the request and the model returns the entry it recognises. It
+costs roughly 2,300 tokens.
 
-The model's answer is not taken on trust: a name it returns must genuinely exist in the
+Crucially the list gives **both** forms — the sheet name and the name as drawn in the game —
+because for about 40% of the roster they differ, and some pairs no string comparison could
+ever bridge: `ERank` is Aalonsoj ALT, `TRD` is AcE, `ŊŲƁĮ` is Nubi, and one player renders as
+glyphs that normalise to an empty string. Only the mapping resolves those.
+
+The model's answer is not taken on trust: a name it returns must actually exist in the
 roster, or the row falls back to fuzzy matching and is raised for confirmation.
+
+## Frames are sent at the recording's own resolution
+
+They used to be downscaled to 560 px wide, which was chosen when the concern was payload
+size. That turned out to cost real accuracy: at 560 the name `ŊŲƁĮ` came back as `MB` and
+`DJ`, while the identical row at the phone's native width resolves to `Nubi` outright. Token
+cost is near enough flat per image, so the downscale was buying nothing.
+
+Higher resolution has one side effect worth knowing about: the opening seconds of a recording
+become legible too, and those often show a different screen. Rows whose score sits far
+outside the rest of the list, or at zero, are dropped as belonging to some other screen — the
+phone's own music widget once arrived as a player called "Not Playing".
 
 ## Two ways to read a recording
 
