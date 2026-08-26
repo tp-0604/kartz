@@ -144,25 +144,46 @@ heavily, a lost tail is picked up by the neighbouring frame anyway.
 
 ## Other providers
 
-The page speaks three dialects: Gemini, Anthropic, and the OpenAI chat-completions shape
-that almost everyone else implements. Picking one of the OpenAI-compatible providers fills
-in its endpoint and a sensible model; **Other OpenAI-compatible** takes any base URL, so a
-provider that does not exist yet still works without touching the code.
+The page speaks four dialects: Gemini, Anthropic, the team Worker, and the OpenAI
+chat-completions shape almost everyone else implements. Picking a provider fills in its
+endpoint, model, batch size and pacing.
+
+### Groq — Qwen 3.6 27B
+
+The model itself is very good at this. Given a leaderboard screen it returned every row
+with correct ranks and scores in **1.3 seconds**, and read `ᏢᎬᎪĆᎻ` as PEACH, `ᵇᵃᵗᵐᵃⁿ` as
+batman and `ÈXÎLÉ` as EXILE without being asked twice. Accuracy is not the problem.
+
+Throughput is. The free tier allows **8,000 tokens a minute**, and that budget counts the
+output you *reserve*, not just what comes back — asking for 16k of output made a 5k request
+weigh 19k and get refused outright with a 413. With the reservation dropped to 1,500 and
+three frames per call, a request costs about 7,300 tokens, so:
+
+| | Groq free (Qwen 3.6) | Gemini free |
+|---|---|---|
+| per request | ~7,300 tokens | 3 requests per run |
+| one 24-frame run | **~7 minutes** | **18–24 seconds** |
+| twelve runs | **~88 minutes** | **~5 minutes** |
+| what limits you | 8k tokens/minute | 20 requests/day/model, ×7 models |
+
+Groq's 1,000 requests a day is generous and its per-call latency is excellent; the minute
+budget is what bites. The page handles it rather than failing: Groq batches run one at a
+time instead of in parallel, and a 429 there is waited out using the server's own
+`retry-after` hint, because unlike Gemini's daily cap a per-minute window genuinely clears.
+
+Use it if you like the model or Gemini is down. For twelve runs in one sitting, Gemini is
+roughly twenty times quicker.
 
 | provider | free vision | notes |
 |---|---|---|
-| **Gemini** | 20 requests/day | the default; measured 40/40 on a real recording |
-| **OpenRouter** | ~50 requests/day | 8 free vision models, incl. `google/gemma-4-31b-it:free` |
-| **Groq** | generous | very fast; Llama 4 Scout has vision |
+| **Gemini** | 20/day per model, 7 models | default; measured 40/40 on a real recording |
+| **Groq — Qwen** | 1000/day but 8k tokens/min | accurate and fast per call, slow in bulk |
+| **OpenRouter** | ~50 requests/day | 8 free vision models |
 | **Mistral** | free tier | Pixtral |
 | **Anthropic** | paid | no free tier |
 
-All of the above allow browser calls. **GitHub Models does not** — it sends no CORS headers,
-so a static page cannot reach it at all.
-
-Only Gemini has been measured on this task. The others are wired up and structurally
-verified, but a smaller free model may well read the stylised names less reliably — check
-one run against a sheet you trust before relying on it.
+All allow browser calls. **GitHub Models does not** — it sends no CORS headers, so a static
+page cannot reach it.
 
 ## Measured on a real recording
 

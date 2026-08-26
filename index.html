@@ -170,9 +170,21 @@ const PROVIDERS = {
   openrouter: { label: 'OpenRouter',     api: 'openai', base: 'https://openrouter.ai/api/v1',
                 model: 'google/gemma-4-31b-it:free',
                 keys: 'https://openrouter.ai/keys', free: 'free models, ~50 requests a day' },
-  groq:       { label: 'Groq',           api: 'openai', base: 'https://api.groq.com/openai/v1',
-                model: 'meta-llama/llama-4-scout-17b-16e-instruct',
-                keys: 'https://console.groq.com/keys', free: 'generous free tier' },
+  groq:       { label: 'Groq — Qwen',     api: 'openai', base: 'https://api.groq.com/openai/v1',
+                model: 'qwen/qwen3.6-27b',
+                keys: 'https://console.groq.com/keys',
+                free: '1000 requests/day but only 8k tokens/min',
+                // A frame costs about 1,813 tokens here and the free tier allows 8,000 a
+                // minute, so anything above three images per call is rejected outright.
+                batch: 3,
+                // Groq charges the *reserved* max_tokens against the per-minute budget, not
+                // just what comes back. Asking for 16k output made a 5k-token request weigh
+                // 19k and get refused outright. Rows are ~25 tokens each, so this is ample.
+                maxOut: 1500,
+                // Groq's 429 is a per-minute window, not a daily cap: waiting genuinely
+                // clears it, unlike Gemini's, so this provider is paced rather than skipped.
+                paced: true,
+                fallbacks: ['qwen/qwen3.8-27b'] },
   mistral:    { label: 'Mistral',        api: 'openai', base: 'https://api.mistral.ai/v1',
                 model: 'pixtral-12b-2409',
                 keys: 'https://console.mistral.ai/api-keys', free: 'free tier' },
@@ -513,7 +525,7 @@ async function callModel(frames) {
   // Eight per call, not five. The Gemini free tier is metered in *requests per day*
   // (20 at time of writing), so batch size is really "how many runs do I get today":
   // 24 frames at 8 per call is 3 requests, which is six runs a day rather than four.
-  const BATCH = 8, batches = [];
+  const BATCH = spec.batch || 8, batches = [];
   for (let i = 0; i < frames.length; i += BATCH) batches.push(frames.slice(i, i + BATCH));
   let done = 0;
   const fn = { gemini: callGemini, claude: callClaude, openai: callOpenAI, proxy: callProxy }[spec.api];
@@ -521,14 +533,23 @@ async function callModel(frames) {
     throw new Error('This provider needs an endpoint base URL.');
   const chain = modelChain();
   const switched = new Set();
-  const results = await Promise.all(batches.map(async b => {
-    const rows = await withFallback(m => fn(b, m, key, base), chain, m => switched.add(m));
+  const one = async b => {
+    const rows = await withFallback(m => fn(b, m, key, base, spec.maxOut), chain,
+                                    m => switched.add(m), !!spec.paced);
     done++; setProg(0.5 + 0.5 * done / batches.length);
     log(`read ${done} of ${batches.length} batches…`
         + (switched.size ? `  (fell back to ${[...switched].join(', ')})` : ''));
     return rows;
-  }));
-  return results.flat();
+  };
+  // Where the provider meters tokens per minute, running batches at once simply spends the
+  // whole minute's budget in one go and every call after the first is refused. Those go one
+  // at a time; the rest overlap, which is where the speed comes from.
+  if (spec.paced) {
+    const out = [];
+    for (const b of batches) out.push(...await one(b));
+    return out;
+  }
+  return (await Promise.all(batches.map(one))).flat();
 }
 
 // A 503 means this model alias is saturated right now; a 429 means this model's daily
@@ -540,22 +561,43 @@ function modelChain() {
   const first = $('model').value.trim() || spec.model;
   return [first, ...(spec.fallbacks || []).filter(m => m !== first)];
 }
-const isBusy      = e => /\b(429|500|502|503|504)\b/.test(e.message);
-const isExhausted = e => /\b429\b/.test(e.message) || /\b503\b/.test(e.message);
+const isBusy = e => /\b(429|500|502|503|504)\b/.test(e.message);
 
-async function withFallback(call, chain, note) {
+// How long the server asked us to wait, in seconds, or 0 if it did not say. Groq answers
+// with a retry-after header and often names the delay in the message body too.
+function waitHint(e) {
+  const h = (e.message.match(/retry-after ([\d.]+)/) || [])[1];
+  if (h) return Math.min(90, Math.ceil(+h));
+  const inline = (e.message.match(/try again in ([\d.]+)(m?s)/i) || []);
+  if (inline[1]) return Math.min(90, Math.ceil(+inline[1] * (inline[2] === 'ms' ? 0.001 : 1)));
+  return 0;
+}
+// A daily allowance will not clear however long we sit here; a per-minute one will.
+const isDailyCap = e => /\b429\b/.test(e.message) && /per ?day|PerDay|quota/i.test(e.message);
+
+async function withFallback(call, chain, note, paced) {
   let last;
   for (let mi = 0; mi < chain.length; mi++) {
     const model = chain[mi];
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       try {
         const rows = await call(model);
         if (mi > 0) note(model);
         return rows;
       } catch (e) {
         last = e;
-        if (!isBusy(e)) throw e;              // real error: surface it
-        if (isExhausted(e)) break;            // busy or spent: next model, do not wait
+        if (!isBusy(e)) throw e;                       // a real error: surface it
+        if (isDailyCap(e)) break;                      // spent for the day: next model
+        // A provider metered per minute is waited out rather than abandoned — moving to
+        // another model would not help, because the budget is shared across the account.
+        const hinted = waitHint(e);
+        if (paced || hinted) {
+          const secs = hinted || 20;
+          log(`rate limited — waiting ${secs}s…`);
+          await new Promise(r => setTimeout(r, secs * 1000 + 500));
+          continue;
+        }
+        if (/\b(429|503)\b/.test(e.message)) break;    // saturated alias: next model
         await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
       }
     }
@@ -563,10 +605,6 @@ async function withFallback(call, chain, note) {
   throw last;
 }
 
-// Parse row objects individually rather than requiring one well-formed array. A long
-// batch can be cut off mid-object when it runs into the output limit, and demanding
-// valid JSON throws away the fifty good rows that arrived before the cut. Frames overlap
-// heavily, so a salvaged tail costs nothing; a hard failure costs the whole batch.
 // Same request the direct Gemini path sends, aimed at the team Worker instead. No key
 // travels with it; the Worker holds that and adds it upstream.
 async function callProxy(batch, model, pass, base) {
@@ -586,6 +624,10 @@ async function callProxy(batch, model, pass, base) {
   return parseJSON(j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '');
 }
 
+// Parse row objects individually rather than requiring one well-formed array. A long
+// batch can be cut off mid-object when it runs into the output limit, and demanding
+// valid JSON throws away the fifty good rows that arrived before the cut. Frames overlap
+// heavily, so a salvaged tail costs nothing; a hard failure costs the whole batch.
 function parseJSON(text) {
   const objs = text.match(/\{[^{}]*\}/g) || [];
   const rows = [];
@@ -643,18 +685,26 @@ async function callClaude(batch, model, key) {
 
 // OpenRouter, Groq, Mistral, Cerebras and most self-hosted servers all expose the same
 // chat-completions shape, so one function covers every one of them and any future arrival.
-async function callOpenAI(batch, model, key, base) {
+async function callOpenAI(batch, model, key, base, maxOut = 16384) {
   const r = await fetch(base + '/chat/completions', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + key },
     body: JSON.stringify({
-      model, temperature: 0, max_tokens: 16384,
+      model, temperature: 0, max_tokens: maxOut,
+      // Qwen narrates its reasoning into the reply by default, which costs tokens on a
+      // tight per-minute budget and buries the JSON. Reading a leaderboard needs none of it.
+      reasoning_effort: 'none',
       messages: [{ role: 'user', content: [
         ...batch.map(d => ({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + d } })),
         { type: 'text', text: PROMPT }] }]
     })
   });
-  if (!r.ok) throw new Error(r.status + ': ' + (await r.text()).slice(0, 400));
+  if (!r.ok) {
+    const wait = r.headers.get('retry-after');
+    const body = (await r.text()).slice(0, 400);
+    // carry the server's own wait hint through, so the pacer does not have to guess
+    throw new Error(r.status + (wait ? ` [retry-after ${wait}]` : '') + ': ' + body);
+  }
   const j = await r.json();
   const msg = j.choices?.[0]?.message;
   return parseJSON(typeof msg?.content === 'string' ? msg.content
