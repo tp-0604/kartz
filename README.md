@@ -142,13 +142,38 @@ case-insensitive.
 ## Reading the results
 
 - **exact / 92%** — matched to the roster, nothing to do.
-- **confirm** — not in the roster. Either pick the right player from the dropdown, or leave
-  it as a new player, or discard it if it is not a real row.
+- **confirm** — not in the roster. Pick the right player from the dropdown, leave it as a new
+  player, or discard it if it is not a real row.
 - **A coverage warning** means the game showed a rank higher than the number of rows that
-  came through, so something was missed. Raise *Frames to send* and run it again.
+  came through, so players were missed. Raise *Frames to send*.
+- **A "seen in a single frame" warning** is a different complaint and the more common cause
+  of wrong names. The list can be complete and still be full of misreadings.
 
 Ties are common — several players often share a score — so the row order within a tie is
 arbitrary. The sheet looks players up by name, so this does not matter.
+
+## Getting the names right
+
+A name is decided by majority vote across the frames a player appears in. If most players
+appear in exactly one frame there is no vote to take, and a single bad reading stands.
+
+Sightings per player works out as **frames sent divided by the number of screenfuls the list
+occupies** — about seven rows fit on screen, so a 153-player list is roughly 22 screenfuls:
+
+| frames | sightings each | effect |
+|---|---|---|
+| 40 | 1.8 | finds nearly everyone, but names cannot be cross-checked |
+| 60 | 2.7 | better |
+| 72 | 3.3 | a wrong reading gets outvoted |
+
+Note what this does *not* depend on: how long the recording is. Scrolling more slowly does
+not help by itself, because the frame budget is spread across the same number of screenfuls
+either way. Send more frames instead. The page suggests a number once it knows how long the
+list is.
+
+Coverage and name accuracy therefore want different settings. 40 frames found 148 of 153
+players on a test recording but left most of them seen once; the same recording at 72 gives
+three sightings each and lets voting do its job.
 
 ## Errors, and why they stopped happening
 

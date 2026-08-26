@@ -804,8 +804,17 @@ function consolidate(sightings, frameCount) {
   const clusters = [];
   for (const [k, g] of [...groups].sort((a, b) => b[1].length - a[1].length)) {
     const pts = mode(g.map(x => x.points));
-    const hit = clusters.find(c => c.points === pts && sim(k, c.key) >= 0.55);
-    if (hit) hit.all.push(...g); else clusters.push({ key: k, points: pts, all: [...g] });
+    const rk  = mode(g.map(x => x.rank).filter(r => typeof r === 'number' && r > 0));
+    // Same score and a name that reads similarly is the usual case. The second test is for
+    // models that read names poorly: rank and score both come back reliably even when the
+    // name does not, and the two together are close to unique, so a badly misread name still
+    // lands on the right player instead of splitting off as a row of its own. Without it a
+    // weak model produces *more* rows than there are players, each seen once, and a single
+    // bad reading has no better reading to be outvoted by.
+    const hit = clusters.find(c => c.points === pts &&
+      (sim(k, c.key) >= 0.55 || (rk && c.rank && rk === c.rank)));
+    if (hit) { hit.all.push(...g); if (!hit.rank) hit.rank = rk; }
+    else clusters.push({ key: k, points: pts, rank: rk, all: [...g] });
   }
   // Whether a single sighting is evidence or noise depends on how much redundancy there
   // actually was, not on the frame count. A 40-player list at 24 frames sees everyone
@@ -889,6 +898,16 @@ function render(roster) {
     + (dropped ? ` &middot; ${dropped} excluded (${esc($('skip').value.trim())})` : '')
     + (need ? ` &middot; <strong>${need} to confirm below</strong>` : '')
     + (thin ? ` &middot; ${thin} seen only once` : '') + `</div>`
+    // Names are decided by majority vote across sightings, so a run where most players were
+    // seen once has no vote to take — one bad reading simply wins. That is a different
+    // complaint from the coverage one below: the list can be complete and still be full of
+    // misread names. Sightings per player is roughly frames sent divided by how many
+    // screenfuls the list occupies, so the cure is more frames, not a slower recording.
+    + (rows.length && thin > rows.length * 0.4
+        ? `<div class="warnbox">Most players were caught in a single frame, so names could `
+          + `not be cross-checked between frames and misreadings stand uncorrected. `
+          + `Raise <em>Frames to send</em> — about ${Math.min(72, Math.ceil(rows.length / 7 * 3 / 4) * 4)} `
+          + `would give roughly three sightings each for a list this long.</div>` : '')
     + (gap ? `<div class="warnbox">The game showed a rank as high as ${top} but only `
         + `${rows.length} rows came through — ${top - rows.length} row(s) were probably `
         + `never captured. Raise <em>Frames to send</em> and run it again.</div>` : '');
