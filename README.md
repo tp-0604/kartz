@@ -6,42 +6,40 @@ Works on Windows, macOS, Android and iOS — anywhere with a browser.
 
 ## Where to host it
 
-Two options. They differ in one thing that matters: whether server-side code sits next to
-the page.
+One Cloudflare Worker serves both halves: the files in `public/` are the site, and `/api/*`
+runs `worker.js`. Same origin, one deploy, nothing to keep in step.
 
-### Cloudflare Pages — recommended
+That arrangement is what makes Cloudflare Workers AI usable at all. Its REST API cannot be
+called from a browser — the preflight comes back 405 with no allow-origin header — so the
+call has to happen server-side. Here it does, and no token ever reaches the page.
 
-Free static hosting like GitHub Pages, deployed from the same repository, **plus** Pages
-Functions: `functions/api/[[path]].js` runs server-side on the same origin as `index.html`.
+### Deploy
 
-That is what makes Cloudflare Workers AI usable. Its REST API cannot be called from a
-browser at all — the preflight comes back 405 with no allow-origin header — so the request
-has to originate server-side. On Pages there is no cross-origin request to reject, and
-nothing extra to deploy: the site and its API are one thing.
-
-Connect the repo at **dash.cloudflare.com → Workers & Pages → Create → Pages**, leave the
-build command empty and the output directory as `/`. Then, in the project's settings:
-
-- **Bindings → add Workers AI**, variable name `AI`
-- **Variables and secrets** → `GEMINI_KEY` if you also want the Gemini path, and
-  `SHARED_PASS` if you want to restrict who can use it
-
-The page already defaults its endpoint to `/api`, so **Cloudflare Workers AI** and
-**Shared key** work with nothing typed in.
-
-### GitHub Pages
-
-Works, but Workers AI stays out of reach unless you deploy `worker.js` separately as a
-standalone Worker and point the endpoint at its URL. Choosing a different static host —
-Netlify, Vercel, S3 — changes nothing here: CORS is enforced by the service you are calling,
-not by where your page came from.
+Connect the repo at **dash.cloudflare.com → Workers & Pages → Create → Workers**, or from a
+terminal:
 
 ```bash
-git remote add origin https://github.com/<you>/kartz.git && git push -u origin main
+npm i -g wrangler && wrangler login && wrangler deploy
 ```
 
-Then **Settings → Pages → Source: `main` / root**, and add that origin to `ALLOWED_ORIGINS`
-at the top of `worker.js`.
+Then, in the project:
+
+- **Settings → Domains & Routes → Enable `workers.dev`.** A Worker has **no public URL until
+  you do this** — the Overview will say *No URLs enabled*. Afterwards the site is at
+  `https://kartz.<your-subdomain>.workers.dev`.
+- **Bindings → Workers AI**, variable name `AI` (needed for the Cloudflare models).
+- **Settings → Variables and Secrets** → `GEMINI_KEY` if you also want the Gemini path, and
+  `SHARED_PASS` if the URL might be found by someone you did not give it to.
+
+Pushing to `main` redeploys.
+
+### Hosting the page somewhere else instead
+
+`worker.js` also stands alone, for serving the page from GitHub Pages or any other static
+host. Deploy it as its own Worker, add that page's origin to `ALLOWED_ORIGINS` at the top of
+the file, and put the Worker URL in the page's endpoint box instead of `/api`. Note that a
+different static host changes nothing about CORS — that is enforced by the service you call,
+not by where the page came from.
 
 ### Who can use your deployment
 
@@ -55,9 +53,10 @@ a browser. **Set `SHARED_PASS`** if the URL might be discovered. That is the rea
 
 ## Opening it the first time
 
-Cloudflare gives the project a URL as soon as the first deploy finishes — shown at the top
-of the project page, and of the form **`https://<project-name>.pages.dev`**. That is the
-site. There is nothing to start and nothing to install; open it in any browser.
+A Worker has no public URL until you turn one on. If the Overview says **No URLs enabled**,
+go to **Settings → Domains & Routes → Enable `workers.dev`**. The site is then at
+`https://kartz.<your-subdomain>.workers.dev` — open it in any browser, there is nothing to
+start and nothing to install.
 
 Every push to `main` redeploys it automatically.
 
@@ -86,7 +85,7 @@ If a run fails with a 403 or 502, the quickest check is whether the API half of 
 answering at all. In a terminal:
 
 ```bash
-curl -i -X POST https://<project-name>.pages.dev/api/@cf/meta/llama-4-scout-17b-16e-instruct -H 'content-type: application/json' -d '{"contents":[{"parts":[{"text":"hi"}]}]}'
+curl -i -X POST https://kartz.<your-subdomain>.workers.dev/api/@cf/meta/llama-4-scout-17b-16e-instruct -H 'content-type: application/json' -d '{"contents":[{"parts":[{"text":"hi"}]}]}'
 ```
 
 - **403** — expected from curl when no phrase is set: it means the Function is deployed and
@@ -94,18 +93,18 @@ curl -i -X POST https://<project-name>.pages.dev/api/@cf/meta/llama-4-scout-17b-
   to get past it.
 - **502 with "no AI binding"** — the Workers AI binding is missing. Add it in project
   settings and redeploy.
-- **404 or the HTML of the page** — the Function did not deploy. Check that
-  `functions/api/[[path]].js` is in the repo and that the build output directory is `/`.
+- **404, or the HTML of the page** — the request never reached `worker.js`. Check that
+  `wrangler.toml` still has `main = "worker.js"` alongside the `[assets]` block.
 
 ## Sharing it with your officers
 
-Send them the `.pages.dev` URL and, if you set one, the shared phrase. That is all — they
+Send them the `.workers.dev` URL and, if you set one, the shared phrase. That is all — they
 pull the roster themselves and never touch an API key, because the key lives in Cloudflare
 and the browser never sees it.
 
 **A static page cannot keep a secret.** Anything `index.html` sends, a viewer can read out
 of the browser's network tab. That is the whole reason the model call happens server-side in
-`functions/api/` rather than in the page: keys stay in the project's settings, not in the
+`worker.js` rather than in the page: keys stay in the project's settings, not in the
 repository and not in anyone's browser. Never commit a key.
 
 ## Each run

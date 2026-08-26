@@ -72,6 +72,16 @@ function corsHeaders(origin) {
 
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+
+    // Anything that is not the API is the site itself. Static files are normally served
+    // before this script ever runs; this covers the rest, so one deployment answers for
+    // both halves and there is no second origin to authorise.
+    if (!url.pathname.replace(/^\/+/, '').startsWith('api')) {
+      if (env.ASSETS) return env.ASSETS.fetch(request);
+      return new Response('No ASSETS binding: add [assets] to wrangler.toml.', { status: 500 });
+    }
+
     const origin = request.headers.get('Origin') || '';
     // Same-origin covers the Cloudflare Pages deployment, where the page and this code are
     // one site and no cross-origin request happens at all.
