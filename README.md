@@ -20,8 +20,9 @@ Then, in the project settings:
 - **Settings → Variables and Secrets → `GEMINI_KEY`** — required. Everything runs through
   Gemini, and the key lives here rather than in anyone's browser. Without it every run fails
   with *Worker has no GEMINI_KEY secret set*.
-- `SHARED_PASS` — optional. Set it if the URL might reach people you did not give it to;
-  they then need the phrase, which goes in the collapsed **Access phrase** box on the page.
+- `SHARED_PASS` — optional, and no longer entered anywhere on the page. The site is served
+  from the Worker, so its own requests are recognised by origin and never need it; the phrase
+  now only gates callers that are not the site — curl, a script, another origin.
 
 Pushing to `main` redeploys.
 
@@ -66,9 +67,7 @@ Rows that need a decision get two controls:
   belongs to. Matched rows just show the alliance the roster already knows.
 
 **Remember my fixes** stores the name *and* the alliance you gave it, so the same player is
-recognised, with the right alliance, from the next run onward. **Copy new players** puts them
-on the clipboard as three columns — sheet name, name as drawn in game, alliance — ready to
-paste onto the end of the roster sheet so they are known permanently.
+recognised, with the right alliance, from the next run onward.
 
 ## Grouping by rank, not by name
 
@@ -155,29 +154,6 @@ neither is emitted until you choose. The other two were genuinely absent from th
 
 Frames mode remains useful when a recording is too large for whole-video, and it is the only
 mode that reads a name several times and votes.
-
-## Getting the names right
-
-A name is decided by majority vote across the frames a player appears in. If most players
-appear in exactly one frame there is no vote to take, and a single bad reading stands.
-
-Sightings per player works out as **frames sent divided by the number of screenfuls the list
-occupies** — about seven rows fit on screen, so a 153-player list is roughly 22 screenfuls:
-
-| frames | sightings each | effect |
-|---|---|---|
-| 40 | 1.8 | finds nearly everyone, but names cannot be cross-checked |
-| 60 | 2.7 | better |
-| 72 | 3.3 | a wrong reading gets outvoted |
-
-Note what this does *not* depend on: how long the recording is. Scrolling more slowly does
-not help by itself, because the frame budget is spread across the same number of screenfuls
-either way. Send more frames instead. The page suggests a number once it knows how long the
-list is.
-
-Coverage and name accuracy therefore want different settings. 40 frames found 148 of 153
-players on a test recording but left most of them seen once; the same recording at 72 gives
-three sightings each and lets voting do its job.
 
 ## One model, no fallback chain
 

@@ -107,9 +107,10 @@ export default {
 
     if (request.method !== 'POST') return reply({ error: 'POST only' }, 405);
 
-    // A public page plus a public Worker is a public API unless something gates it.
-    if (env.SHARED_PASS && request.headers.get('x-kartz-pass') !== env.SHARED_PASS)
-      return reply({ error: { code: 401, message: 'Wrong or missing shared phrase.' } }, 401);
+    // No separate phrase check here. The gate above already decided: a request either came
+    // from an origin this deployment recognises — the site itself — or it brought the shared
+    // phrase. Demanding the phrase a second time would lock out the very page being served,
+    // which no longer sends one.
 
     // Path is /<model>, or /api/<model> when mounted as a Pages Function.
     const model = decodeURIComponent(

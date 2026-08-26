@@ -64,6 +64,8 @@ tr.new{background:var(--warnbg)}
 .menu div:hover,.menu div.on{background:var(--accent);color:#fff}
 .menu div span{opacity:.55;font-size:11px}
 .menu .none{color:var(--muted);cursor:default}
+.menu .newopt{font-weight:600}
+.menu hr{border:0;border-top:1px solid var(--line);margin:4px 0}
 td select{padding:4px 6px;font-size:12px;min-width:150px}
 .note{font-size:12px;color:var(--muted);margin-top:8px}
 .warnbox{background:var(--warnbg);color:var(--warn);border-radius:8px;padding:9px 12px;
@@ -86,13 +88,10 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
     <input id="sheet" spellcheck="false" placeholder="https://docs.google.com/spreadsheets/d/…">
     <button class="ghost" id="pull" style="flex:0 0 auto;min-width:110px;width:auto">Pull roster</button>
   </div>
-  <label for="skip">Skip these alliances</label>
+  <label for="skip">Filter rows &mdash; players in these alliances are left out</label>
   <input id="skip" spellcheck="false" placeholder="z3.?, z1.Transferred">
   <details style="margin-top:8px">
-    <summary>Access phrase &amp; manual roster</summary>
-    <label for="key">Access phrase &mdash; only if one was set on the Worker</label>
-    <input id="key" type="password" spellcheck="false" placeholder="usually blank">
-    <label for="roster">Or paste the roster by hand</label>
+    <summary>Paste the roster by hand instead</summary>
     <textarea id="roster" rows="4" spellcheck="false" placeholder="Kodiak&#9;Kodiak&#9;698N"></textarea>
   </details>
   <div class="row" style="margin-top:10px">
@@ -115,11 +114,7 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
     </div>
     <div>
       <label for="sens">Frames to send <span id="sensVal" class="note"></span></label>
-      <input id="sens" type="range" min="8" max="72" step="4" value="40">
-      <label style="display:flex;align-items:center;gap:7px;margin-top:8px">
-        <input type="checkbox" id="crop" checked style="width:auto;margin:0">
-        <span>Crop to the list &mdash; smaller and cheaper; untick if the preview looks wrong</span>
-      </label>
+      <input id="sens" type="range" min="8" max="72" step="4" value="48">
     </div>
   </div>
   <button id="go" style="margin-top:12px" disabled>Extract</button>
@@ -136,7 +131,6 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
     <button id="copy">Copy for sheet</button>
     <button class="ghost" id="csv">Download CSV</button>
     <button class="ghost" id="learn">Remember my fixes</button>
-    <button class="ghost" id="newplayers">Copy new players</button>
   </div>
   <p class="note">Anything you resolve by hand, then save with <em>Remember my fixes</em>, is matched automatically from the next run onward.</p>
 </section>
@@ -164,7 +158,6 @@ const store = {
 };
 
 function loadSetup() {
-  $('key').value     = store.get('key')      || '';
   $('roster').value  = store.get('rosterRaw')|| '';
   $('sheet').value   = store.get('sheet')    || '';
   $('skip').value    = store.get('skip')     ?? 'z3.?, z1.Transferred';
@@ -182,11 +175,11 @@ function refreshState() {
   $('go').disabled = !(names && videoFile);
 }
 $('save').onclick = () => {
-  ['key','sheet','skip','datestr'].forEach(k => store.set(k, $(k).value));
+  ['sheet','skip','datestr'].forEach(k => store.set(k, $(k).value));
   store.set('rosterRaw', $('roster').value);
   refreshState(); log('setup saved');
 };
-['key','roster'].forEach(k => $(k).addEventListener('input', refreshState));
+$('roster').addEventListener('input', refreshState);
 
 $('pull').onclick = async () => {
   const link = $('sheet').value.trim();
@@ -487,7 +480,7 @@ async function extractFrames(file, budget, onProg) {
     times.push(t); motion.push(total);
     onProg(0.6 * t / dur, 0);
   }
-  const box = $('crop').checked ? movingRegion(accum) : null;
+  const box = movingRegion(accum);      // always: it removes the pinned own-rank card
   lastCropBox = box;
 
   // pick timestamps at equal increments of accumulated motion
@@ -580,7 +573,7 @@ async function callModel(frames) {
   let done = 0;
   const switched = new Set();
   const one = async b => {
-    const rows = await withFallback(m => callProxy(b, m, $('key').value.trim(), API_BASE),
+    const rows = await withFallback(m => callProxy(b, m, API_BASE),
                                     modelChain(), m => switched.add(m), false);
     done++; setProg(0.5 + 0.5 * done / batches.length);
     log(`read ${done} of ${batches.length} batches…`
@@ -637,10 +630,10 @@ async function withFallback(call, chain, note, paced) {
 
 // Same request the direct Gemini path sends, aimed at the team Worker instead. No key
 // travels with it; the Worker holds that and adds it upstream.
-async function callProxy(batch, model, pass, base) {
+async function callProxy(batch, model, base) {
   const r = await fetch(base + '/' + encodeURIComponent(model), {
     method: 'POST',
-    headers: { 'content-type': 'application/json', ...(pass ? { 'x-kartz-pass': pass } : {}) },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       contents: [{ role: 'user', parts: [
         ...batch.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d } })),
@@ -856,7 +849,6 @@ $('go').onclick = async () => {
 function render(roster) {
   const dropped = rows.filter(r => r.skipped).length;
   const need = rows.filter(r => !r.match && !r.skipped).length;
-  const thin = rows.filter(r => r.seen < 2).length;
   // The model reports the rank it saw; we renumber by score. Where the two disagree,
   // a row between them was probably never captured — worth saying out loud, because a
   // silently short list is the one failure the sheet cannot catch downstream.
@@ -868,19 +860,7 @@ function render(roster) {
     + `${rows.length - need - dropped} matched to the roster`
     + (dropped ? ` &middot; ${dropped} excluded (${esc($('skip').value.trim())})` : '')
     + (need ? ` &middot; <strong>${need} to confirm below</strong>` : '')
-    + (thin ? ` &middot; ${thin} seen only once` : '') + `</div>`
-    // Names are decided by majority vote across sightings, so a run where most players were
-    // seen once has no vote to take — one bad reading simply wins. That is a different
-    // complaint from the coverage one below: the list can be complete and still be full of
-    // misread names. Sightings per player is roughly frames sent divided by how many
-    // screenfuls the list occupies, so the cure is more frames, not a slower recording.
-    // In whole-video mode every player is reported once by design, so the advice to raise
-    // the frame count would be nonsense there.
-    + (rows.length && thin > rows.length * 0.4
-        ? `<div class="warnbox">Most players were caught in a single frame, so names could `
-          + `not be cross-checked between frames and misreadings stand uncorrected. `
-          + `Raise <em>Frames to send</em> — about ${Math.min(72, Math.ceil(rows.length / 7 * 3 / 4) * 4)} `
-          + `would give roughly three sightings each for a list this long.</div>` : '')
+    + `</div>`
     + (gap ? `<div class="warnbox">The game showed a rank as high as ${top} but only `
         + `${rows.length} rows came through — ${top - rows.length} row(s) were probably `
         + `never captured. Raise <em>Frames to send</em> and run it again.</div>` : '');
@@ -960,11 +940,20 @@ function openMenu(input, onPick) {
                   : all).slice(0, 60);
   menuEl = document.createElement('div');
   menuEl.className = 'menu';
-  menuEl.innerHTML = hits.length
-    ? hits.map((r, i) => `<div data-v="${esc(r.search)}"${i === 0 ? ' class="on"' : ''}>`
-        + `${esc(r.search)}<span>${esc(r.alliance || '')}</span></div>`).join('')
-    : '<div class="none">no match — leave it as typed for a new player</div>';
+  // "New player" sits at the top, separated from the roster, because a row that reaches
+  // this box is often somebody who simply is not on the list yet, and hunting for the
+  // absence of a name is harder than being offered it.
+  const newLabel = input.value.trim()
+    ? `New player — keep “${esc(input.value.trim())}”` : 'New player';
+  menuEl.innerHTML =
+    `<div data-v="\u0001new" class="newopt">${newLabel}</div><hr>`
+    + (hits.length
+        ? hits.map(r => `<div data-v="${esc(r.search)}">`
+            + `${esc(r.search)}<span>${esc(r.alliance || '')}</span></div>`).join('')
+        : '<div class="none">no roster name matches that</div>');
   document.body.appendChild(menuEl);
+  const first = menuEl.querySelector('div[data-v]:not(.newopt)');
+  if (first) first.classList.add('on');
   const b = input.getBoundingClientRect();
   menuEl.style.left = b.left + 'px';
   menuEl.style.width = Math.max(b.width, 200) + 'px';
@@ -974,6 +963,7 @@ function openMenu(input, onPick) {
   else menuEl.style.top = (b.bottom + 4) + 'px';
   menuEl.querySelectorAll('div[data-v]').forEach(d => d.onmousedown = ev => {
     ev.preventDefault();
+    if (d.dataset.v === '\u0001new') { onPick(input.value.trim()); closeMenu(); input.focus(); return; }
     input.value = d.dataset.v; onPick(d.dataset.v); closeMenu();
   });
 }
@@ -995,6 +985,7 @@ function wirePicker(input, onPick) {
       items[next].scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter' && at >= 0) {
       e.preventDefault();
+      if (items[at].dataset.v === '\u0001new') { onPick(input.value.trim()); closeMenu(); return; }
       input.value = items[at].dataset.v; onPick(input.value); closeMenu();
     } else if (e.key === 'Escape') closeMenu();
   };
@@ -1037,15 +1028,6 @@ $('learn').onclick = () => {
         : 'nothing new to remember');
 };
 
-// New players and the alliance you gave them, ready to paste as three roster columns.
-$('newplayers').onclick = async () => {
-  const fresh = rows.filter(r => !r.match && !r.skipped && r.pick && r.pick !== '\u0000drop');
-  if (!fresh.length) return log('no new players to add — every row matched the roster');
-  const tsv = fresh.map(r => [r.pick, r.name, r.alliancePick || ''].join('\t')).join('\n');
-  try { await navigator.clipboard.writeText(tsv);
-        log(`copied ${fresh.length} new player${fresh.length>1?'s':''} — paste at the bottom of the roster sheet`); }
-  catch { prompt('Paste these into the roster sheet:', tsv); }
-};
 
 
 loadSetup();
