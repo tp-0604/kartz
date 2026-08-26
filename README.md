@@ -4,52 +4,26 @@ A single static page that turns a screen recording of the in-game **Ranking** li
 rows you paste straight into the tracking sheet. No install, no OCR software, no server.
 Works on Windows, macOS, Android and iOS — anywhere with a browser.
 
-## Where to host it
+## Deploying
 
-One Cloudflare Worker serves both halves: the files in `public/` are the site, and `/api/*`
-runs `worker.js`. Same origin, one deploy, nothing to keep in step.
-
-That arrangement is what makes Cloudflare Workers AI usable at all. Its REST API cannot be
-called from a browser — the preflight comes back 405 with no allow-origin header — so the
-call has to happen server-side. Here it does, and no token ever reaches the page.
-
-### Deploy
-
-Connect the repo at **dash.cloudflare.com → Workers & Pages → Create → Workers**, or from a
-terminal:
+One Cloudflare Worker serves both halves: `public/` is the site, `/api/*` runs `worker.js`.
+Same origin, one deploy.
 
 ```bash
 npm i -g wrangler && wrangler login && wrangler deploy
 ```
 
-Then, in the project:
+Then, in the project settings:
 
-- **Settings → Domains & Routes → Enable `workers.dev`.** A Worker has **no public URL until
-  you do this** — the Overview will say *No URLs enabled*. Afterwards the site is at
-  `https://kartz.<your-subdomain>.workers.dev`.
-- **Bindings → Workers AI**, variable name `AI` (needed for the Cloudflare models).
-- **Settings → Variables and Secrets** → `GEMINI_KEY` if you also want the Gemini path, and
-  `SHARED_PASS` if the URL might be found by someone you did not give it to.
+- **Settings → Domains & Routes → Enable `workers.dev`.** A Worker has no public URL until
+  you do; the Overview will say *No URLs enabled* until then.
+- **Settings → Variables and Secrets → `GEMINI_KEY`** — required. Everything runs through
+  Gemini, and the key lives here rather than in anyone's browser. Without it every run fails
+  with *Worker has no GEMINI_KEY secret set*.
+- `SHARED_PASS` — optional. Set it if the URL might reach people you did not give it to;
+  they then need the phrase, which goes in the collapsed **Access phrase** box on the page.
 
 Pushing to `main` redeploys.
-
-### Hosting the page somewhere else instead
-
-`worker.js` also stands alone, for serving the page from GitHub Pages or any other static
-host. Deploy it as its own Worker, add that page's origin to `ALLOWED_ORIGINS` at the top of
-the file, and put the Worker URL in the page's endpoint box instead of `/api`. Note that a
-different static host changes nothing about CORS — that is enforced by the service you call,
-not by where the page came from.
-
-### Who can use your deployment
-
-A request is accepted if it comes from a browser origin the Worker recognises — its own, or
-one listed in `ALLOWED_ORIGINS` — **or** if it carries the shared phrase. Anything else is
-refused, including a request with no `Origin` header at all, so a deployment with no phrase
-set is still not usable by a stranger with the URL.
-
-An `Origin` header proves nothing on its own; it is trivially forged by anything that is not
-a browser. **Set `SHARED_PASS`** if the URL might be discovered. That is the real gate.
 
 ## Opening it the first time
 
@@ -65,19 +39,23 @@ app, which is worth doing because the phone is where the recording already lives
 
 ### Setting it up, once per device
 
-1. Paste the link to your **Alliance Rosters** tab and press **Pull roster**. It should say
-   something like *roster: 689 names (139 skipped)*. If it complains about a sign-in page,
-   the sheet is not link-readable: *Share → General access → Anyone with the link → Viewer*.
-2. Choose the model:
-   - **Cloudflare Workers AI** — nothing else to fill in. The endpoint is already `/api`,
-     which is this same site, and the AI binding does the rest.
-   - **Shared key (server-side)** — same, but runs your Gemini key from the server. Needs
-     `GEMINI_KEY` set in the project settings.
-   - **Google Gemini** — paste your own key instead. No server involved.
-3. If you set a `SHARED_PASS`, type it in the **Shared phrase** box.
-4. Press **Save setup**. It is remembered in that browser.
+Paste the link to your **Alliance Rosters** tab, press **Pull roster**, and **Save setup**.
+That is the whole configuration — there is no model or key to choose, because both live on
+the Worker. If the pull complains about a sign-in page, the sheet is not link-readable:
+*Share → General access → Anyone with the link → Viewer*.
 
 The badge next to *Setup* turns green and shows the roster count when it is ready.
+
+### Each run
+
+Pick the recording, set the date, and choose **the alliance this recording is for**. That
+narrows the candidate list from a few hundred names to well under two hundred, which both
+shortens the prompt and removes any chance of matching a player who was never in this event.
+Leave it on *All alliances* if the list spans several.
+
+In the results, a row that needs a decision has a **search box** rather than a long dropdown:
+type a few letters and the browser filters your roster. The **✕** beside it marks a row as
+not a real one, so it is left out of the copied rows.
 
 ### Checking the server side is alive
 

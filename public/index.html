@@ -55,6 +55,7 @@ tr.new{background:var(--warnbg)}
 .p-ok{background:var(--okbg);color:var(--ok)}
 .p-new{background:var(--warnbg);color:var(--warn)}
 .p-bad{background:var(--badbg);color:var(--bad)}
+.pickbox{padding:5px 8px;font-size:13px;min-width:170px}
 td select{padding:4px 6px;font-size:12px;min-width:150px}
 .note{font-size:12px;color:var(--muted);margin-top:8px}
 .warnbox{background:var(--warnbg);color:var(--warn);border-radius:8px;padding:9px 12px;
@@ -72,22 +73,6 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
 
 <section>
   <h2>1 &middot; Setup <span id="setupState" class="pill p-new">not configured</span></h2>
-  <div class="row">
-    <div>
-      <label for="provider">Model</label>
-      <select id="provider"></select>
-    </div>
-    <div>
-      <label for="model">Model ID</label>
-      <input id="model" spellcheck="false">
-    </div>
-  </div>
-  <div id="baseWrap" class="hide">
-    <label for="base"><span id="baseLabel">Endpoint base URL</span></label>
-    <input id="base" spellcheck="false" placeholder="https://openrouter.ai/api/v1">
-  </div>
-  <label for="key"><span id="keyLabel">API key</span> <span id="keyHint"></span></label>
-  <input id="key" type="password" spellcheck="false" placeholder="stored only in this browser">
   <label for="sheet">Roster sheet &mdash; link to the Alliance Rosters tab</label>
   <div class="row" style="flex-wrap:nowrap">
     <input id="sheet" spellcheck="false" placeholder="https://docs.google.com/spreadsheets/d/…">
@@ -96,12 +81,14 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
   <label for="skip">Skip these alliances</label>
   <input id="skip" spellcheck="false" placeholder="z3.?, z1.Transferred">
   <details style="margin-top:8px">
-    <summary>or paste it by hand</summary>
+    <summary>Access phrase &amp; manual roster</summary>
+    <label for="key">Access phrase &mdash; only if one was set on the Worker</label>
+    <input id="key" type="password" spellcheck="false" placeholder="usually blank">
+    <label for="roster">Or paste the roster by hand</label>
     <textarea id="roster" rows="4" spellcheck="false" placeholder="Kodiak&#9;Kodiak&#9;698N"></textarea>
   </details>
   <div class="row" style="margin-top:10px">
     <button class="ghost" id="save">Save setup</button>
-    <button class="ghost" id="clear">Clear key</button>
   </div>
   <p class="note" id="keyNote"></p>
 </section>
@@ -117,6 +104,14 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
     <div>
       <label for="datestr">Date</label>
       <input id="datestr" type="date">
+      <label for="alli" style="margin-top:10px">Alliance in this recording</label>
+      <select id="alli">
+        <option value="">All alliances</option>
+        <option value="698W">698W</option>
+        <option value="698S">698S</option>
+        <option value="698N">698N</option>
+        <option value="698C">698C</option>
+      </select>
     </div>
     <div>
       <label for="sens">Frames to send <span id="sensVal" class="note"></span></label>
@@ -124,11 +119,6 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
       <label style="display:flex;align-items:center;gap:7px;margin-top:8px">
         <input type="checkbox" id="crop" checked style="width:auto;margin:0">
         <span>Crop to the list &mdash; smaller and cheaper; untick if the preview looks wrong</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:7px;margin-top:6px">
-        <input type="checkbox" id="whole" style="width:auto;margin:0">
-        <span>Send the whole video &mdash; one request, never misses a row, but names are
-        read less reliably. Gemini only, under about 14&nbsp;MB.</span>
       </label>
     </div>
   </div>
@@ -158,74 +148,14 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
 
 <script>
 const $ = id => document.getElementById(id);
-// Everything below the first two speaks the OpenAI chat-completions dialect, so they all
-// share one code path — swapping provider is a base URL and a model name, nothing more.
-const PROVIDERS = {
-  gemini:     { label: 'Google Gemini',  model: 'gemini-3.6-flash', api: 'gemini',
-                keys: 'https://aistudio.google.com/apikey',
-                free: '20 requests a day per model, several models',
-                // The free tier meters 20 requests a day *per model*, and the busy aliases
-                // return 503 independently of each other. Both faults are therefore fixed
-                // the same way: move to the next model. Six of these is 120 requests a day.
-                // Ordered by what actually held up under testing. gemini-flash-latest is
-                // deliberately absent: it returned 503 on every attempt across a session and
-                // then an empty body. The lite models are quick but dropped a row, so they
-                // sit below the full ones.
-                fallbacks: ['gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-3.7-flash',
-                            'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite',
-                            'gemini-flash-lite-latest'] },
-  claude:     { label: 'Anthropic Claude', model: 'claude-haiku-4-5-20251001', api: 'claude',
-                keys: 'https://console.anthropic.com/settings/keys', free: 'paid' },
-  openrouter: { label: 'OpenRouter',     api: 'openai', base: 'https://openrouter.ai/api/v1',
-                model: 'google/gemma-4-31b-it:free',
-                keys: 'https://openrouter.ai/keys', free: 'free models, ~50 requests a day' },
-  groq:       { label: 'Groq — Qwen',     api: 'openai', base: 'https://api.groq.com/openai/v1',
-                model: 'qwen/qwen3.6-27b',
-                keys: 'https://console.groq.com/keys',
-                free: '1000 requests/day but only 8k tokens/min',
-                // Sized against the 8,000-token minute, which counts the output you
-                // *reserve* as well as what you send. Measured: prompt 383, one frame ~2,100.
-                //   3 frames + prompt + 1500 out = ~8,050  -> refused, just over
-                //   2 frames + prompt +  900 out = ~5,400  -> fits, with room to spare
-                // Three frames would be about 10% quicker over a whole run, but frame cost
-                // varies with how busy the picture is, so it sits close enough to the ceiling
-                // to fail on some recordings and not others. Two is the honest choice.
-                batch: 2,
-                maxOut: 900,
-                // Groq's 429 is a per-minute window, not a daily cap: waiting genuinely
-                // clears it, unlike Gemini's, so this provider is paced rather than skipped.
-                paced: true,
-                fallbacks: ['qwen/qwen3.8-27b'] },
-  mistral:    { label: 'Mistral',        api: 'openai', base: 'https://api.mistral.ai/v1',
-                model: 'pixtral-12b-2409',
-                keys: 'https://console.mistral.ai/api-keys', free: 'free tier' },
-  shared:     { label: 'Shared key (server-side)', api: 'proxy', base: '/api',
-                model: 'gemini-3.6-flash', keys: '', free: 'uses the key on the Worker',
-                fallbacks: ['gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-3.7-flash',
-                            'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite',
-                            'gemini-flash-lite-latest'] },
-  cfai:       { label: 'Cloudflare Workers AI', api: 'proxy', base: '/api',
-                model: '@cf/meta/llama-4-scout-17b-16e-instruct',
-                keys: '', free: '10k neurons/day, no key in the browser',
-                // Two frames a call, not the eight Gemini takes. Measured on the same eight
-                // mid-list frames: at eight per call this model returned 3.5 rows per frame,
-                // at two it returned 5.8 — it simply stops reading partway through a long
-                // batch. Those missing rows are what starve the majority vote that decides
-                // names, so the fix shows up as better names, not just more rows.
-                batch: 2,
-                // and it rate-limits when several calls land at once
-                paced: true,
-                // Workers AI cannot be called from the page — its REST API answers a CORS
-                // preflight with 405 and sends no allow-origin header — so it goes through
-                // the Worker; see wrangler.toml for the [ai] binding.
-                //
-                // No fallback listed. The obvious candidate, llama-3.2-11b-vision-instruct,
-                // refuses every request until Meta's terms are accepted by hand in the
-                // dashboard, so listing it only spends a call to earn a 502.
-                fallbacks: [] },
-  custom:     { label: 'Other OpenAI-compatible', api: 'openai', base: '', model: '',
-                keys: '', free: 'whatever your endpoint allows' },
-};
+// One configuration. The model call goes to /api on this same deployment, where the Worker
+// holds the Google key — nothing about the model or the credentials is exposed here, and
+// there is nothing for anyone to configure or get wrong.
+const MODEL = 'gemini-3-flash-preview';
+const FALLBACKS = ['gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-3.6-flash',
+                   'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+const API_BASE = '/api';
+const BATCH = 8;
 
 /* ---------------- persistence ---------------- */
 const store = {
@@ -234,58 +164,30 @@ const store = {
 };
 
 function loadSetup() {
-  $('provider').innerHTML = Object.entries(PROVIDERS)
-    .map(([k, p]) => `<option value="${k}">${p.label} — ${p.free}</option>`).join('');
-  $('provider').value = store.get('provider') || 'gemini';
-  const p = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
-  $('model').value    = store.get('model')    || p.model;
-  $('base').value     = store.get('base')     || p.base || '';
-  $('key').value      = store.get('key')      || '';
-  $('roster').value   = store.get('rosterRaw')|| '';
-  $('sheet').value    = store.get('sheet')    || '';
-  $('skip').value     = store.get('skip')     ?? 'z3.?, z1.Transferred';
-  rosterCache         = store.get('roster')   || null;
-  // default to today, in the YYYY-MM-DD the sheet expects
-  $('datestr').value  = store.get('datestr')  || new Date().toLocaleDateString('en-CA');
-  syncHint(); refreshState();
-}
-function syncHint() {
-  const p = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
-  $('keyHint').innerHTML = p.keys
-    ? `&mdash; <a href="${p.keys}" target="_blank" rel="noopener">get a key</a>` : '';
-  $('baseWrap').classList.toggle('hide', p.api !== 'openai' && p.api !== 'proxy');
-  $('baseLabel').textContent = p.api === 'proxy'
-    ? 'Endpoint — /api when this page is on Cloudflare Pages, or a full Worker URL'
-    : 'Endpoint base URL';
-  $('keyLabel').textContent  = p.api === 'proxy' ? 'Shared phrase' : 'API key';
-  $('key').placeholder = p.api === 'proxy'
-    ? 'the phrase your admin gave you — not an API key'
-    : 'stored only in this browser';
-  $('keyNote').textContent = p.api === 'proxy'
-    ? 'No API key is used here. The key lives on the Worker and never reaches this page, '
-      + 'so anyone with the phrase can run the tool without getting a key of their own.'
-    : "The key is kept in this browser's local storage and sent straight to the model "
-      + 'vendor. Nothing is stored on the site. Never commit a key into the repository.';
+  $('key').value     = store.get('key')      || '';
+  $('roster').value  = store.get('rosterRaw')|| '';
+  $('sheet').value   = store.get('sheet')    || '';
+  $('skip').value    = store.get('skip')     ?? 'z3.?, z1.Transferred';
+  $('alli').value    = store.get('alli')     || '';
+  rosterCache        = store.get('roster')   || null;
+  $('datestr').value = store.get('datestr')  || new Date().toLocaleDateString('en-CA');
+  $('keyNote').textContent =
+    'The Google key lives on this site\u2019s Worker, not in your browser. Nothing to set up '
+    + 'and nothing to leak.';
+  refreshRosterList(); refreshState();
 }
 function refreshState() {
-  const spec = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
   const names = currentRoster().length;
-  const ok = (spec.api === 'proxy' || $('key').value.trim()) && names;
-  $('setupState').className = 'pill ' + (ok ? 'p-ok' : 'p-new');
-  $('setupState').textContent = ok ? names + ' roster names' : 'not configured';
-  $('go').disabled = !(ok && videoFile);
+  $('setupState').className = 'pill ' + (names ? 'p-ok' : 'p-new');
+  $('setupState').textContent = names ? names + ' roster names' : 'not configured';
+  $('go').disabled = !(names && videoFile);
 }
-$('provider').onchange = () => {
-  const p = PROVIDERS[$('provider').value];
-  $('model').value = p.model; $('base').value = p.base || '';
-  syncHint(); refreshState();
-};
 $('save').onclick = () => {
-  ['provider','model','key','base','sheet','skip','datestr'].forEach(k => store.set(k, $(k).value));
+  ['key','sheet','skip','alli','datestr'].forEach(k => store.set(k, $(k).value));
   store.set('rosterRaw', $('roster').value);
   refreshState(); log('setup saved');
 };
-$('clear').onclick = () => { $('key').value=''; store.set('key',''); refreshState(); };
+$('alli').onchange = () => { store.set('alli', $('alli').value); refreshRosterList(); refreshState(); };
 ['key','roster'].forEach(k => $(k).addEventListener('input', refreshState));
 
 $('pull').onclick = async () => {
@@ -359,9 +261,16 @@ function skipList() {
 
 /* ---------------- matching ---------------- */
 let rosterCache = null;            // { active, skipped }
+// Narrowing to the alliance being recorded cuts the candidate list from a few hundred to
+// well under two, which both shortens the prompt and removes the chance of a name being
+// matched to a player from an alliance that was never in this event.
 function currentRoster() {
-  if (rosterCache && rosterCache.active && rosterCache.active.length) return rosterCache.active;
-  return parseRoster($('roster').value);
+  const all = (rosterCache && rosterCache.active && rosterCache.active.length)
+    ? rosterCache.active : parseRoster($('roster').value);
+  const a = ($('alli') && $('alli').value || '').trim().toLowerCase();
+  if (!a) return all;
+  const narrowed = all.filter(r => (r.alliance || '').trim().toLowerCase() === a);
+  return narrowed.length ? narrowed : all;
 }
 const skippedRoster = () => (rosterCache && rosterCache.skipped) || [];
 function parseRoster(text) {
@@ -602,20 +511,6 @@ async function extractFrames(file, budget, onProg) {
   return frames;
 }
 
-// Hand Gemini the video itself instead of stills. It samples and reads the clip on its
-// own, which is what the Google AI Studio app does, and the difference shows: one request
-// covers the whole list with no gaps, because nothing depends on our frame budget lining
-// up with how fast the list was scrolled. The trade is that names come back from a single
-// reading each, with no second sighting to outvote a bad one.
-const VIDEO_LIMIT = 14 * 1024 * 1024;      // stays under the 20 MB request cap once base64'd
-async function fileToBase64(file) {
-  const buf = new Uint8Array(await file.arrayBuffer());
-  let bin = '';
-  for (let i = 0; i < buf.length; i += 0x8000)          // chunked: one big spread overflows
-    bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
-  return btoa(bin);
-}
-
 /* ---------------- vision model ---------------- */
 // The model is not being asked to transcribe an unknown name — it is being asked which of
 // a few hundred known players a row belongs to. Handing it the roster turns a reading
@@ -676,84 +571,23 @@ ${once}
 - Output raw JSON only. No markdown fence, no commentary.`;
 }
 
-async function callVideo(file) {
-  const spec = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
-  if (spec.api !== 'gemini' && spec.api !== 'proxy')
-    throw new Error('Whole-video mode needs Gemini (or the shared server-side key).');
-  if (file.size > VIDEO_LIMIT)
-    throw new Error(`That recording is ${(file.size/1e6).toFixed(0)} MB; whole-video mode tops `
-      + `out near ${VIDEO_LIMIT/1e6} MB. Untick it and it will sample frames instead.`);
-  log('uploading the video…'); setProg(0.15);
-  const data = await fileToBase64(file);
-  const body = {
-    contents: [{ role: 'user', parts: [
-      { inline_data: { mime_type: file.type || 'video/mp4', data } },
-      { text: buildPrompt(true) }] }],
-    generationConfig: { temperature: 0, maxOutputTokens: 32768,
-                        thinkingConfig: { thinkingLevel: 'low' } },
-  };
-  const key = $('key').value.trim();
-  const base = $('base').value.trim().replace(/(.)\/+$/, '$1');
-  const send = async model => {
-    const url = spec.api === 'proxy'
-      ? base + '/' + encodeURIComponent(model)
-      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
-    const headers = { 'content-type': 'application/json' };
-    if (spec.api === 'proxy' && key) headers['x-kartz-pass'] = key;
-    const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
-    if (!r.ok) throw new Error(r.status + ': ' + (await r.text()).slice(0, 300));
-    const j = await r.json();
-    return parseJSON(j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '');
-  };
-  log('reading the video — this takes a couple of minutes…'); setProg(0.4);
-  const rows = await withFallback(send, modelChain(), m => log(`reading with ${m}…`), false);
-  setProg(1);
-  return rows;
-}
-
 async function callModel(frames) {
-  const spec = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
-  const model = $('model').value.trim(), key = $('key').value.trim();
-  const base = $('base').value.trim().replace(/(.)\/+$/, '$1');
-  // Batch size is provider-specific. Gemini's free tier is metered per request per day, so
-  // large batches mean more runs; Groq's is metered per token per minute, so its spec asks
-  // for small ones. Batches are independent, so providers without a pacing rule overlap them.
-  const BATCH = spec.batch || 8, batches = [];
+  const batches = [];
   for (let i = 0; i < frames.length; i += BATCH) batches.push(frames.slice(i, i + BATCH));
   let done = 0;
-  const fn = { gemini: callGemini, claude: callClaude, openai: callOpenAI, proxy: callProxy }[spec.api];
-  if ((spec.api === 'openai' || spec.api === 'proxy') && !base)
-    throw new Error('This provider needs an endpoint base URL.');
-  const chain = modelChain();
   const switched = new Set();
   const one = async b => {
-    const rows = await withFallback(m => fn(b, m, key, base, spec.maxOut), chain,
-                                    m => switched.add(m), !!spec.paced);
+    const rows = await withFallback(m => callProxy(b, m, $('key').value.trim(), API_BASE),
+                                    modelChain(), m => switched.add(m), false);
     done++; setProg(0.5 + 0.5 * done / batches.length);
     log(`read ${done} of ${batches.length} batches…`
         + (switched.size ? `  (fell back to ${[...switched].join(', ')})` : ''));
     return rows;
   };
-  // Where the provider meters tokens per minute, running batches at once simply spends the
-  // whole minute's budget in one go and every call after the first is refused. Those go one
-  // at a time; the rest overlap, which is where the speed comes from.
-  if (spec.paced) {
-    const out = [];
-    for (const b of batches) out.push(...await one(b));
-    return out;
-  }
   return (await Promise.all(batches.map(one))).flat();
 }
 
-// A 503 means this model alias is saturated right now; a 429 means this model's daily
-// allowance is gone. Neither improves by asking the same model again, and both are fixed
-// by asking a different one — the free tier's 20-a-day is metered per model, so each
-// fallback brings its own budget. Only genuine transients get a same-model retry.
-function modelChain() {
-  const spec = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
-  const first = $('model').value.trim() || spec.model;
-  return [first, ...(spec.fallbacks || []).filter(m => m !== first)];
-}
+const modelChain = () => [MODEL, ...FALLBACKS.filter(m => m !== MODEL)];
 const isBusy = e => /\b(429|500|502|503|504)\b/.test(e.message);
 
 // How long the server asked us to wait, in seconds, or 0 if it did not say. Groq answers
@@ -844,76 +678,6 @@ function parseJSON(text) {
   return rows;
 }
 
-async function callGemini(batch, model, key, noThinking = true) {
-  // Reading a leaderboard is perception, not reasoning. Left to its own devices the model
-  // spends far longer thinking than looking — turning that off cut a batch from 36s to 8s
-  // and, if anything, returned more rows.
-  const cfg = { temperature: 0, maxOutputTokens: 32768 };
-  if (noThinking) cfg.thinkingConfig = { thinkingLevel: 'low' };
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [
-        ...batch.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d } })),
-        { text: buildPrompt(false) }] }],
-      generationConfig: cfg
-    })
-  });
-  if (!r.ok) {
-    const body = (await r.text()).slice(0, 400);
-    // older models do not know thinkingLevel; drop it and try once more
-    if (noThinking && r.status === 400 && /thinking/i.test(body)) return callGemini(batch, model, key, false);
-    throw new Error('Gemini ' + r.status + ': ' + body);
-  }
-  const j = await r.json();
-  return parseJSON(j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '');
-}
-async function callClaude(batch, model, key) {
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-api-key': key,
-               'anthropic-version': '2023-06-01',
-               'anthropic-dangerous-direct-browser-access': 'true' },
-    body: JSON.stringify({
-      model, max_tokens: 16384, temperature: 0,
-      messages: [{ role: 'user', content: [
-        ...batch.map(d => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: d } })),
-        { type: 'text', text: buildPrompt(false) }] }]
-    })
-  });
-  if (!r.ok) throw new Error('Claude ' + r.status + ': ' + (await r.text()).slice(0, 300));
-  const j = await r.json();
-  return parseJSON(j.content?.map(c => c.text || '').join('') || '');
-}
-
-// OpenRouter, Groq, Mistral, Cerebras and most self-hosted servers all expose the same
-// chat-completions shape, so one function covers every one of them and any future arrival.
-async function callOpenAI(batch, model, key, base, maxOut = 16384) {
-  const r = await fetch(base + '/chat/completions', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + key },
-    body: JSON.stringify({
-      model, temperature: 0, max_tokens: maxOut,
-      // Qwen narrates its reasoning into the reply by default, which costs tokens on a
-      // tight per-minute budget and buries the JSON. Reading a leaderboard needs none of it.
-      reasoning_effort: 'none',
-      messages: [{ role: 'user', content: [
-        ...batch.map(d => ({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,' + d } })),
-        { type: 'text', text: buildPrompt(false) }] }]
-    })
-  });
-  if (!r.ok) {
-    const wait = r.headers.get('retry-after');
-    const body = (await r.text()).slice(0, 400);
-    // carry the server's own wait hint through, so the pacer does not have to guess
-    throw new Error(r.status + (wait ? ` [retry-after ${wait}]` : '') + ': ' + body);
-  }
-  const j = await r.json();
-  const msg = j.choices?.[0]?.message;
-  return parseJSON(typeof msg?.content === 'string' ? msg.content
-                 : (msg?.content || []).map(c => c.text || '').join(''));
-}
-
 // Rows carried in from another screen. The opening seconds of a recording often show a
 // different leaderboard whose scores are an order of magnitude larger, and raising the frame
 // resolution made those legible enough to be read too. Everything in one Kartz list sits in
@@ -936,28 +700,6 @@ function dropForeignRows(sightings) {
 /* ---------------- consolidate ---------------- */
 // a player's score holds steady across frames; their name does not. so sightings that
 // share a score and read similarly are the same person, however badly the tag rendered.
-// Whole-video mode reports each player once, in rank order, so there is nothing to
-// consolidate — and trying to would actively destroy data. Two rows that the model assigned
-// the same roster name collapse into one under name clustering, and a genuine pair (a main
-// and an alt sharing a display name, say) silently becomes a single row. Rank is the
-// identity here; keep every one.
-function consolidateByRank(sightings) {
-  const byRank = new Map();
-  let synthetic = 100000;
-  for (const s of sightings) {
-    if (!s || typeof s.points !== 'number') continue;
-    const k = (typeof s.rank === 'number' && s.rank > 0) ? s.rank : ++synthetic;
-    if (!byRank.has(k)) byRank.set(k, s);
-  }
-  return [...byRank.entries()].sort((a, b) => a[0] - b[0]).map(([rank, s]) => ({
-    points: s.points,
-    name:   s.seen || s.name || '',
-    plain:  s.roster_name || s.plain || s.seen || s.name || '',
-    pick_:  s.roster_name || '',
-    rank, seenRank: rank, seen: 1,
-  }));
-}
-
 function consolidate(sightings, frameCount) {
   const groups = new Map();
   for (const s of sightings) {
@@ -1017,31 +759,22 @@ $('go').onclick = async () => {
     skipIndex = buildIndex(skippedRoster());
     aliases = store.get('aliases') || {};
 
-    let sightings, frameCount;
-    if ($('whole').checked) {
-      sightings = await callVideo(videoFile);
-      // one reading per player, so the sightings floor must not demand a second
-      frameCount = 1;
-      $('strip').innerHTML = '';
-    } else {
-      log('decoding video…'); setProg(0);
-      const frames = await extractFrames(videoFile, +$('sens').value,
-        (p, n) => { setProg(p * 0.5); log(`sampling video — ${n} frames kept`); });
-      if (!frames.length) throw new Error('no frames captured');
-      $('strip').innerHTML = frames.slice(0, 24)
-        .map(f => `<img src="data:image/jpeg;base64,${f}">`).join('');
-      log(`${frames.length} frames (${(frames.join('').length * 0.75 / 1024 | 0)} KB) — sending…`);
-      sightings = await callModel(frames);
-      frameCount = frames.length;
-    }
+    log('decoding video…'); setProg(0);
+    const frames = await extractFrames(videoFile, +$('sens').value,
+      (p, n) => { setProg(p * 0.5); log(`sampling video — ${n} frames kept`); });
+    if (!frames.length) throw new Error('no frames captured');
+    $('strip').innerHTML = frames.slice(0, 24)
+      .map(f => `<img src="data:image/jpeg;base64,${f}">`).join('');
+    log(`${frames.length} frames (${(frames.join('').length * 0.75 / 1024 | 0)} KB) — sending…`);
+    let sightings = await callModel(frames);
+    const frameCount = frames.length;
     // A roster_name the model returned is only worth anything if it is genuinely in the
     // roster; models will occasionally produce a plausible-looking name that is not on the
     // list, and that is exactly the case a human needs to see.
     const byName = new Map();
     for (const e of index) byName.set(e.k, e.r);
     sightings = dropForeignRows(sightings);
-    const base = $('whole').checked ? consolidateByRank(sightings)
-                                    : consolidate(sightings, frameCount);
+    const base = consolidate(sightings, frameCount);
     rows = base.map(r => {
       const claimed = r.pick_ ? byName.get(fold(r.pick_)) : null;
       if (claimed) return { ...r, match: claimed, score: 1, pick: claimed.search, claimed: true };
@@ -1108,19 +841,15 @@ function render(roster) {
     // screenfuls the list occupies, so the cure is more frames, not a slower recording.
     // In whole-video mode every player is reported once by design, so the advice to raise
     // the frame count would be nonsense there.
-    + (!$('whole').checked && rows.length && thin > rows.length * 0.4
+    + (rows.length && thin > rows.length * 0.4
         ? `<div class="warnbox">Most players were caught in a single frame, so names could `
           + `not be cross-checked between frames and misreadings stand uncorrected. `
           + `Raise <em>Frames to send</em> — about ${Math.min(72, Math.ceil(rows.length / 7 * 3 / 4) * 4)} `
           + `would give roughly three sightings each for a list this long.</div>` : '')
     + (gap ? `<div class="warnbox">The game showed a rank as high as ${top} but only `
         + `${rows.length} rows came through — ${top - rows.length} row(s) were probably `
-        + `never captured.` + ($('whole').checked
-            ? ` Untick <em>Send the whole video</em> to sample frames instead.`
-            : ` Raise <em>Frames to send</em> and run it again.`) + `</div>` : '');
-  const opts = ['<option value="">— new player —</option>',
-                '<option value="\u0000drop">— not a real row, discard —</option>']
-    .concat(roster.map(r => `<option value="${esc(r.search)}">${esc(r.search)}</option>`)).join('');
+        + `never captured. Raise <em>Frames to send</em> and run it again.</div>` : '');
+  refreshRosterList();
   $('tbl').innerHTML =
     '<thead><tr><th>Rank</th><th>Name in video</th><th>Game Name</th><th>Alliance</th>'
     + '<th>Kartz Points</th><th>Frames</th><th></th></tr></thead><tbody>'
@@ -1129,7 +858,13 @@ function render(roster) {
         <td>${r.skipped ? '—' : r.rank}</td>
         <td>${esc(r.name)}</td>
         <td>${r.skipped ? esc(r.skipped.search)
-            : r.match ? esc(r.match.search) : `<select data-i="${i}">${opts}</select>`
+            : r.match ? esc(r.match.search)
+            : `<div style="display:flex;gap:6px;align-items:center">
+                 <input list="rosterNames" data-i="${i}" class="pickbox" placeholder="type to search…"
+                        value="${esc(r.pick === '\u0000drop' ? '' : r.pick)}" spellcheck="false">
+                 <button class="ghost rowdrop" data-i="${i}" title="not a real row"
+                         style="flex:0 0 auto;width:auto;padding:4px 9px">✕</button>
+               </div>`
               + (r.near ? `<div class="note" style="margin:2px 0 0">${r.contested
                     ? `${esc(r.near.search)} — claimed by ${r.contested} rows, pick one`
                     : `closest: ${esc(r.near.search)} (${(r.score*100|0)}%)`}</div>` : '')}</td>
@@ -1141,11 +876,29 @@ function render(roster) {
             : r.contested ? '<span class="pill p-bad">contested</span>'
                       : '<span class="pill p-new">confirm</span>'}</td>
       </tr>`).join('') + '</tbody>';
-  $('tbl').querySelectorAll('select').forEach(sel => sel.onchange = () => {
-    rows[+sel.dataset.i].pick = sel.value;
-    sel.closest('tr').style.opacity = sel.value === '\u0000drop' ? .4 : 1; });
+  $('tbl').querySelectorAll('.pickbox').forEach(inp => inp.oninput = () => {
+    rows[+inp.dataset.i].pick = inp.value.trim();
+    inp.closest('tr').style.opacity = 1;
+  });
+  $('tbl').querySelectorAll('.rowdrop').forEach(b => b.onclick = () => {
+    const r = rows[+b.dataset.i];
+    r.pick = r.pick === '\u0000drop' ? '' : '\u0000drop';
+    b.closest('tr').style.opacity = r.pick === '\u0000drop' ? .4 : 1;
+    const box = b.closest('tr').querySelector('.pickbox');
+    if (box && r.pick === '\u0000drop') box.value = '';
+  });
   $('out').classList.remove('hide');
 }
+// A native <select> holding several hundred players opens a list the length of the screen
+// and cannot be typed into. A datalist gives the browser's own type-to-filter behaviour, a
+// short popup, and works the same on a phone.
+function refreshRosterList() {
+  let dl = document.getElementById('rosterNames');
+  if (!dl) { dl = document.createElement('datalist'); dl.id = 'rosterNames'; document.body.appendChild(dl); }
+  dl.innerHTML = currentRoster()
+    .map(r => `<option value="${esc(r.search)}">${esc(r.alliance || '')}</option>`).join('');
+}
+
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 
 /* ---------------- output ---------------- */
