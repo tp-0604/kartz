@@ -10,14 +10,18 @@
  * POST /<model>, the Worker adds the key and forwards it to Google. The page's model
  * fallback chain therefore keeps working unchanged.
  *
- * Deploy (free tier, no card):
+ * Normally this runs as part of the Cloudflare Pages deployment, mounted at /api by
+ * functions/api/[[path]].js. In that arrangement the page and this code share an origin,
+ * secrets come from the project's settings, and ALLOWED_ORIGINS can stay empty.
+ *
+ * It also stands alone as a plain Worker, for hosting the page somewhere else:
  *   1. npm i -g wrangler && wrangler login
  *   2. wrangler deploy
- *   3. wrangler secret put GEMINI_KEY        <- paste your key at the prompt
- *   4. wrangler secret put SHARED_PASS       <- any phrase you give your officers
- *   5. Set ALLOWED_ORIGINS below to your Pages URL, then deploy again.
+ *   3. wrangler secret put GEMINI_KEY     <- your key, at the prompt
+ *   4. wrangler secret put SHARED_PASS    <- the phrase you give your officers
+ *   5. Add the page's origin to ALLOWED_ORIGINS below, then deploy again.
  *
- * The key is then only ever in Cloudflare. Your officers need the site and the phrase.
+ * Either way the key only ever exists in Cloudflare.
  */
 
 // Extra origins allowed to call this, for when the page is hosted somewhere else — GitHub

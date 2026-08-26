@@ -53,43 +53,60 @@ set is still not usable by a stranger with the URL.
 An `Origin` header proves nothing on its own; it is trivially forged by anything that is not
 a browser. **Set `SHARED_PASS`** if the URL might be discovered. That is the real gate.
 
-## First-time setup
+## Opening it the first time
 
-Paste the link to the **Alliance Rosters** tab and press **Pull roster**. That is it — the
-page reads the sheet itself and caches it, so nobody has to copy 828 rows, and nobody is
-working from a stale copy after a new member joins. The sheet must be readable by link:
-*Share → General access → Anyone with the link → Viewer*.
+Cloudflare gives the project a URL as soon as the first deploy finishes — shown at the top
+of the project page, and of the form **`https://<project-name>.pages.dev`**. That is the
+site. There is nothing to start and nothing to install; open it in any browser.
 
-Then either paste your own API key, or — if your admin has set up the Worker below — pick
-**Shared key (team Worker)**, enter the Worker URL and the shared phrase, and skip keys
-entirely.
+Every push to `main` redeploys it automatically.
 
-## Sharing one key with your officers
+On a phone, open that URL and use **Share → Add to Home Screen**. It then behaves like an
+app, which is worth doing because the phone is where the recording already lives.
 
-**A static page cannot keep a secret.** Anything `index.html` sends, a viewer can read out
-of the browser's network tab in about ten seconds. Obfuscating a key in JavaScript is not
-security, and a leaked key means anyone can spend your quota or run up your bill.
+### Setting it up, once per device
 
-The real fix is for the key to live somewhere the browser never sees. `worker.js` is that:
-a small Cloudflare Worker holding the key, which the page talks to instead of Google.
+1. Paste the link to your **Alliance Rosters** tab and press **Pull roster**. It should say
+   something like *roster: 689 names (139 skipped)*. If it complains about a sign-in page,
+   the sheet is not link-readable: *Share → General access → Anyone with the link → Viewer*.
+2. Choose the model:
+   - **Cloudflare Workers AI** — nothing else to fill in. The endpoint is already `/api`,
+     which is this same site, and the AI binding does the rest.
+   - **Shared key (server-side)** — same, but runs your Gemini key from the server. Needs
+     `GEMINI_KEY` set in the project settings.
+   - **Google Gemini** — paste your own key instead. No server involved.
+3. If you set a `SHARED_PASS`, type it in the **Shared phrase** box.
+4. Press **Save setup**. It is remembered in that browser.
+
+The badge next to *Setup* turns green and shows the roster count when it is ready.
+
+### Checking the server side is alive
+
+If a run fails with a 403 or 502, the quickest check is whether the API half of the site is
+answering at all. In a terminal:
 
 ```bash
-npm i -g wrangler && wrangler login
-wrangler deploy
-wrangler secret put GEMINI_KEY     # your key, at the prompt
-wrangler secret put SHARED_PASS    # any phrase you hand your officers
+curl -i -X POST https://<project-name>.pages.dev/api/@cf/meta/llama-4-scout-17b-16e-instruct -H 'content-type: application/json' -d '{"contents":[{"parts":[{"text":"hi"}]}]}'
 ```
 
-Then edit `ALLOWED_ORIGINS` at the top of `worker.js` to your Pages URL and `wrangler deploy`
-again. In the page, choose **Shared key (team Worker)**, give people the Worker URL and the
-phrase, and they never touch an API key.
+- **403** — expected from curl when no phrase is set: it means the Function is deployed and
+  refusing a non-browser caller, which is correct. Add `-H 'x-kartz-pass: <your phrase>'`
+  to get past it.
+- **502 with "no AI binding"** — the Workers AI binding is missing. Add it in project
+  settings and redeploy.
+- **404 or the HTML of the page** — the Function did not deploy. Check that
+  `functions/api/[[path]].js` is in the repo and that the build output directory is `/`.
 
-Two things gate it, because a public page in front of a public Worker is otherwise a public
-API: requests must come from an origin you listed, and must carry the shared phrase. Status
-codes pass through untouched so the model fallback chain still works through the proxy.
+## Sharing it with your officers
 
-Cloudflare's free tier is 100,000 requests a day and needs no card. Your ceiling stays the
-Gemini quota, not the Worker.
+Send them the `.pages.dev` URL and, if you set one, the shared phrase. That is all — they
+pull the roster themselves and never touch an API key, because the key lives in Cloudflare
+and the browser never sees it.
+
+**A static page cannot keep a secret.** Anything `index.html` sends, a viewer can read out
+of the browser's network tab. That is the whole reason the model call happens server-side in
+`functions/api/` rather than in the page: keys stay in the project's settings, not in the
+repository and not in anyone's browser. Never commit a key.
 
 ## Each run
 
