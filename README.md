@@ -215,21 +215,33 @@ roughly twenty times quicker.
 All allow browser calls. **GitHub Models does not** — it sends no CORS headers, so a static
 page cannot reach it.
 
-## Measured on a real recording
+## Measured on real recordings
 
-A 50-second recording of 40 players, run end to end in the browser:
+Two recordings, from different phones, run end to end in the browser.
+
+**A 43-second recording of a 153-player list, on a 720x1558 phone**, at 40 frames:
 
 | | |
 |---|---|
-| total time | 18–24 seconds |
-| players found | 40 of 40 |
-| points errors | none |
-| matched to roster automatically | 28 |
-| needing confirmation | 12 — all genuinely absent from the roster |
-| sent to the API | ~800 KB, versus a 250 MB upload |
+| total time | 63 seconds |
+| players found | 148 of 153 |
+| matched to the roster automatically | 134 (91%) |
+| scores strictly descending | yes, top to bottom |
 
-The model read `ᵇᵃᵗᵐᵃⁿ`, `尺乇爪爪`, `PΞΔĊĦ`, `GHÖS†` and `ÈXÎLÉ` correctly, including the
-gold, silver and bronze medals that stand in for ranks 1 to 3.
+Raising to 60 frames found one more player and took 196 seconds, so 40 is the useful
+setting; the slider goes to 72 for unusually long lists. The coverage warning correctly
+reported the shortfall both times rather than presenting a short list as complete.
+
+**A 50-second recording of a 40-player list, on a 750x1254 phone**, at 24 frames: 40 of 40,
+no points errors, 18-24 seconds, 28 matched.
+
+The models read `ᵇᵃᵗᵐᵃⁿ`, `尺乇爪爪`, `PΞΔĊĦ`, `GHÖS†` and `ÈXÎLÉ` correctly, including the
+gold, silver and bronze medals standing in for ranks 1 to 3.
+
+One instructive miss: at 60 frames the top player came back as "Noxira", where the 40-frame
+run read "Neaira" — which is the name in the roster. More frames is not uniformly better,
+and this is exactly the error the roster match is there to catch: the wrong reading does not
+match anything and is raised for confirmation instead of quietly entering the sheet.
 
 ## If it is slow
 
