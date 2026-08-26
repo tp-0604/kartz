@@ -104,14 +104,6 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
     <div>
       <label for="datestr">Date</label>
       <input id="datestr" type="date">
-      <label for="alli" style="margin-top:10px">Alliance in this recording</label>
-      <select id="alli">
-        <option value="">All alliances</option>
-        <option value="698W">698W</option>
-        <option value="698S">698S</option>
-        <option value="698N">698N</option>
-        <option value="698C">698C</option>
-      </select>
     </div>
     <div>
       <label for="sens">Frames to send <span id="sensVal" class="note"></span></label>
@@ -136,6 +128,7 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
     <button id="copy">Copy for sheet</button>
     <button class="ghost" id="csv">Download CSV</button>
     <button class="ghost" id="learn">Remember my fixes</button>
+    <button class="ghost" id="newplayers">Copy new players</button>
   </div>
   <p class="note">Anything you resolve by hand, then save with <em>Remember my fixes</em>, is matched automatically from the next run onward.</p>
 </section>
@@ -168,7 +161,6 @@ function loadSetup() {
   $('roster').value  = store.get('rosterRaw')|| '';
   $('sheet').value   = store.get('sheet')    || '';
   $('skip').value    = store.get('skip')     ?? 'z3.?, z1.Transferred';
-  $('alli').value    = store.get('alli')     || '';
   rosterCache        = store.get('roster')   || null;
   $('datestr').value = store.get('datestr')  || new Date().toLocaleDateString('en-CA');
   $('keyNote').textContent =
@@ -183,11 +175,10 @@ function refreshState() {
   $('go').disabled = !(names && videoFile);
 }
 $('save').onclick = () => {
-  ['key','sheet','skip','alli','datestr'].forEach(k => store.set(k, $(k).value));
+  ['key','sheet','skip','datestr'].forEach(k => store.set(k, $(k).value));
   store.set('rosterRaw', $('roster').value);
   refreshState(); log('setup saved');
 };
-$('alli').onchange = () => { store.set('alli', $('alli').value); refreshRosterList(); refreshState(); };
 ['key','roster'].forEach(k => $(k).addEventListener('input', refreshState));
 
 $('pull').onclick = async () => {
@@ -264,22 +255,14 @@ let rosterCache = null;            // { active, skipped }
 // Narrowing to the alliance being recorded cuts the candidate list from a few hundred to
 // well under two, which both shortens the prompt and removes the chance of a name being
 // matched to a player from an alliance that was never in this event.
-function fullRoster() {
+// One roster, never narrowed. Filtering by alliance was tried and removed: a Kartz list
+// mixes alliances, and restricting one 148-player recording to 698W dropped 27 players who
+// were plainly correct, taking the match rate from 95% to 76%.
+function currentRoster() {
   return (rosterCache && rosterCache.active && rosterCache.active.length)
     ? rosterCache.active : parseRoster($('roster').value);
 }
-// The alliance choice narrows what the model is *shown*, which shortens the prompt and
-// steers it toward the right people. It deliberately does NOT narrow what a row may be
-// matched against: a Kartz list turns out to contain guests from other alliances — filtering
-// this recording to 698W dropped 27 players who were plainly correct — so matching always
-// falls back to the full roster.
-function currentRoster() {
-  const all = fullRoster();
-  const a = ($('alli') && $('alli').value || '').trim().toLowerCase();
-  if (!a) return all;
-  const narrowed = all.filter(r => (r.alliance || '').trim().toLowerCase() === a);
-  return narrowed.length ? narrowed : all;
-}
+const fullRoster = currentRoster;
 const skippedRoster = () => (rosterCache && rosterCache.skipped) || [];
 function parseRoster(text) {
   return text.split(/\r?\n/).map(l => l.split(/\t|,/).map(s => s.trim()))
@@ -321,8 +304,12 @@ function resolve(name, plain, ix, aliases) {
   for (const cand of [fold(name), fold(plain)]) {
     if (!cand) continue;
     if (aliases[cand]) {
-      const hit = ix.find(e => e.k === fold(aliases[cand]));
-      return hit ? { r: hit.r, score: 1 } : { r: { search: aliases[cand], ingame: aliases[cand], alliance: '' }, score: 1 };
+      const al = aliases[cand];
+      const nm = typeof al === 'string' ? al : al.name;          // older entries were plain strings
+      const alliance = typeof al === 'string' ? '' : (al.alliance || '');
+      const hit = ix.find(e => e.k === fold(nm));
+      return hit ? { r: hit.r, score: 1 }
+                 : { r: { search: nm, ingame: nm, alliance }, score: 1 };
     }
     const exact = ix.find(e => e.k === cand);
     if (exact) return { r: exact.r, score: 1 };
@@ -761,14 +748,13 @@ const mode = arr => {
 };
 
 /* ---------------- run ---------------- */
-let rows = [], index = [], wideIndex = [], skipIndex = [], aliases = {};
+let rows = [], index = [], skipIndex = [], aliases = {};
 $('go').onclick = async () => {
   $('go').disabled = true; $('out').classList.add('hide');
   try {
     const roster = currentRoster();
     if (!roster.length) throw new Error('No roster loaded — paste the sheet link and press Pull roster.');
     index = buildIndex(roster);
-    wideIndex = buildIndex(fullRoster());
     skipIndex = buildIndex(skippedRoster());
     aliases = store.get('aliases') || {};
 
@@ -785,18 +771,13 @@ $('go').onclick = async () => {
     // roster; models will occasionally produce a plausible-looking name that is not on the
     // list, and that is exactly the case a human needs to see.
     const byName = new Map();
-    for (const e of wideIndex.length ? wideIndex : index) byName.set(e.k, e.r);
+    for (const e of index) byName.set(e.k, e.r);
     sightings = dropForeignRows(sightings);
     const base = consolidate(sightings, frameCount);
     rows = base.map(r => {
       const claimed = r.pick_ ? byName.get(fold(r.pick_)) : null;
       if (claimed) return { ...r, match: claimed, score: 1, pick: claimed.search, claimed: true };
-      let m = resolve(r.name, r.plain, index, aliases);
-      // not in the chosen alliance? try everyone before giving up
-      if (!m.r && wideIndex.length > index.length) {
-        const w = resolve(r.name, r.plain, wideIndex, aliases);
-        if (w.r) m = w;
-      }
+      const m = resolve(r.name, r.plain, index, aliases);
       if (m.r) return { ...r, match: m.r, score: m.score, pick: m.r.search };
       const sk = skipIndex.length ? resolve(r.name, r.plain, skipIndex, {}) : { r: null };
       if (sk.r) return { ...r, match: null, skipped: sk.r, score: sk.score, pick: '\u0000drop' };
@@ -886,7 +867,13 @@ function render(roster) {
               + (r.near ? `<div class="note" style="margin:2px 0 0">${r.contested
                     ? `${esc(r.near.search)} — claimed by ${r.contested} rows, pick one`
                     : `closest: ${esc(r.near.search)} (${(r.score*100|0)}%)`}</div>` : '')}</td>
-        <td>${esc(r.skipped ? r.skipped.alliance : r.match ? r.match.alliance : '')}</td>
+        <td>${r.skipped ? esc(r.skipped.alliance)
+            : r.match ? esc(r.match.alliance)
+            : `<select class="allipick" data-i="${i}">
+                 ${['', '698W', '698S', '698N', '698C']
+                    .map(a => `<option value="${a}"${a === (r.alliancePick || '') ? ' selected' : ''}>`
+                            + `${a || '—'}</option>`).join('')}
+               </select>`}</td>
         <td>${r.points}</td>
         <td>${r.seen}</td>
         <td>${r.skipped ? '<span class="pill p-new">excluded</span>'
@@ -897,6 +884,12 @@ function render(roster) {
   $('tbl').querySelectorAll('.pickbox').forEach(inp => inp.oninput = () => {
     rows[+inp.dataset.i].pick = inp.value.trim();
     inp.closest('tr').style.opacity = 1;
+  });
+  // A row that could not be matched is usually somebody new. Recording which alliance they
+  // belong to here means the answer is kept with the name, so the pair can go into the sheet
+  // and the player is recognised from the next run on.
+  $('tbl').querySelectorAll('.allipick').forEach(sel => sel.onchange = () => {
+    rows[+sel.dataset.i].alliancePick = sel.value;
   });
   $('tbl').querySelectorAll('.rowdrop').forEach(b => b.onclick = () => {
     const r = rows[+b.dataset.i];
@@ -943,11 +936,25 @@ $('csv').onclick = () => {
 $('learn').onclick = () => {
   const a = store.get('aliases') || {};
   let n = 0;
-  for (const r of rows)
-    if (!r.match && r.pick && r.pick !== '\u0000drop') { a[fold(r.plain || r.name)] = r.pick; n++; }
+  for (const r of rows) {
+    if (r.match || !r.pick || r.pick === '\u0000drop') continue;
+    // stored as an object so an alliance can ride along; older entries were a bare string
+    a[fold(r.plain || r.name)] = { name: r.pick, alliance: r.alliancePick || '' };
+    n++;
+  }
   store.set('aliases', a);
   log(n ? `remembered ${n} name${n>1?'s':''} — they will match automatically next time`
         : 'nothing new to remember');
+};
+
+// New players and the alliance you gave them, ready to paste as three roster columns.
+$('newplayers').onclick = async () => {
+  const fresh = rows.filter(r => !r.match && !r.skipped && r.pick && r.pick !== '\u0000drop');
+  if (!fresh.length) return log('no new players to add — every row matched the roster');
+  const tsv = fresh.map(r => [r.pick, r.name, r.alliancePick || ''].join('\t')).join('\n');
+  try { await navigator.clipboard.writeText(tsv);
+        log(`copied ${fresh.length} new player${fresh.length>1?'s':''} — paste at the bottom of the roster sheet`); }
+  catch { prompt('Paste these into the roster sheet:', tsv); }
 };
 
 

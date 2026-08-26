@@ -48,18 +48,24 @@ The badge next to *Setup* turns green and shows the roster count when it is read
 
 ### Each run
 
-Pick the recording, set the date, and choose **the alliance this recording is for**.
+Pick the recording, set the date, press **Extract**, then **Copy for sheet**.
 
-That choice narrows what the model is *shown* — a few hundred names becomes well under two
-hundred, which shortens the prompt and steers it toward the right people. It deliberately
-does **not** narrow what a row can be matched to. A Kartz list turns out to contain guests
-from other alliances: filtering one 148-player recording to 698W dropped 27 players who were
-plainly correct, taking the match rate from 95% down to 76%. Matching always falls back to
-the whole roster, and the search box lists everyone.
+There is no alliance filter, deliberately. It was tried and removed: a Kartz list mixes
+alliances, and restricting one 148-player recording to 698W dropped 27 players who were
+plainly correct, taking the match rate from 95% down to 76%. Every row is matched against
+the whole roster.
 
-In the results, a row needing a decision gets a **search box** rather than a long dropdown:
-type a few letters and the browser filters. The **✕** beside it marks a row as not real, so
-it stays out of the copied rows.
+Rows that need a decision get two controls:
+
+- a **search box** in the Game Name column — type a few letters and the browser filters your
+  roster, instead of a dropdown the height of the screen;
+- an **alliance dropdown** in the Alliance column, for saying which alliance a new player
+  belongs to. Matched rows just show the alliance the roster already knows.
+
+**Remember my fixes** stores the name *and* the alliance you gave it, so the same player is
+recognised, with the right alliance, from the next run onward. **Copy new players** puts them
+on the clipboard as three columns — sheet name, name as drawn in game, alliance — ready to
+paste onto the end of the roster sheet so they are known permanently.
 
 ## The roster goes into the prompt
 
