@@ -57,8 +57,11 @@ the whole roster.
 
 Rows that need a decision get two controls:
 
-- a **search box** in the Game Name column — type a few letters and the browser filters your
-  roster, instead of a dropdown the height of the screen;
+- a **search box** in the Game Name column — type a few letters and the list filters. It is
+  drawn rather than left to the browser, because a native `<select>` opens a list as tall as
+  the page and a `<datalist>` ignores any attempt to size its popup. This one is capped at
+  about 210 pixels and scrolls inside itself, shows each player's alliance beside the name,
+  and takes arrow keys and Enter;
 - an **alliance dropdown** in the Alliance column, for saying which alliance a new player
   belongs to. Matched rows just show the alliance the roster already knows.
 
@@ -175,6 +178,16 @@ list is.
 Coverage and name accuracy therefore want different settings. 40 frames found 148 of 153
 players on a test recording but left most of them seen once; the same recording at 72 gives
 three sightings each and lets voting do its job.
+
+## One model, no fallback chain
+
+`gemini-3.5-flash-lite`, and nothing behind it. An earlier version walked a chain of six
+models on a 429 or 503, which mattered when the free tier was metered per model and the
+better ones kept running dry. It stopped mattering: with readings grouped by rank and the
+roster supplied in the prompt, the lite model scores within a point of the largest one on the
+same recording — 143 matched against 144 out of 153 — so there is nothing to fall back *to*
+that would be worth the complexity. A failed run now says what went wrong instead of quietly
+producing worse results on a different model.
 
 ## Errors, and why they stopped happening
 
