@@ -58,29 +58,35 @@ Gemini quota, not the Worker.
 
 ## Each run
 
-Pick the recording → set the Date String → **Extract**. About twenty seconds. Then
-**Copy for sheet** and paste into the alliance tab.
+Pick the recording, check the date, press **Extract**. Then **Copy for sheet** and paste.
 
-Names you resolve by hand, saved with **Remember my fixes**, match automatically from then
-on. That list only grows, so the manual work shrinks toward nothing.
+The output is four columns, in this order:
 
-## Why it is built this way
+| Date | Rank | Game Name | Kartz Points |
+|---|---|---|---|
+| 2026-08-26 | 1 | Neaira | 810 |
 
-Uploading the whole video is the thing that made the old flow slow, so the browser decodes
-it locally and sends only sampled frames — roughly 800 KB instead of 250 MB.
+The date defaults to today and is always written `YYYY-MM-DD`. **Game Name** is the roster
+name the player was matched to, not the decorated tag from the video — that is the form the
+sheet's lookups need. Where a player could not be matched, the plain reading is used
+instead. Rank is renumbered over the rows that actually ship, so it is always a gap-free
+1..N and the on-screen table agrees with what lands in the clipboard.
 
-Choosing *which* frames is the interesting part. A leaderboard is a run of near-identical
-cards, which defeats the obvious approaches: whole-frame difference cannot tell a scrolled
-screen from a still one, and matching one frame against another is genuinely ambiguous
-because several offsets, exactly one card apart, fit equally well. So the page measures
-only whether the list is moving, integrates that over the recording, and spends its frame
-budget evenly across the total motion. A slow careful scroll and a fast flick then produce
-the same coverage at the same cost.
+## Alliances that get skipped
 
-The names are never transcribed and corrected. They are *resolved*: the model reads each
-stylised tag and also writes it out in plain letters, and that plain form is fuzzy-matched
-against the roster. `Ƥ€ΔĆĦ` and `𝟻𝙰𝙼` land on the right player without anyone retyping
-anything.
+**Skip these alliances** defaults to `z3.?, z1.Transferred` and is applied when the roster
+is pulled — of 828 rows, 689 are kept and 139 set aside.
+
+Those 139 are not simply discarded, because deleting them would make things worse rather
+than better: a transferred player who still appears in the recording would stop matching
+anything and turn up in the review list as an unknown name, to be dealt with by hand every
+single month. Instead they are kept to one side and used only for recognition. If one shows
+up in a video the row is identified, greyed out with its alliance, marked **excluded**, and
+left out of the copied rows. The count is stated up front — *2 excluded (z3.?,
+z1.Transferred)* — so it is visible rather than silent.
+
+Edit the field to change it; it is saved with the rest of the setup. Matching is
+case-insensitive.
 
 ## Reading the results
 

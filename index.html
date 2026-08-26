@@ -93,6 +93,8 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
     <input id="sheet" spellcheck="false" placeholder="https://docs.google.com/spreadsheets/d/…">
     <button class="ghost" id="pull" style="flex:0 0 auto;min-width:110px;width:auto">Pull roster</button>
   </div>
+  <label for="skip">Skip these alliances</label>
+  <input id="skip" spellcheck="false" placeholder="z3.?, z1.Transferred">
   <details style="margin-top:8px">
     <summary>or paste it by hand</summary>
     <textarea id="roster" rows="4" spellcheck="false" placeholder="Kodiak&#9;Kodiak&#9;698N"></textarea>
@@ -113,8 +115,8 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
   <input id="file" type="file" accept="video/*" class="hide">
   <div class="row" style="margin-top:12px">
     <div>
-      <label for="datestr">Date String for the sheet</label>
-      <input id="datestr" placeholder="Aug26" spellcheck="false">
+      <label for="datestr">Date</label>
+      <input id="datestr" type="date">
     </div>
     <div>
       <label for="sens">Frames to send <span id="sensVal" class="note"></span></label>
@@ -199,8 +201,10 @@ function loadSetup() {
   $('key').value      = store.get('key')      || '';
   $('roster').value   = store.get('rosterRaw')|| '';
   $('sheet').value    = store.get('sheet')    || '';
+  $('skip').value     = store.get('skip')     ?? 'z3.?, z1.Transferred';
   rosterCache         = store.get('roster')   || null;
-  $('datestr').value  = store.get('datestr')  || '';
+  // default to today, in the YYYY-MM-DD the sheet expects
+  $('datestr').value  = store.get('datestr')  || new Date().toLocaleDateString('en-CA');
   syncHint(); refreshState();
 }
 function syncHint() {
@@ -233,7 +237,7 @@ $('provider').onchange = () => {
   syncHint(); refreshState();
 };
 $('save').onclick = () => {
-  ['provider','model','key','base','sheet','datestr'].forEach(k => store.set(k, $(k).value));
+  ['provider','model','key','base','sheet','skip','datestr'].forEach(k => store.set(k, $(k).value));
   store.set('rosterRaw', $('roster').value);
   refreshState(); log('setup saved');
 };
@@ -246,9 +250,11 @@ $('pull').onclick = async () => {
   const was = $('pull').textContent; $('pull').textContent = 'Pulling…';
   try {
     rosterCache = await pullRoster(link);
-    store.set('sheet', link);
+    store.set('sheet', link); store.set('skip', $('skip').value);
     store.set('roster', rosterCache);            // cached so a later run works offline
-    log(`roster: ${rosterCache.length} names pulled from the sheet`);
+    log(`roster: ${rosterCache.active.length} names`
+        + (rosterCache.skipped.length
+           ? ` (${rosterCache.skipped.length} skipped: ${skipList().join(', ')})` : ''));
   } catch (e) { log('✗ ' + e.message); }
   $('pull').textContent = was; $('pull').disabled = false;
   refreshState();
@@ -289,19 +295,31 @@ async function pullRoster(link) {
   const text = await r.text();
   if (/^\s*<(!doctype|html)/i.test(text)) throw new Error('Google returned a sign-in page — the sheet is not link-readable.');
   const rows = parseCsv(text);
-  const out = rows.map(c => ({ search: (c[0]||'').trim(), ingame: (c[1]||c[0]||'').trim(),
+  const all = rows.map(c => ({ search: (c[0]||'').trim(), ingame: (c[1]||c[0]||'').trim(),
                                alliance: (c[2]||'').trim() }))
                   .filter(r => r.search && !/^search\s*name/i.test(r.search));
-  if (!out.length) throw new Error('No roster rows found in that tab.');
-  return out;
+  if (!all.length) throw new Error('No roster rows found in that tab.');
+  // Transferred and unknown-alliance players are dropped here, at the source, so they are
+  // never candidates for a match. They are kept to one side rather than thrown away: if
+  // one of them still shows up in the video we want to recognise and drop that row
+  // deliberately, not leave it sitting in the review list every single month.
+  const skip = skipList();
+  const active  = all.filter(r => !skip.includes(r.alliance.toLowerCase()));
+  const skipped = all.filter(r =>  skip.includes(r.alliance.toLowerCase()));
+  return { active, skipped };
+}
+function skipList() {
+  return ($('skip').value || 'z3.?, z1.Transferred')
+    .split(',').map(x => x.trim().toLowerCase()).filter(Boolean);
 }
 
 /* ---------------- matching ---------------- */
-let rosterCache = null;
+let rosterCache = null;            // { active, skipped }
 function currentRoster() {
-  if (rosterCache && rosterCache.length) return rosterCache;
+  if (rosterCache && rosterCache.active && rosterCache.active.length) return rosterCache.active;
   return parseRoster($('roster').value);
 }
+const skippedRoster = () => (rosterCache && rosterCache.skipped) || [];
 function parseRoster(text) {
   return text.split(/\r?\n/).map(l => l.split(/\t|,/).map(s => s.trim()))
              .filter(c => c[0]).map(c => ({ search: c[0], ingame: c[1] || c[0], alliance: c[2] || '' }))
@@ -680,13 +698,14 @@ const mode = arr => {
 };
 
 /* ---------------- run ---------------- */
-let rows = [], index = [], aliases = {};
+let rows = [], index = [], skipIndex = [], aliases = {};
 $('go').onclick = async () => {
   $('go').disabled = true; $('out').classList.add('hide');
   try {
     const roster = currentRoster();
     if (!roster.length) throw new Error('No roster loaded — paste the sheet link and press Pull roster.');
     index = buildIndex(roster);
+    skipIndex = buildIndex(skippedRoster());
     aliases = store.get('aliases') || {};
 
     log('decoding video…'); setProg(0);
@@ -700,9 +719,13 @@ $('go').onclick = async () => {
     const sightings = await callModel(frames);
     rows = consolidate(sightings, frames.length).map(r => {
       const m = resolve(r.name, r.plain, index, aliases);
-      return { ...r, match: m.r, score: m.score, near: m.near, pick: m.r ? m.r.search : '' };
+      if (m.r) return { ...r, match: m.r, score: m.score, pick: m.r.search };
+      const sk = skipIndex.length ? resolve(r.name, r.plain, skipIndex, {}) : { r: null };
+      if (sk.r) return { ...r, match: null, skipped: sk.r, score: sk.score, pick: '\u0000drop' };
+      return { ...r, match: null, score: m.score, near: m.near, pick: '' };
     });
-    rows.forEach((r, i) => { if (!r.rank || r.rank !== i + 1) r.rank = i + 1; });
+    let n = 0;
+    for (const r of rows) r.rank = r.skipped ? null : ++n;
     render(roster);
     log(`done — ${sightings.length} sightings → ${rows.length} players`);
     setProg(1);
@@ -718,17 +741,19 @@ $('go').onclick = async () => {
 };
 
 function render(roster) {
-  const need = rows.filter(r => !r.match).length;
+  const dropped = rows.filter(r => r.skipped).length;
+  const need = rows.filter(r => !r.match && !r.skipped).length;
   const thin = rows.filter(r => r.seen < 2).length;
   // The model reports the rank it saw; we renumber by score. Where the two disagree,
   // a row between them was probably never captured — worth saying out loud, because a
   // silently short list is the one failure the sheet cannot catch downstream.
   const seenRanks = rows.map(r => r.seenRank).filter(n => typeof n === 'number' && n > 0);
   const top = Math.max(0, ...seenRanks);
-  const gap = top > rows.length;
+  const gap = top > rows.length;   // excluded rows still count as captured
   $('verdict').innerHTML =
     `<div class="${need || gap ? 'warnbox' : 'okbox'}">${rows.length} players &middot; `
-    + `${rows.length - need} matched to the roster`
+    + `${rows.length - need - dropped} matched to the roster`
+    + (dropped ? ` &middot; ${dropped} excluded (${esc($('skip').value.trim())})` : '')
     + (need ? ` &middot; <strong>${need} to confirm below</strong>` : '')
     + (thin ? ` &middot; ${thin} seen only once` : '') + `</div>`
     + (gap ? `<div class="warnbox">The game showed a rank as high as ${top} but only `
@@ -738,18 +763,21 @@ function render(roster) {
                 '<option value="\u0000drop">— not a real row, discard —</option>']
     .concat(roster.map(r => `<option value="${esc(r.search)}">${esc(r.search)}</option>`)).join('');
   $('tbl').innerHTML =
-    '<thead><tr><th>#</th><th>Name in video</th><th>Sheet name</th><th>Alliance</th>'
-    + '<th>Points</th><th>Frames</th><th></th></tr></thead><tbody>'
-    + rows.map((r, i) => `<tr class="${r.match ? 'ok' : 'new'}">
-        <td>${r.rank}</td>
+    '<thead><tr><th>Rank</th><th>Name in video</th><th>Game Name</th><th>Alliance</th>'
+    + '<th>Kartz Points</th><th>Frames</th><th></th></tr></thead><tbody>'
+    + rows.map((r, i) => `<tr class="${r.skipped ? '' : r.match ? 'ok' : 'new'}"${
+        r.skipped ? ' style="opacity:.45"' : ''}>
+        <td>${r.skipped ? '—' : r.rank}</td>
         <td>${esc(r.name)}</td>
-        <td>${r.match ? esc(r.match.search) : `<select data-i="${i}">${opts}</select>`
+        <td>${r.skipped ? esc(r.skipped.search)
+            : r.match ? esc(r.match.search) : `<select data-i="${i}">${opts}</select>`
               + (r.near ? `<div class="note" style="margin:2px 0 0">closest: ${esc(r.near.search)}`
                         + ` (${(r.score*100|0)}%)</div>` : '')}</td>
-        <td>${esc(r.match ? r.match.alliance : '')}</td>
+        <td>${esc(r.skipped ? r.skipped.alliance : r.match ? r.match.alliance : '')}</td>
         <td>${r.points}</td>
         <td>${r.seen}</td>
-        <td>${r.match ? `<span class="pill p-ok">${r.score === 1 ? 'exact' : (r.score*100|0)+'%'}</span>`
+        <td>${r.skipped ? '<span class="pill p-new">excluded</span>'
+            : r.match ? `<span class="pill p-ok">${r.score === 1 ? 'exact' : (r.score*100|0)+'%'}</span>`
                       : '<span class="pill p-new">confirm</span>'}</td>
       </tr>`).join('') + '</tbody>';
   $('tbl').querySelectorAll('select').forEach(sel => sel.onchange = () => {
@@ -762,15 +790,16 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt
 /* ---------------- output ---------------- */
 // An unresolved row still has to land in the sheet as something a lookup can find, so
 // fall back to the plain reading rather than the decorated original.
-const outRows = () => rows.filter(r => r.pick !== '\u0000drop')
+const outRows = () => rows.filter(r => r.pick !== '\u0000drop' && !r.skipped)
   .map((r, i) => [$('datestr').value || '', i + 1, r.pick || r.plain || r.name, r.points]);
+const OUT_HEADERS = ['Date', 'Rank', 'Game Name', 'Kartz Points'];
 $('copy').onclick = async () => {
   const tsv = outRows().map(r => r.join('\t')).join('\n');
   try { await navigator.clipboard.writeText(tsv); log('copied — paste into the sheet'); }
   catch { prompt('Copy these rows:', tsv); }
 };
 $('csv').onclick = () => {
-  const csv = 'Date String,Rank,Search Name,Points\n'
+  const csv = OUT_HEADERS.join(',') + '\n'
     + outRows().map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const a = Object.assign(document.createElement('a'), {
     href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
