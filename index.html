@@ -178,13 +178,15 @@ const PROVIDERS = {
                 model: 'qwen/qwen3.6-27b',
                 keys: 'https://console.groq.com/keys',
                 free: '1000 requests/day but only 8k tokens/min',
-                // A frame costs about 1,813 tokens here and the free tier allows 8,000 a
-                // minute, so anything above three images per call is rejected outright.
-                batch: 3,
-                // Groq charges the *reserved* max_tokens against the per-minute budget, not
-                // just what comes back. Asking for 16k output made a 5k-token request weigh
-                // 19k and get refused outright. Rows are ~25 tokens each, so this is ample.
-                maxOut: 1500,
+                // Sized against the 8,000-token minute, which counts the output you
+                // *reserve* as well as what you send. Measured: prompt 383, one frame ~2,100.
+                //   3 frames + prompt + 1500 out = ~8,050  -> refused, just over
+                //   2 frames + prompt +  900 out = ~5,400  -> fits, with room to spare
+                // Three frames would be about 10% quicker over a whole run, but frame cost
+                // varies with how busy the picture is, so it sits close enough to the ceiling
+                // to fail on some recordings and not others. Two is the honest choice.
+                batch: 2,
+                maxOut: 900,
                 // Groq's 429 is a per-minute window, not a daily cap: waiting genuinely
                 // clears it, unlike Gemini's, so this provider is paced rather than skipped.
                 paced: true,
@@ -552,12 +554,9 @@ async function callModel(frames) {
   const spec = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
   const model = $('model').value.trim(), key = $('key').value.trim();
   const base = $('base').value.trim().replace(/\/+$/, '');
-  // Five images per call, all calls in flight at once. Sequential batches spend most of
-  // their time waiting, and the batches are completely independent — overlapping them
-  // takes a 50-second recording from about a minute and a half down to under twenty.
-  // Eight per call, not five. The Gemini free tier is metered in *requests per day*
-  // (20 at time of writing), so batch size is really "how many runs do I get today":
-  // 24 frames at 8 per call is 3 requests, which is six runs a day rather than four.
+  // Batch size is provider-specific. Gemini's free tier is metered per request per day, so
+  // large batches mean more runs; Groq's is metered per token per minute, so its spec asks
+  // for small ones. Batches are independent, so providers without a pacing rule overlap them.
   const BATCH = spec.batch || 8, batches = [];
   for (let i = 0; i < frames.length; i += BATCH) batches.push(frames.slice(i, i + BATCH));
   let done = 0;

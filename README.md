@@ -181,14 +181,19 @@ batman and `ÈXÎLÉ` as EXILE without being asked twice. Accuracy is not the pr
 
 Throughput is. The free tier allows **8,000 tokens a minute**, and that budget counts the
 output you *reserve*, not just what comes back — asking for 16k of output made a 5k request
-weigh 19k and get refused outright with a 413. With the reservation dropped to 1,500 and
-three frames per call, a request costs about 7,300 tokens, so:
+weigh 19k and get refused outright with a 413.
+
+Measured: the prompt is 383 tokens and a frame about 2,100. Three frames plus a 1,500-token
+reservation comes to roughly 8,050 — just over the ceiling, and it fails on some recordings
+and not others depending on how busy the picture is. Two frames with a 900-token reservation
+lands near 5,400, which fits with room to spare. Three would be about 10% quicker across a
+whole run and is not worth the intermittent failure.
 
 | | Groq free (Qwen 3.6) | Gemini free |
 |---|---|---|
-| per request | ~7,300 tokens | 3 requests per run |
-| one 24-frame run | **~7 minutes** | **18–24 seconds** |
-| twelve runs | **~88 minutes** | **~5 minutes** |
+| per request | ~5,400 tokens, 2 frames | 8 frames, 3 requests per run |
+| one 24-frame run | **~8 minutes** | **18–24 seconds** |
+| twelve runs | **~97 minutes** | **~5 minutes** |
 | what limits you | 8k tokens/minute | 20 requests/day/model, ×7 models |
 
 Groq's 1,000 requests a day is generous and its per-call latency is excellent; the minute
