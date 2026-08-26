@@ -281,6 +281,37 @@ function fold(s) {
   s = s.normalize('NFKD').split('').map(c => FOLD[c] || c).join('');
   return s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
+// Twenty-four roster names survive fold() as an empty string: pure emoji, Cherokee,
+// small-caps IPA, enclosed letters, Cyrillic and CJK lookalikes. Unicode normalisation
+// does not touch any of those ranges — NFKD and NFKC both rescue exactly none of them — so
+// there is no clever folding to be had. What there is: the characters themselves are a
+// perfectly good key, as long as the decorations that vary between renderings are dropped.
+// Zero-width joiners, variation selectors and skin tones all change the bytes without
+// changing what a person sees.
+// fold() is aggressive, and on a heavily stylised name it can leave a single stray letter
+// behind — "ΛƧƬΛ♣️" comes out as "s", because Ƨ maps to S while Λ and Ƭ do not. One letter
+// then exact-matches any other player who also collapses to one letter, which is how Asta
+// was resolving to angkasa. Treat a fold that kept almost nothing as no fold at all, and let
+// the characters themselves do the matching instead.
+function usableFold(raw) {
+  const f = fold(raw);
+  if (!f) return '';
+  const visible = [...String(raw || '')].filter(c => c.codePointAt(0) > 0x20).length;
+  return (f.length >= 3 || f.length >= visible) ? f : '';
+}
+
+function symKey(s) {
+  const out = [];
+  for (const ch of String(s || '')) {
+    const cp = ch.codePointAt(0);
+    if (cp === 0x200D || cp === 0xFE0E || cp === 0xFE0F) continue;   // ZWJ, variation
+    if (cp >= 0x1F3FB && cp <= 0x1F3FF) continue;                    // skin tone
+    if (cp <= 0x20) continue;                                        // spaces, control
+    out.push(cp.toString(16));
+  }
+  return out.join('.');
+}
+
 function sim(a, b) {                       // levenshtein similarity
   if (a === b) return 1;
   if (!a.length || !b.length) return 0;
@@ -296,11 +327,24 @@ function sim(a, b) {                       // levenshtein similarity
 const CONF = 0.82;
 function buildIndex(roster) {
   const ix = [];
-  for (const r of roster) for (const v of new Set([fold(r.search), fold(r.ingame)]))
-    if (v) ix.push({ k: v, r });
+  for (const r of roster) {
+    for (const v of new Set([usableFold(r.search), usableFold(r.ingame)]))
+      if (v) ix.push({ k: v, r });
+    // a form that folds away — or folds to debris — is indexed by its characters instead,
+    // so it can still be matched when the model reproduces it exactly
+    for (const form of [r.search, r.ingame]) {
+      if (!form || usableFold(form)) continue;
+      const k = symKey(form);
+      if (k) ix.push({ k: '\u0002' + k, r, sym: true });
+    }
+  }
   return ix;
 }
 function resolve(name, plain, ix, aliases) {
+  // Aliases stay keyed on the raw fold — that is how they were written — but the exact
+  // match against the roster must use usableFold, or a name stylised down to one stray
+  // letter exact-matches whichever player is actually called that. "ʟᴇxɪᴄᴏɴ" reduces to
+  // "x" and was resolving to the player X before the symbol path ever got a look in.
   for (const cand of [fold(name), fold(plain)]) {
     if (!cand) continue;
     if (aliases[cand]) {
@@ -311,13 +355,26 @@ function resolve(name, plain, ix, aliases) {
       return hit ? { r: hit.r, score: 1 }
                  : { r: { search: nm, ingame: nm, alliance }, score: 1 };
     }
+  }
+  for (const cand of [usableFold(name), usableFold(plain)]) {
+    if (!cand) continue;
     const exact = ix.find(e => e.k === cand);
     if (exact) return { r: exact.r, score: 1 };
   }
+  // exact symbol match, for names stylised past the point where letters survive
+  for (const raw of [name, plain]) {
+    if (!raw || usableFold(raw)) continue;
+    const k = '\u0002' + symKey(raw);
+    const hit = ix.find(e => e.k === k);
+    if (hit) return { r: hit.r, score: 1 };
+  }
   let best = null, score = 0;
-  for (const cand of [fold(name), fold(plain)]) {
+  for (const cand of [usableFold(name), usableFold(plain)]) {
     if (!cand) continue;
-    for (const e of ix) { const s = sim(cand, e.k); if (s > score) { score = s; best = e.r; } }
+    for (const e of ix) {
+      if (e.sym) continue;                 // symbol keys are exact-match only
+      const s = sim(cand, e.k); if (s > score) { score = s; best = e.r; }
+    }
   }
   return score >= CONF ? { r: best, score } : { r: null, score, near: best };
 }
@@ -557,6 +614,10 @@ Rules:
 - Prefer a known player whenever the drawn name plausibly corresponds to one, allowing for
   stylised glyphs, emoji, accents and lookalike characters.
 - "seen" is the raw on-screen name, so a person can check the match.
+- Some players have no letters in their name at all — just emoji, symbols or non-Latin
+  characters. Reproduce those exactly, character for character, in "seen"; do not substitute
+  a similar-looking emoji. A polar bear is not a panda. The roster lists these names in the
+  same form, so an exact copy will match one.
 - For ranks 1 to 3 the number is a medal graphic; infer 1, 2 or 3 from its colour.
 - Read ONLY rows inside the "Ranking" panel. A recording often opens on another screen, or
   passes over a different leaderboard on the way; ignore anything that is not the Ranking
