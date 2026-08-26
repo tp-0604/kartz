@@ -121,6 +121,10 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
     <div>
       <label for="sens">Frames to send <span id="sensVal" class="note"></span></label>
       <input id="sens" type="range" min="8" max="40" step="2" value="24">
+      <label style="display:flex;align-items:center;gap:7px;margin-top:8px">
+        <input type="checkbox" id="crop" checked style="width:auto;margin:0">
+        <span>Crop to the list &mdash; smaller and cheaper; untick if the preview looks wrong</span>
+      </label>
     </div>
   </div>
   <button id="go" style="margin-top:12px" disabled>Extract</button>
@@ -415,6 +419,34 @@ const once = (el, ev) => new Promise(res => el.addEventListener(ev, res, { once:
 // the next screenful still overlaps the last kept one by roughly a third.
 const TOP_MASK = 0.10, BOT_MASK = 0.84;   // ignore the fixed title bar and the pinned own-rank card
 
+// Keep the rank digits and the text; drop the title bar, the margins, the avatar artwork,
+// and — the point of the exercise — the pinned own-rank card at the foot of the screen.
+// That card repeats the viewer's own row on every single frame, and until now it was only
+// held back by a line in the prompt and a y-position guess. Cutting it out physically is
+// the reliable version.
+//
+// It does NOT save tokens: measured on Groq, 560x936, 280x468 and 140x234 all cost exactly
+// 1807 tokens, so billing there is per image, not per pixel. What it does buy is a smaller
+// upload (36 KB to 20 KB, which matters on a phone) and a cleaner picture.
+const CROP = {
+  top: 0.085, bottom: 0.855,      // between the header bar and the pinned footer card
+  rank: [0.03, 0.205],            // the rank number / medal
+  text: [0.375, 0.995],           // name and the contribution line
+};
+// Composite the two useful columns side by side, discarding the avatar band between them.
+function cropFrame(src, W, H) {
+  const y0 = Math.round(H * CROP.top), y1 = Math.round(H * CROP.bottom);
+  const rw = Math.round(W * (CROP.rank[1] - CROP.rank[0]));
+  const tw = Math.round(W * (CROP.text[1] - CROP.text[0]));
+  const out = cropFrame.cv || (cropFrame.cv = document.createElement('canvas'));
+  out.width = rw + tw; out.height = y1 - y0;
+  const cx = out.getContext('2d');
+  cx.fillStyle = '#fff'; cx.fillRect(0, 0, out.width, out.height);
+  cx.drawImage(src, Math.round(W*CROP.rank[0]), y0, rw, y1-y0, 0,  0, rw, y1-y0);
+  cx.drawImage(src, Math.round(W*CROP.text[0]), y0, tw, y1-y0, rw, 0, tw, y1-y0);
+  return out;
+}
+
 // How much the list moved between two frames. Deliberately only a *rate* of change,
 // never a displacement: the leaderboard is a run of near-identical cards, so matching
 // one frame against another is genuinely ambiguous — several offsets, one card pitch
@@ -491,7 +523,8 @@ async function extractFrames(file, budget, onProg) {
   for (let i = 0; i < picks.length; i++) {
     await seek(video, Math.min(picks[i], dur - 0.05));
     cx.drawImage(video, 0, 0, W, H);
-    frames.push(cv.toDataURL('image/jpeg', 0.62).split(',')[1]);
+    const send = $('crop').checked ? cropFrame(cv, W, H) : cv;
+    frames.push(send.toDataURL('image/jpeg', 0.62).split(',')[1]);
     onProg(0.6 + 0.4 * (i + 1) / picks.length, frames.length);
   }
   URL.revokeObjectURL(video.src);

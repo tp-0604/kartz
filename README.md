@@ -136,6 +136,31 @@ excluded: it returned 503 on every attempt across a whole session, then an empty
 lite models are quick — 5 seconds a batch against 18 — but one dropped a player, so they sit
 below the full ones and are reached only when the better models are spent.
 
+## What cropping does and does not do
+
+Frames are cropped before sending: the title bar, margins and avatar column are dropped,
+and the rank digits are spliced next to the name and score. Untick **Crop to the list** if
+the preview strip ever looks wrong on a differently shaped phone.
+
+It is worth being precise about why, because the obvious reason turns out to be false.
+Cropping does **not** make the request cheaper. Measured against Groq with Qwen 3.6:
+
+| image | pixels | tokens |
+|---|---|---|
+| 560x936 | 524,160 | 1807 |
+| 280x468 | 131,040 | 1807 |
+| 140x234 | 32,760 | 1807 |
+
+Sixteen times fewer pixels, identical cost — billing is per image, not per pixel. Shrinking
+or cropping frames to save money simply does not work here; the only real lever on a
+token-metered tier is **sending fewer frames**.
+
+What cropping actually buys is correctness and upload size. The game pins the viewer's own
+rank in a card at the foot of every frame, so it repeats in every single image; it used to
+be held off with a line in the prompt and a y-position guess, and now it is physically not
+in the picture. The upload drops from about 36 KB a frame to 20 KB, which is worth having
+on a phone connection.
+
 ## If a response gets cut off
 
 Long batches can hit the output limit mid-object. Rather than discarding the batch, the page
