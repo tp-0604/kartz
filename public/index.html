@@ -125,6 +125,11 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
         <input type="checkbox" id="crop" checked style="width:auto;margin:0">
         <span>Crop to the list &mdash; smaller and cheaper; untick if the preview looks wrong</span>
       </label>
+      <label style="display:flex;align-items:center;gap:7px;margin-top:6px">
+        <input type="checkbox" id="whole" style="width:auto;margin:0">
+        <span>Send the whole video &mdash; one request, never misses a row, but names are
+        read less reliably. Gemini only, under about 14&nbsp;MB.</span>
+      </label>
     </div>
   </div>
   <button id="go" style="margin-top:12px" disabled>Extract</button>
@@ -590,6 +595,20 @@ async function extractFrames(file, budget, onProg) {
   return frames;
 }
 
+// Hand Gemini the video itself instead of stills. It samples and reads the clip on its
+// own, which is what the Google AI Studio app does, and the difference shows: one request
+// covers the whole list with no gaps, because nothing depends on our frame budget lining
+// up with how fast the list was scrolled. The trade is that names come back from a single
+// reading each, with no second sighting to outvote a bad one.
+const VIDEO_LIMIT = 14 * 1024 * 1024;      // stays under the 20 MB request cap once base64'd
+async function fileToBase64(file) {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < buf.length; i += 0x8000)          // chunked: one big spread overflows
+    bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+  return btoa(bin);
+}
+
 /* ---------------- vision model ---------------- */
 const PROMPT = `These are frames from a screen recording of a mobile game leaderboard called "Ranking".
 Each visible row has: a rank number (or a gold/silver/bronze medal for ranks 1, 2 and 3),
@@ -606,6 +625,47 @@ Rules:
 - The same player appears in several frames. List every sighting; do not deduplicate.
 - If a row is cut off at the top or bottom edge and you cannot read it fully, skip it.
 - Output raw JSON only. No markdown fence, no commentary.`;
+
+const videoPrompt = () => PROMPT
+  .replace('These are frames from a screen recording', 'This is a screen recording')
+  .replace('across ALL the images', 'from the whole video')
+  .replace('The same player appears in several frames. List every sighting; do not deduplicate.',
+           'Each player appears once in the list. Report every player exactly once, in rank order.');
+
+async function callVideo(file) {
+  const spec = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
+  if (spec.api !== 'gemini' && spec.api !== 'proxy')
+    throw new Error('Whole-video mode needs Gemini (or the shared server-side key).');
+  if (file.size > VIDEO_LIMIT)
+    throw new Error(`That recording is ${(file.size/1e6).toFixed(0)} MB; whole-video mode tops `
+      + `out near ${VIDEO_LIMIT/1e6} MB. Untick it and it will sample frames instead.`);
+  log('uploading the video…'); setProg(0.15);
+  const data = await fileToBase64(file);
+  const body = {
+    contents: [{ role: 'user', parts: [
+      { inline_data: { mime_type: file.type || 'video/mp4', data } },
+      { text: videoPrompt() }] }],
+    generationConfig: { temperature: 0, maxOutputTokens: 32768,
+                        thinkingConfig: { thinkingLevel: 'low' } },
+  };
+  const key = $('key').value.trim();
+  const base = $('base').value.trim().replace(/(.)\/+$/, '$1');
+  const send = async model => {
+    const url = spec.api === 'proxy'
+      ? base + '/' + encodeURIComponent(model)
+      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+    const headers = { 'content-type': 'application/json' };
+    if (spec.api === 'proxy' && key) headers['x-kartz-pass'] = key;
+    const r = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+    if (!r.ok) throw new Error(r.status + ': ' + (await r.text()).slice(0, 300));
+    const j = await r.json();
+    return parseJSON(j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '');
+  };
+  log('reading the video — this takes a couple of minutes…'); setProg(0.4);
+  const rows = await withFallback(send, modelChain(), m => log(`reading with ${m}…`), false);
+  setProg(1);
+  return rows;
+}
 
 async function callModel(frames) {
   const spec = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
@@ -861,16 +921,24 @@ $('go').onclick = async () => {
     skipIndex = buildIndex(skippedRoster());
     aliases = store.get('aliases') || {};
 
-    log('decoding video…'); setProg(0);
-    const frames = await extractFrames(videoFile, +$('sens').value,
-      (p, n) => { setProg(p * 0.5); log(`sampling video — ${n} frames kept`); });
-    if (!frames.length) throw new Error('no frames captured');
-    $('strip').innerHTML = frames.slice(0, 24)
-      .map(f => `<img src="data:image/jpeg;base64,${f}">`).join('');
-    log(`${frames.length} frames (${(frames.join('').length * 0.75 / 1024 | 0)} KB) — sending…`);
-
-    const sightings = await callModel(frames);
-    rows = consolidate(sightings, frames.length).map(r => {
+    let sightings, frameCount;
+    if ($('whole').checked) {
+      sightings = await callVideo(videoFile);
+      // one reading per player, so the sightings floor must not demand a second
+      frameCount = 1;
+      $('strip').innerHTML = '';
+    } else {
+      log('decoding video…'); setProg(0);
+      const frames = await extractFrames(videoFile, +$('sens').value,
+        (p, n) => { setProg(p * 0.5); log(`sampling video — ${n} frames kept`); });
+      if (!frames.length) throw new Error('no frames captured');
+      $('strip').innerHTML = frames.slice(0, 24)
+        .map(f => `<img src="data:image/jpeg;base64,${f}">`).join('');
+      log(`${frames.length} frames (${(frames.join('').length * 0.75 / 1024 | 0)} KB) — sending…`);
+      sightings = await callModel(frames);
+      frameCount = frames.length;
+    }
+    rows = consolidate(sightings, frameCount).map(r => {
       const m = resolve(r.name, r.plain, index, aliases);
       if (m.r) return { ...r, match: m.r, score: m.score, pick: m.r.search };
       const sk = skipIndex.length ? resolve(r.name, r.plain, skipIndex, {}) : { r: null };
@@ -880,7 +948,7 @@ $('go').onclick = async () => {
     let n = 0;
     for (const r of rows) r.rank = r.skipped ? null : ++n;
     render(roster);
-    log(`done — ${sightings.length} sightings → ${rows.length} players`);
+    log(`done — ${sightings.length} readings → ${rows.length} players`);
     setProg(1);
   } catch (e) {
     const m = e.message;
@@ -914,14 +982,18 @@ function render(roster) {
     // complaint from the coverage one below: the list can be complete and still be full of
     // misread names. Sightings per player is roughly frames sent divided by how many
     // screenfuls the list occupies, so the cure is more frames, not a slower recording.
-    + (rows.length && thin > rows.length * 0.4
+    // In whole-video mode every player is reported once by design, so the advice to raise
+    // the frame count would be nonsense there.
+    + (!$('whole').checked && rows.length && thin > rows.length * 0.4
         ? `<div class="warnbox">Most players were caught in a single frame, so names could `
           + `not be cross-checked between frames and misreadings stand uncorrected. `
           + `Raise <em>Frames to send</em> — about ${Math.min(72, Math.ceil(rows.length / 7 * 3 / 4) * 4)} `
           + `would give roughly three sightings each for a list this long.</div>` : '')
     + (gap ? `<div class="warnbox">The game showed a rank as high as ${top} but only `
         + `${rows.length} rows came through — ${top - rows.length} row(s) were probably `
-        + `never captured. Raise <em>Frames to send</em> and run it again.</div>` : '');
+        + `never captured.` + ($('whole').checked
+            ? ` Untick <em>Send the whole video</em> to sample frames instead.`
+            : ` Raise <em>Frames to send</em> and run it again.`) + `</div>` : '');
   const opts = ['<option value="">— new player —</option>',
                 '<option value="\u0000drop">— not a real row, discard —</option>']
     .concat(roster.map(r => `<option value="${esc(r.search)}">${esc(r.search)}</option>`)).join('');

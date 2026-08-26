@@ -152,6 +152,41 @@ case-insensitive.
 Ties are common — several players often share a score — so the row order within a tie is
 arbitrary. The sheet looks players up by name, so this does not matter.
 
+## Two ways to read a recording
+
+**Sampling frames** (the default) picks stills and sends them in batches. Names benefit from
+being read several times and voted on, but coverage depends on the frame budget matching how
+fast the list was scrolled.
+
+**Send the whole video** hands Gemini the clip and lets it do its own sampling — the same
+thing the Google AI Studio app does. One request covers the entire list, so nothing can fall
+between frames, but each player is read exactly once and there is no second reading to
+outvote a bad one.
+
+Measured on the same 43-second, 153-player recording:
+
+| | frames | whole video |
+|---|---|---|
+| rows returned | 147 of 153 | **153 of 153**, ranks 1..153, none missing |
+| requests | 5 to 29 | **1** |
+| input tokens | 21,000+ | **4,000** |
+| time | 63s | **24s** |
+| rank 1 read as | `Noxira` / `Nitro` ✗ | **`Neaira`** ✓ |
+| matched to roster | **91%** | 73 to 76% |
+
+So they fail in opposite directions. Whole-video never misses a player and gets the
+structure exactly right — every rank present, scores strictly descending — but hands back
+more names to confirm. Frames find fewer players and read the ones they find more
+accurately.
+
+Use whole-video when you want the complete list quickly and do not mind confirming names, or
+when the frame budget keeps reporting a shortfall. Use frames when you want the fewest names
+to check by hand. Under about 14 MB, and Gemini only.
+
+The comparison is not perfectly clean: the whole-video runs landed on
+`gemini-3-flash-preview` because the better models were out of daily quota, so some of that
+accuracy gap may be the model rather than the method.
+
 ## Getting the names right
 
 A name is decided by majority vote across the frames a player appears in. If most players
