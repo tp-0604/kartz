@@ -204,47 +204,42 @@ time instead of in parallel, and a 429 there is waited out using the server's ow
 Use it if you like the model or Gemini is down. For twelve runs in one sitting, Gemini is
 roughly twenty times quicker.
 
+### Cloudflare Workers AI
+
+Reachable, but only through your own Worker — never from the page. Its REST API answers a
+CORS preflight with **405** and sets no allow-origin header on the response either, so a
+static site cannot call it however the request is shaped. That is the same wall GitHub
+Models hits.
+
+Since the Worker exists anyway to hold the Gemini key, running Cloudflare's models there
+costs almost nothing extra: `wrangler.toml` gains an `[ai]` binding, and the Worker
+translates the page's Gemini-shaped request into the messages format Workers AI wants and
+wraps the reply back. The page needs no new dialect, and no token reaches the browser at
+all — the binding is ambient inside the Worker.
+
+Pick **Cloudflare Workers AI (via your Worker)**, point it at the Worker URL, and enter the
+shared phrase. Deploy with the `[ai]` block present:
+
+```toml
+[ai]
+binding = "AI"
+```
+
+Free allowance is 10,000 neurons a day.
+
+**Unverified.** I have no Cloudflare account, so this path is tested only against a stand-in
+binding: routing, translation, the reply shape, and every access check pass, and the page
+drives it end to end. What I could not check is whether Cloudflare's deployment of Llama 4
+Scout accepts images at all — the model is multimodal in principle, but a provider can serve
+a text-only build — nor how many runs 10,000 neurons buys, nor how well it reads stylised
+names. Try one recording against a sheet you trust before relying on it.
+
 | provider | free vision | notes |
 |---|---|---|
 | **Gemini** | 20/day per model, 7 models | default; measured 40/40 on a real recording |
 | **Groq — Qwen** | 1000/day but 8k tokens/min | accurate and fast per call, slow in bulk |
 | **OpenRouter** | ~50 requests/day | 8 free vision models |
 | **Mistral** | free tier | Pixtral |
+| **Cloudflare** | 10k neurons/day | via the Worker only; untested against a real account |
 | **Anthropic** | paid | no free tier |
 
-All allow browser calls. **GitHub Models does not** — it sends no CORS headers, so a static
-page cannot reach it.
-
-## Measured on real recordings
-
-Two recordings, from different phones, run end to end in the browser.
-
-**A 43-second recording of a 153-player list, on a 720x1558 phone**, at 40 frames:
-
-| | |
-|---|---|
-| total time | 63 seconds |
-| players found | 148 of 153 |
-| matched to the roster automatically | 134 (91%) |
-| scores strictly descending | yes, top to bottom |
-
-Raising to 60 frames found one more player and took 196 seconds, so 40 is the useful
-setting; the slider goes to 72 for unusually long lists. The coverage warning correctly
-reported the shortfall both times rather than presenting a short list as complete.
-
-**A 50-second recording of a 40-player list, on a 750x1254 phone**, at 24 frames: 40 of 40,
-no points errors, 18-24 seconds, 28 matched.
-
-The models read `ᵇᵃᵗᵐᵃⁿ`, `尺乇爪爪`, `PΞΔĊĦ`, `GHÖS†` and `ÈXÎLÉ` correctly, including the
-gold, silver and bronze medals standing in for ranks 1 to 3.
-
-One instructive miss: at 60 frames the top player came back as "Noxira", where the 40-frame
-run read "Neaira" — which is the name in the roster. More frames is not uniformly better,
-and this is exactly the error the roster match is there to catch: the wrong reading does not
-match anything and is raised for confirmation instead of quietly entering the sheet.
-
-## If it is slow
-
-Thinking is disabled deliberately — reading a leaderboard is perception, not reasoning, and
-leaving it on made a batch take 36 seconds instead of 8. `gemini-flash-latest` is often
-overloaded and returns 503; `gemini-3.6-flash` is the default because it is reliable.

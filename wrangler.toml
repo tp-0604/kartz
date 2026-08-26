@@ -1,3 +1,7 @@
 name = "kartz-key"
 main = "worker.js"
 compatibility_date = "2026-01-01"
+
+# Lets the Worker call Cloudflare's own models as env.AI, with no token in the browser.
+[ai]
+binding = "AI"
