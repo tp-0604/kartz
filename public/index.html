@@ -799,13 +799,41 @@ $('go').onclick = async () => {
     // A roster_name the model returned is only worth anything if it is genuinely in the
     // roster; models will occasionally produce a plausible-looking name that is not on the
     // list, and that is exactly the case a human needs to see.
-    const byName = new Map();
-    for (const e of index) byName.set(e.k, e.r);
+    // Folded name -> roster entries. A Set, because a handful of keys are claimed by two
+    // players — "Killua" and "Killua swords" both reduce to killua — and those cases must
+    // not be decided by string folding.
+    const byFold = new Map();
+    for (const e of index) {
+      if (!byFold.has(e.k)) byFold.set(e.k, new Set());
+      byFold.get(e.k).add(e.r);
+    }
+    const soleMatch = k => { const set = k && byFold.get(k); return set && set.size === 1 ? [...set][0] : null; };
+
     sightings = dropForeignRows(sightings);
     const base = consolidate(sightings, frameCount);
     rows = base.map(r => {
-      const claimed = r.pick_ ? byName.get(fold(r.pick_)) : null;
+      // Order matters, most authoritative first.
+      // 1. Something you corrected by hand and saved. Nothing should overrule that.
+      const al = aliases[fold(r.plain || r.name)] || aliases[fold(r.name)];
+      if (al) {
+        const nm = typeof al === 'string' ? al : al.name;
+        const hit = soleMatch(fold(nm)) || byFold.get(fold(nm))?.values().next().value;
+        if (hit) return { ...r, match: hit, score: 1, pick: hit.search };
+      }
+      // 2. The name as actually drawn, when exactly one roster entry reduces to it. This is
+      //    stronger evidence than the model's own choice: a player shown as "JoJo🐼" folds to
+      //    jojo, which only Jojo answers to, however the model happened to label the row.
+      //    Where a key is shared, we skip this and let the model decide, since it saw the
+      //    glyphs and a fold cannot tell those two apart.
+      // Only the drawn name here — r.plain carries the model's own answer, and folding that
+      // would just be step 3 wearing a disguise.
+      const bySeen = soleMatch(fold(r.name));
+      if (bySeen) return { ...r, match: bySeen, score: 1, pick: bySeen.search };
+      // 3. The roster entry the model named, provided it really exists.
+      const claimed = r.pick_ ? (soleMatch(fold(r.pick_))
+                                 || byFold.get(fold(r.pick_))?.values().next().value) : null;
       if (claimed) return { ...r, match: claimed, score: 1, pick: claimed.search, claimed: true };
+      // 4. Fuzzy, and failing that the row is raised for confirmation.
       const m = resolve(r.name, r.plain, index, aliases);
       if (m.r) return { ...r, match: m.r, score: m.score, pick: m.r.search };
       const sk = skipIndex.length ? resolve(r.name, r.plain, skipIndex, {}) : { r: null };
