@@ -925,12 +925,48 @@ function render(roster) {
 //
 // It is positioned fixed rather than absolute because the results table scrolls
 // horizontally, and anything absolutely positioned inside it gets clipped at the edge.
-let menuEl = null;
-function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } }
+let menuEl = null, menuOwner = null;
+function closeMenu() { if (menuEl) { menuEl.remove(); menuEl = null; } menuOwner = null; }
+
+// Put the menu under its input, or above when there is no room below. Split out so the
+// scroll handler can re-run it instead of tearing the menu down.
+// closeIfHidden is only for the scroll handler. Opening is a different case: focusing a
+// box below the fold is normal — the browser is about to scroll it into view — and tearing
+// the menu down there left openMenu holding a null it then dereferenced.
+function placeMenu(input, closeIfHidden = false) {
+  if (!menuEl) return;
+  const b = input.getBoundingClientRect();
+  if (closeIfHidden && (b.bottom < 0 || b.top > window.innerHeight)) return closeMenu();
+  menuEl.style.left = b.left + 'px';
+  menuEl.style.width = Math.max(b.width, 200) + 'px';
+  const below = window.innerHeight - b.bottom;
+  if (below < 220 && b.top > below) {
+    menuEl.style.top = 'auto';
+    menuEl.style.bottom = (window.innerHeight - b.top + 4) + 'px';
+  } else {
+    menuEl.style.bottom = 'auto';
+    menuEl.style.top = (b.bottom + 4) + 'px';
+  }
+}
 document.addEventListener('mousedown', e => {
-  if (menuEl && !menuEl.contains(e.target) && !e.target.classList.contains('pickbox')) closeMenu();
+  if (!menuEl) return;
+  const t = e.target;
+  // not every mousedown target is an Element — guard rather than throw inside a listener,
+  // where the exception is swallowed and the menu silently refuses to close
+  if (t instanceof Node && menuEl.contains(t)) return;
+  if (t instanceof Element && t.classList.contains('pickbox')) return;
+  closeMenu();
 });
-window.addEventListener('scroll', closeMenu, true);
+// Capture-phase scroll fires for *every* scrollable thing on the page, the menu included,
+// so closing on it unconditionally made the list shut the instant you tried to scroll it.
+// Ignore scrolls that come from inside the menu; for the rest, follow the input rather than
+// closing, since the menu is position:fixed and would otherwise drift away from its box.
+window.addEventListener('scroll', e => {
+  if (!menuEl) return;
+  if (e.target instanceof Node && menuEl.contains(e.target)) return;
+  if (menuOwner) placeMenu(menuOwner, true);
+}, true);
+window.addEventListener('resize', () => { if (menuOwner) placeMenu(menuOwner); });
 
 function openMenu(input, onPick) {
   closeMenu();
@@ -954,24 +990,22 @@ function openMenu(input, onPick) {
   document.body.appendChild(menuEl);
   const first = menuEl.querySelector('div[data-v]:not(.newopt)');
   if (first) first.classList.add('on');
-  const b = input.getBoundingClientRect();
-  menuEl.style.left = b.left + 'px';
-  menuEl.style.width = Math.max(b.width, 200) + 'px';
-  // flip above when there is not room below
-  const below = window.innerHeight - b.bottom;
-  if (below < 220 && b.top > below) menuEl.style.bottom = (window.innerHeight - b.top + 4) + 'px';
-  else menuEl.style.top = (b.bottom + 4) + 'px';
   menuEl.querySelectorAll('div[data-v]').forEach(d => d.onmousedown = ev => {
     ev.preventDefault();
     if (d.dataset.v === '\u0001new') { onPick(input.value.trim()); closeMenu(); input.focus(); return; }
     input.value = d.dataset.v; onPick(d.dataset.v); closeMenu();
   });
+  menuOwner = input;
+  placeMenu(input);
 }
 
 function wirePicker(input, onPick) {
   input.autocomplete = 'off';
   input.oninput = () => { onPick(input.value.trim()); openMenu(input, onPick); };
   input.onfocus  = () => openMenu(input, onPick);
+  // clicking an already-focused box fires no focus event, so without this the menu could
+  // not be reopened after it had been dismissed
+  input.onclick  = () => { if (!menuEl) openMenu(input, onPick); };
   input.onkeydown = e => {
     if (!menuEl) return;
     const items = [...menuEl.querySelectorAll('div[data-v]')];
