@@ -4,19 +4,54 @@ A single static page that turns a screen recording of the in-game **Ranking** li
 rows you paste straight into the tracking sheet. No install, no OCR software, no server.
 Works on Windows, macOS, Android and iOS — anywhere with a browser.
 
-## Deploy to GitHub Pages
+## Where to host it
+
+Two options. They differ in one thing that matters: whether server-side code sits next to
+the page.
+
+### Cloudflare Pages — recommended
+
+Free static hosting like GitHub Pages, deployed from the same repository, **plus** Pages
+Functions: `functions/api/[[path]].js` runs server-side on the same origin as `index.html`.
+
+That is what makes Cloudflare Workers AI usable. Its REST API cannot be called from a
+browser at all — the preflight comes back 405 with no allow-origin header — so the request
+has to originate server-side. On Pages there is no cross-origin request to reject, and
+nothing extra to deploy: the site and its API are one thing.
+
+Connect the repo at **dash.cloudflare.com → Workers & Pages → Create → Pages**, leave the
+build command empty and the output directory as `/`. Then, in the project's settings:
+
+- **Bindings → add Workers AI**, variable name `AI`
+- **Variables and secrets** → `GEMINI_KEY` if you also want the Gemini path, and
+  `SHARED_PASS` if you want to restrict who can use it
+
+The page already defaults its endpoint to `/api`, so **Cloudflare Workers AI** and
+**Shared key** work with nothing typed in.
+
+### GitHub Pages
+
+Works, but Workers AI stays out of reach unless you deploy `worker.js` separately as a
+standalone Worker and point the endpoint at its URL. Choosing a different static host —
+Netlify, Vercel, S3 — changes nothing here: CORS is enforced by the service you are calling,
+not by where your page came from.
 
 ```bash
-cd kartz-web
-git init && git add -A && git commit -m "Kartz extractor"
-git branch -M main
-git remote add origin https://github.com/<you>/kartz.git
-git push -u origin main
+git remote add origin https://github.com/<you>/kartz.git && git push -u origin main
 ```
 
-Then in the repository: **Settings → Pages → Source: `main` / root**. The page appears at
-`https://<you>.github.io/kartz/` a minute later. On a phone, use Share → Add to Home Screen
-and it behaves like an app.
+Then **Settings → Pages → Source: `main` / root**, and add that origin to `ALLOWED_ORIGINS`
+at the top of `worker.js`.
+
+### Who can use your deployment
+
+A request is accepted if it comes from a browser origin the Worker recognises — its own, or
+one listed in `ALLOWED_ORIGINS` — **or** if it carries the shared phrase. Anything else is
+refused, including a request with no `Origin` header at all, so a deployment with no phrase
+set is still not usable by a stranger with the URL.
+
+An `Origin` header proves nothing on its own; it is trivially forged by anything that is not
+a browser. **Set `SHARED_PASS`** if the URL might be discovered. That is the real gate.
 
 ## First-time setup
 

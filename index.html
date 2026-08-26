@@ -194,12 +194,12 @@ const PROVIDERS = {
   mistral:    { label: 'Mistral',        api: 'openai', base: 'https://api.mistral.ai/v1',
                 model: 'pixtral-12b-2409',
                 keys: 'https://console.mistral.ai/api-keys', free: 'free tier' },
-  shared:     { label: 'Shared key (team Worker)', api: 'proxy', base: '',
+  shared:     { label: 'Shared key (server-side)', api: 'proxy', base: '/api',
                 model: 'gemini-3.6-flash', keys: '', free: 'uses the key on the Worker',
                 fallbacks: ['gemini-3.5-flash', 'gemini-3-flash-preview', 'gemini-3.7-flash',
                             'gemini-3.5-flash-lite', 'gemini-3.1-flash-lite',
                             'gemini-flash-lite-latest'] },
-  cfai:       { label: 'Cloudflare Workers AI (via your Worker)', api: 'proxy', base: '',
+  cfai:       { label: 'Cloudflare Workers AI', api: 'proxy', base: '/api',
                 model: '@cf/meta/llama-4-scout-17b-16e-instruct',
                 keys: '', free: '10k neurons/day, no key in the browser',
                 // Workers AI cannot be called from the page — its REST API answers a CORS
@@ -238,7 +238,9 @@ function syncHint() {
   $('keyHint').innerHTML = p.keys
     ? `&mdash; <a href="${p.keys}" target="_blank" rel="noopener">get a key</a>` : '';
   $('baseWrap').classList.toggle('hide', p.api !== 'openai' && p.api !== 'proxy');
-  $('baseLabel').textContent = p.api === 'proxy' ? 'Worker URL' : 'Endpoint base URL';
+  $('baseLabel').textContent = p.api === 'proxy'
+    ? 'Endpoint — /api when this page is on Cloudflare Pages, or a full Worker URL'
+    : 'Endpoint base URL';
   $('keyLabel').textContent  = p.api === 'proxy' ? 'Shared phrase' : 'API key';
   $('key').placeholder = p.api === 'proxy'
     ? 'the phrase your admin gave you — not an API key'
@@ -597,7 +599,7 @@ Rules:
 async function callModel(frames) {
   const spec = PROVIDERS[$('provider').value] || PROVIDERS.gemini;
   const model = $('model').value.trim(), key = $('key').value.trim();
-  const base = $('base').value.trim().replace(/\/+$/, '');
+  const base = $('base').value.trim().replace(/(.)\/+$/, '$1');
   // Batch size is provider-specific. Gemini's free tier is metered per request per day, so
   // large batches mean more runs; Groq's is metered per token per minute, so its spec asks
   // for small ones. Batches are independent, so providers without a pacing rule overlap them.

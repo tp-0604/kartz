@@ -20,10 +20,10 @@
  * The key is then only ever in Cloudflare. Your officers need the site and the phrase.
  */
 
-// Only these origins may call the Worker. Keep the list tight: this, plus the shared
-// phrase, is the whole of the access control.
+// Extra origins allowed to call this, for when the page is hosted somewhere else — GitHub
+// Pages, say. Anything served from this same deployment is allowed automatically, so on
+// Cloudflare Pages this list can stay empty.
 const ALLOWED_ORIGINS = [
-  'https://YOURNAME.github.io',
   'http://localhost:8731',
 ];
 
@@ -69,7 +69,17 @@ function corsHeaders(origin) {
 export default {
   async fetch(request, env) {
     const origin = request.headers.get('Origin') || '';
-    const allowed = ALLOWED_ORIGINS.includes(origin);
+    // Same-origin covers the Cloudflare Pages deployment, where the page and this code are
+    // one site and no cross-origin request happens at all.
+    const knownOrigin = !!origin
+      && (origin === new URL(request.url).origin || ALLOWED_ORIGINS.includes(origin));
+    // A request with no Origin at all is not a browser — curl, or a script. Those are fine,
+    // but only when they bring the shared phrase: otherwise an unconfigured deployment is
+    // an open AI proxy for anyone who finds the URL. An origin header proves nothing on its
+    // own (it is trivially forged), so the phrase is the real gate; this just means a
+    // deployment with no phrase set is still not usable by strangers.
+    const hasPass = !!env.SHARED_PASS && request.headers.get('x-kartz-pass') === env.SHARED_PASS;
+    const allowed = knownOrigin || hasPass;
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: allowed ? 204 : 403,
@@ -87,8 +97,9 @@ export default {
     if (env.SHARED_PASS && request.headers.get('x-kartz-pass') !== env.SHARED_PASS)
       return reply({ error: { code: 401, message: 'Wrong or missing shared phrase.' } }, 401);
 
-    // Path is /<model>. Constrain it so this cannot be aimed at arbitrary endpoints.
-    const model = decodeURIComponent(new URL(request.url).pathname.replace(/^\/+/, ''));
+    // Path is /<model>, or /api/<model> when mounted as a Pages Function.
+    const model = decodeURIComponent(
+      new URL(request.url).pathname.replace(/^\/+/, '').replace(/^api\/+/, ''));
     const isCf = model.startsWith('@cf/');
     if (!(isCf ? /^@cf\/[a-zA-Z0-9._\/\-]{1,80}$/ : /^[a-zA-Z0-9.\-]{1,64}$/).test(model))
       return reply({ error: { code: 400, message: 'Bad model name.' } }, 400);
