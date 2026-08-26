@@ -67,6 +67,27 @@ recognised, with the right alliance, from the next run onward. **Copy new player
 on the clipboard as three columns — sheet name, name as drawn in game, alliance — ready to
 paste onto the end of the roster sheet so they are known permanently.
 
+## Grouping by rank, not by name
+
+Readings are grouped by the rank they carry, and the name is then decided by majority vote
+inside that group.
+
+Grouping by name was the earlier design and it fails in a specific way: a name read three
+different ways becomes three players, so a 153-player list comes back as 158 rows, each seen
+once, with no majority left to correct anything. Rank is a plain numeral and comes back
+reliably, which makes it a far better key. Voting still happens — within a rank rather than
+within a spelling — so a good reading outvotes a bad one instead of splitting away from it.
+
+Readings whose rank was unreadable are attached to the rank whose score and name they agree
+with, and otherwise stand on their own.
+
+## The response shape is enforced by the API
+
+Requests set `responseMimeType` and a `responseSchema`, so the model cannot return prose, a
+markdown fence or a half-written object. Every field is declared as a string and converted
+here, because a model asked for a number will occasionally answer `"1,234"` or `"#4"` and
+have the whole response rejected. The salvaging parser is still in place behind it.
+
 ## The roster goes into the prompt
 
 The biggest single improvement was not a better model — it was asking a different question.

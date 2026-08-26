@@ -638,8 +638,27 @@ async function callProxy(batch, model, pass, base) {
       contents: [{ role: 'user', parts: [
         ...batch.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d } })),
         { text: buildPrompt(false) }] }],
-      generationConfig: { temperature: 0, maxOutputTokens: 32768,
-                          thinkingConfig: { thinkingLevel: 'low' } }
+      generationConfig: {
+        temperature: 0, maxOutputTokens: 32768,
+        thinkingConfig: { thinkingLevel: 'low' },
+        // Ask the API to enforce the shape rather than hoping the model returns clean JSON.
+        // Everything is a string: models will happily emit "1,234" or "#4" for a number and
+        // then the whole response is rejected, so take text and convert here.
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'ARRAY',
+          items: {
+            type: 'OBJECT',
+            properties: {
+              rank:        { type: 'STRING' },
+              roster_name: { type: 'STRING' },
+              seen:        { type: 'STRING' },
+              points:      { type: 'STRING' },
+            },
+            required: ['rank', 'seen', 'points'],
+          },
+        },
+      }
     })
   });
   if (!r.ok) throw new Error(r.status + ': ' + (await r.text()).slice(0, 300));
@@ -657,11 +676,18 @@ function parseJSON(text) {
   for (const o of objs) {
     try {
       const r = JSON.parse(o);
-      // new shape is {roster_name, seen}; the older {name, plain} still parses
       if (r.seen !== undefined || r.roster_name !== undefined) {
         r.name  = r.seen || r.roster_name || '';
         r.plain = r.roster_name || r.seen || '';
       }
+      // the schema returns strings; "1,234" and "#4" both turn up
+      const num = v => {
+        if (typeof v === 'number') return v;
+        const m = String(v ?? '').replace(/[,\s]/g, '').match(/-?\d+/);
+        return m ? +m[0] : null;
+      };
+      r.points = num(r.points);
+      r.rank   = num(r.rank);
       if (typeof r.points === 'number' && (r.name || r.plain)) rows.push(r);
     } catch { /* a half-written object at the cut: skip it */ }
   }
@@ -699,48 +725,51 @@ function dropForeignRows(sightings) {
 /* ---------------- consolidate ---------------- */
 // a player's score holds steady across frames; their name does not. so sightings that
 // share a score and read similarly are the same person, however badly the tag rendered.
+// Group by rank, then vote on everything else.
+//
+// Clustering by name was the earlier approach and it has a specific failure: a name read
+// three different ways becomes three players, so a 153-player list can come back as 158
+// rows, each seen once, with no majority to correct anything. Rank does not have that
+// problem — it is a plain numeral the model reads reliably — so it makes a far better key.
+// Voting still happens, but within a rank rather than within a spelling, which is what lets
+// a good reading outvote a bad one instead of splitting away from it.
 function consolidate(sightings, frameCount) {
-  const groups = new Map();
+  const byRank = new Map();
+  const orphans = [];
   for (const s of sightings) {
     if (!s || typeof s.points !== 'number') continue;
-    const k = fold(s.plain || s.name);
-    if (!k) continue;
-    if (!groups.has(k)) groups.set(k, []);
-    groups.get(k).push(s);
+    if (typeof s.rank === 'number' && s.rank > 0) {
+      if (!byRank.has(s.rank)) byRank.set(s.rank, []);
+      byRank.get(s.rank).push(s);
+    } else orphans.push(s);          // rank unreadable — fall back to matching on name
   }
-  const clusters = [];
-  for (const [k, g] of [...groups].sort((a, b) => b[1].length - a[1].length)) {
-    const pts = mode(g.map(x => x.points));
-    const rk  = mode(g.map(x => x.rank).filter(r => typeof r === 'number' && r > 0));
-    // Same score and a name that reads similarly is the usual case. The second test is for
-    // models that read names poorly: rank and score both come back reliably even when the
-    // name does not, and the two together are close to unique, so a badly misread name still
-    // lands on the right player instead of splitting off as a row of its own. Without it a
-    // weak model produces *more* rows than there are players, each seen once, and a single
-    // bad reading has no better reading to be outvoted by.
-    const hit = clusters.find(c => c.points === pts &&
-      (sim(k, c.key) >= 0.55 || (rk && c.rank && rk === c.rank)));
-    if (hit) { hit.all.push(...g); if (!hit.rank) hit.rank = rk; }
-    else clusters.push({ key: k, points: pts, rank: rk, all: [...g] });
+  // a row whose rank never came through still belongs somewhere; attach it to the rank
+  // whose score and name it agrees with, and otherwise let it stand on its own
+  for (const o of orphans) {
+    let target = null;
+    for (const [rank, g] of byRank) {
+      if (mode(g.map(x => x.points)) !== o.points) continue;
+      if (sim(fold(o.plain || o.name), fold(g[0].plain || g[0].name)) >= 0.6) { target = rank; break; }
+    }
+    if (target) byRank.get(target).push(o);
+    else { const k = -(byRank.size + 1); byRank.set(k, [o]); }
   }
-  // Whether a single sighting is evidence or noise depends on how much redundancy there
-  // actually was, not on the frame count. A 40-player list at 24 frames sees everyone
-  // several times, so a lone appearance is probably motion blur; a 153-player list at the
-  // same 24 frames sees most people exactly once, and discarding those would silently drop
-  // a third of the alliance. Judge it by the redundancy observed in this recording.
-  const counts = clusters.map(c => c.all.length).sort((a, b) => a - b);
-  const median = counts.length ? counts[counts.length >> 1] : 1;
-  const floor = median >= 3 ? 2 : 1;
-  return clusters.filter(c => c.all.length >= floor).map(c => ({
-    points: c.points,
-    name:   mode(c.all.map(x => x.name)),
-    plain:  mode(c.all.map(x => x.plain || x.name)),
-    pick_:  mode(c.all.map(x => x.roster_name).filter(Boolean)),
-    rank:   mode(c.all.map(x => x.rank).filter(r => typeof r === 'number' && r > 0)),
-    seenRank: Math.max(0, ...c.all.map(x => x.rank).filter(r => typeof r === 'number' && r > 0)),
-    seen:   c.all.length,
-  })).sort((a, b) => b.points - a.points || (a.rank || 999) - (b.rank || 999));
+  const out = [];
+  for (const [rank, g] of byRank) {
+    const names = g.map(x => x.roster_name).filter(Boolean);
+    out.push({
+      points: mode(g.map(x => x.points)),
+      name:   mode(g.map(x => x.name)),
+      plain:  mode(g.map(x => x.plain || x.name)),
+      pick_:  names.length ? mode(names) : '',
+      rank:   rank > 0 ? rank : null,
+      seenRank: rank > 0 ? rank : 0,
+      seen:   g.length,
+    });
+  }
+  return out.sort((a, b) => b.points - a.points || (a.seenRank || 9999) - (b.seenRank || 9999));
 }
+
 const mode = arr => {
   const c = new Map(); let best = null, n = 0;
   for (const v of arr) { const k = c.get(v) || 0; c.set(v, k + 1); if (k + 1 > n) { n = k + 1; best = v; } }
