@@ -454,7 +454,15 @@ function claimPlausible(seen, entry) {
       const fc = symCodes(f);
       if (seenCps.length < SYM_NEAR_MIN || fc.length < SYM_NEAR_MIN) return false;
       const cap = symCap(Math.max(seenCps.length, fc.length));
-      return seqEdits(seenCps, fc, cap) <= cap;
+      if (seqEdits(seenCps, fc, cap) <= cap) return true;
+      // Nothing in common at all. It is tempting to accept that on the model's word — the
+      // roster spells batman in Tai Viet, one run read it as Thai and the next as IPA, and no
+      // codepoint comparison will ever bridge those. But length agreement is not evidence:
+      // matching six unreadable glyphs against six other unreadable glyphs put rank 74 down as
+      // hyena on nothing but the count, and a wrong name entered quietly is the failure this
+      // whole exercise exists to prevent. A unanimous claim is handled further up, where it can
+      // be judged against every reading of the row rather than one at a time.
+      return false;
     });
   }
   const bothStylised = exoticness(seen) >= EXOTIC
@@ -530,6 +538,10 @@ function seqEdits(a, b, cap) {
 // That is the difference between a word and an emoji: in a six-glyph word two wrong glyphs
 // still leave four agreeing, whereas one codepoint IS the whole of 🐼, and one substitution
 // turns it into 🦊.
+// Is this a word, or a picture? Emoji are Extended_Pictographic; letters, digits and marks
+// from any script on earth are not. The distinction matters because one codepoint is the whole
+// of 🐼, while a word survives having several of its letters misread.
+const letterish = s => !/\p{Extended_Pictographic}/u.test(s || '') && /[\p{L}\p{N}]/u.test(s || '');
 const SYM_NEAR_MIN = 4;
 const symCap = n => Math.max(1, Math.floor(n / 3));
 const SYM_MIN_LEN = 2;
@@ -1402,6 +1414,12 @@ $('go').onclick = async () => {
         return { ...r, match: entry, score: 1,
                  pick: entry.ingame || entry.search, claimed: true, via: 'claim:' + c };
       }
+      // There is no step here for "the model named a player but nothing in the reading
+      // supports it". One was tried, guarded by requiring the claim to be unanimous within the
+      // run, and it matched rank 33 to angkasa — the row is batman. That row reads as Thai one
+      // run, IPA the next and 🦇man the third, and the claim flips between batman and angkasa
+      // with it, so agreement inside a single run says nothing about being right. A name the
+      // model cannot transcribe and cannot consistently recognise belongs in the confirm list.
       // 4. Fuzzy over every reading, and failing that the row is raised for confirmation.
       let m = { r: null, score: 0, near: null }, from = '';
       for (const o of readings) {
