@@ -175,18 +175,18 @@ of the copied rows, rather than deleted — so they do not come back every month
 ## Settings
 
 There are none left to set. Frames were a slider and the reference picture a checkbox, and
-neither was a real choice. Both are fixed now: 72 sample points, sliced three ways, sent as
-six requests.
+neither was a real choice. Both are fixed now: 64 sample points, sliced three ways, sent as
+six requests — about 228,000 tokens, which is a whole run inside one minute's allowance.
 
-72 rather than more, because the allowance that binds is **tokens**, not requests. An image
-costs a flat ~1,100 tokens whatever its dimensions, so the picture count is the whole budget:
-96 frames came to 317,000 tokens against a limit of 250,000 a minute, and runs were throttled
-into taking minutes. 72 frames is 233,000 and fits. It also costs nothing measurable — on the
-test recording both found all 153 players with no gaps, and matched 144 against 145.
+The allowance that binds is **tokens**, not requests. An image costs a flat ~1,100 whatever
+its dimensions, so the picture count is the entire budget. 96 frames came to 317,000 against
+a limit of 250,000 a minute and was throttled; 72 came to 246,000, which fits only by spacing
+the requests a dozen seconds apart, and that made every run take a minute. 64 goes in one
+burst and finishes in about 16 seconds.
 
-Six requests rather than twelve for the same reason: the roster prompt is resent with every
-one of them, and at 5,800 tokens a time — names in exotic scripts tokenise at about 2.3
-characters to the token — halving the requests returns some 35,000 tokens a run.
+Six requests, not four. Fewer would save the roster prompt that rides along with each one, but
+47 images to a request instead of 31 dropped the match rate from 91 of 129 to 67. A long batch
+is attended to worse than a short one, and 14,000 tokens is not worth that.
 
 Model is `gemini-3.5-flash-lite`, fixed, with no fallback chain — a run either works or says
 why.
@@ -204,4 +204,4 @@ A 43-second recording of a 153-player list:
 | matched to the roster | **141** (92%) |
 | needing a decision | 10, and all ten are genuinely new players |
 | wrong matches | none |
-| time | 14 seconds, 6 requests, 233K tokens |
+| time | 16 seconds, 6 requests, 228K of the 250K-per-minute allowance |
