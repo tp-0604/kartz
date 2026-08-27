@@ -834,7 +834,17 @@ const SHARP_MAX = 0.2, SHARP_STEPS = 3;
 // across: whole, it came back as 🐼, and as three bands — 3304 image tokens instead of 1080 —
 // it came back as 🐻‍❄️, which is what it actually is. The bands overlap so that a row falling
 // on a seam still appears whole in its neighbour.
-const STRIPS = 3, STRIP_OVERLAP = 0.08;
+// The bands overlap by a whole row, which is what 0.25 works out to. At 0.08 they overlapped
+// by 46 pixels against a row height of 143, so a row landing on a seam was cut in half in the
+// strip above it and in half again in the strip below, and appeared whole in neither. That is
+// how a single rank goes missing while its neighbours arrive intact — the gaps are 54 and 60,
+// not 54 through 60.
+//
+// It costs nothing. An image is charged a flat ~1100 tokens whatever its dimensions, so taller
+// bands are free, and because each one now spans about three rows instead of 2.3, every rank
+// turns up in more of them. That matters more than the seams: 56 of 153 ranks were being seen
+// exactly once in a run, with no second reading to fall back on if the first went wrong.
+const STRIPS = 3, STRIP_OVERLAP = 0.25;
 function sliceStrips(src) {
   const w = src.width, h = src.height;
   const band = h / STRIPS, pad = band * STRIP_OVERLAP;

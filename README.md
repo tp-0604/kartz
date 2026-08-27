@@ -55,7 +55,7 @@ must be link-readable (*Share → General access → Anyone with the link → Vi
 | **confirm** | not in the roster — pick the right player, or leave it as a new one |
 | **excluded** | in a filtered alliance, left out of the copied rows — still editable, and naming somebody else brings the row back in with its rank |
 
-A **coverage warning** names the ranks that were never photographed. Everyone else keeps the
+A **coverage warning** names the ranks that were never captured. Everyone else keeps the
 rank the game gave them, so a gap costs you those players and nothing else. It comes from
 scrolling faster than the sampling could follow, so re-record that stretch more slowly if you
 want it filled.
@@ -124,6 +124,12 @@ underneath. That turns "is this a polar bear or a panda" into a comparison betwe
 pictures — and when the page is open on the phone that made the recording, the browser draws
 the emoji with the same font the game used, so they are near enough identical. A bare 🐼 used
 to come back as the player "Vyking"; the same row now reads 🐻‍❄️ correctly.
+
+**Overlaps the bands by a whole row.** A row landing on the join between two bands used to be
+cut in half in the one above and in half again in the one below, appearing whole in neither —
+46 pixels of overlap against a row 143 pixels tall. That is what lost single ranks while their
+neighbours arrived intact: the gaps read 54 and 60, not 54 through 60. Taller bands cost
+nothing, since an image is charged a flat rate whatever its size.
 
 **Sends each frame as three bands.** Every image costs the model about the same 1090 tokens
 whatever its dimensions — enlarging a frame before sending it changes nothing, and 1x and 3x
