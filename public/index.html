@@ -120,6 +120,11 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
       <label for="sens">Frames to send <span id="sensVal" class="note"></span></label>
       <input id="sens" type="range" min="8" max="72" step="4" value="48">
       <label style="display:flex;align-items:center;gap:7px;margin-top:8px">
+        <input type="checkbox" id="repair" checked style="width:auto;margin:0">
+        <span>Take a second look at rows that did not match &mdash; one extra request, offers
+        the model a shortlist to choose from</span>
+      </label>
+      <label style="display:flex;align-items:center;gap:7px;margin-top:8px">
         <input type="checkbox" id="sheetimg" checked style="width:auto;margin:0">
         <span>Send a picture of the unusual names &mdash; lets the model compare odd
         lettering and emoji as images instead of reading them character by character</span>
@@ -935,6 +940,83 @@ function dropForeignRows(sightings) {
   return kept;
 }
 
+// A second look at the rows that did not match.
+//
+// Reading a name outright is the hard version of the question. Choosing between twenty
+// candidates while looking at the picture is the easy one, and the API can be made to answer
+// only from a list, so the model cannot invent a name. Tested on the row that had defeated
+// every other approach: "ŊŲƁĮ" reads as Dubi at any magnification — 0.75 similar to Nubi and
+// so just under the matching threshold — but offered the shortlist it picks ŊŲƁĮ correctly.
+//
+// Only unmatched rows go through this, so it is one extra request rather than a second pass
+// over everything.
+const REPAIR_CANDIDATES = 20;
+function shortlistFor(seen, roster) {
+  const key = usableFold(seen) || fold(seen);
+  return [...new Set(roster
+    .map(r => ({ r, s: Math.max(sim(key, usableFold(r.search) || fold(r.search)),
+                                sim(key, usableFold(r.ingame) || fold(r.ingame))) }))
+    .sort((a, b) => b.s - a.s)
+    .slice(0, REPAIR_CANDIDATES)
+    .map(x => (x.r.ingame || x.r.search).trim())
+    .filter(Boolean))];
+}
+
+async function repairUnmatched(unresolved, frames, roster) {
+  if (!unresolved.length || !frames.length) return {};
+  // one property per row, each constrained to that row's own candidates
+  const props = {}, lists = {};
+  for (const r of unresolved) {
+    const key = 'r' + r.rank;
+    const list = shortlistFor(r.name, roster);
+    if (list.length < 2) continue;
+    lists[key] = list;
+    props[key] = { type: 'STRING', enum: [...list, 'NONE OF THESE'] };
+  }
+  const keys = Object.keys(props);
+  if (!keys.length) return {};
+
+  // frames covering roughly where each rank sits in the scroll
+  const total = Math.max(...unresolved.map(r => r.rank), 1);
+  const wanted = new Set();
+  for (const r of unresolved) {
+    const at = Math.round((r.rank / total) * (frames.length - 1));
+    for (let d = -1; d <= 1; d++) wanted.add(Math.min(frames.length - 1, Math.max(0, at + d)));
+  }
+  const pick = [...wanted].sort((a, b) => a - b).slice(0, 12).map(i => frames[i]);
+
+  const ask = unresolved.map(r => props['r' + r.rank]
+    ? `rank ${r.rank} — read as "${r.name}", ${r.points} points` : null).filter(Boolean).join('\n');
+  const body = {
+    contents: [{ role: 'user', parts: [
+      ...pick.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d } })),
+      { text: `These frames come from a game leaderboard. A few rows could not be identified:
+
+${ask}
+
+For each, find that row in the frames and decide which candidate its name is, comparing the
+glyph shapes rather than trying to spell it out. Unusual letterforms and diacritics matter.
+Answer "NONE OF THESE" only if the name is plainly not among the candidates.` }] }],
+    generationConfig: { temperature: 0, maxOutputTokens: 4096,
+      thinkingConfig: { thinkingLevel: 'low' },
+      responseMimeType: 'application/json',
+      responseSchema: { type: 'OBJECT', properties: props } },
+  };
+  const r = await fetch(API_BASE + '/' + encodeURIComponent(MODEL), {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) { log('second look failed: ' + r.status); return {}; }
+  const j = await r.json();
+  let picked = {};
+  try { picked = JSON.parse(j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '{}'); }
+  catch { return {}; }
+  const out = {};
+  for (const [k, v] of Object.entries(picked)) {
+    if (!v || v === 'NONE OF THESE' || !lists[k] || !lists[k].includes(v)) continue;
+    out[+k.slice(1)] = v;      // rank -> chosen in-game name
+  }
+  return out;
+}
+
 /* ---------------- consolidate ---------------- */
 // a player's score holds steady across frames; their name does not. so sightings that
 // share a score and read similarly are the same person, however badly the tag rendered.
@@ -1073,6 +1155,23 @@ $('go').onclick = async () => {
     }
     let n = 0;
     for (const r of rows) r.rank = r.skipped ? null : ++n;
+
+    if ($('repair').checked) {
+      const stuck = rows.filter(r => !r.match && !r.skipped && !r.contested && r.rank);
+      if (stuck.length) {
+        log(`taking a second look at ${stuck.length} row${stuck.length>1?'s':''}…`);
+        const chosen = await repairUnmatched(stuck, frames, roster);
+        let fixed = 0;
+        for (const r of stuck) {
+          const name = chosen[r.rank];
+          if (!name) continue;
+          const hit = roster.find(x => (x.ingame || x.search).trim() === name);
+          if (!hit || !claimPlausible(r.name, hit)) continue;   // same bar as any other claim
+          r.match = hit; r.pick = hit.ingame || hit.search; r.score = 1; r.repaired = true; fixed++;
+        }
+        if (fixed) log(`second look resolved ${fixed} of ${stuck.length}`);
+      }
+    }
     render(roster);
     log(`done — ${sightings.length} readings → ${rows.length} players`);
     setProg(1);
@@ -1139,7 +1238,8 @@ function render(roster) {
                </select>`}</td>
         <td>${r.points}</td>
         <td>${r.skipped ? '<span class="pill p-new">excluded</span>'
-            : r.match ? `<span class="pill p-ok">${r.score === 1 ? 'exact' : (r.score*100|0)+'%'}</span>`
+            : r.match ? `<span class="pill p-ok">${r.repaired ? 'second look'
+                          : r.score === 1 ? 'exact' : (r.score*100|0)+'%'}</span>`
             : r.contested ? '<span class="pill p-bad">contested</span>'
                       : '<span class="pill p-new">confirm</span>'}</td>
       </tr>`).join('') + '</tbody>';
