@@ -62,6 +62,11 @@ tr.new{background:var(--warnbg)}
   padding:0 4px;width:auto;line-height:1;opacity:.5}
 .pencil:hover{opacity:1;color:var(--accent)}
 button.ghost.tickok{color:var(--ok)}
+/* Selects inherit width:100% from the base control rule, which made these stretch across a
+   column sized for the header rather than for "698S". Sized to their content instead, with a
+   floor so the four codes line up, and a ceiling so the one row carrying "z1.Transferred"
+   widens a little rather than setting the width for all of them. */
+.allipick{width:auto;min-width:88px;max-width:150px;padding:7px 9px}
 #tbl tr.drop{opacity:.4}
 .menu{position:fixed;z-index:50;background:var(--panel);border:1px solid var(--line);
   border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.16);max-height:210px;overflow-y:auto;
