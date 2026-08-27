@@ -118,7 +118,7 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
     </div>
     <div>
       <label for="sens">Frames to send <span id="sensVal" class="note"></span></label>
-      <input id="sens" type="range" min="8" max="72" step="4" value="48">
+      <input id="sens" type="range" min="8" max="96" step="4" value="64">
       <label style="display:flex;align-items:center;gap:7px;margin-top:8px">
         <input type="checkbox" id="sheetimg" checked style="width:auto;margin:0">
         <span>Send a picture of the unusual names &mdash; lets the model compare odd
@@ -158,7 +158,13 @@ const $ = id => document.getElementById(id);
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
-const BATCH = 8;
+// Images per request. Twelve rather than eight because the cost that matters is the number
+// of REQUESTS, not the number of images: the free tier allows fifteen requests a minute and
+// is indifferent to how much each one carries. Slicing frames into strips tripled the images,
+// and at eight to a request that came to twenty-four requests — over the limit, so the run
+// stalled in ninety-second retries and took longer than four minutes. The same images at
+// twelve to a request fit inside the allowance.
+const BATCH = 12;
 
 /* ---------------- persistence ---------------- */
 const store = {
@@ -319,6 +325,18 @@ function fold(s) {
 // then exact-matches any other player who also collapses to one letter, which is how Asta
 // was resolving to angkasa. Treat a fold that kept almost nothing as no fold at all, and let
 // the characters themselves do the matching instead.
+// The key a remembered correction is filed under. Emoji names fold to nothing, so keying on
+// the fold alone filed every one of them under the empty string — each overwriting the last,
+// and none ever found again, because the lookup skips empty keys. A name made purely of
+// symbols therefore could not be taught at all, which is exactly the kind that most needs
+// teaching: 🐻‍❄️ is a white bear face twenty pixels across and the model calls it 🐼 about
+// half the time. Folded names keep their old key, so corrections saved before this still work.
+function aliasKey(s) {
+  const f = fold(s);
+  if (f) return f;
+  const k = symKey(s);
+  return k ? '\u0002' + k : '';
+}
 function usableFold(raw) {
   const f = fold(raw);
   if (!f) return '';
@@ -361,7 +379,7 @@ function buildIndex(roster) {
     for (const form of [r.search, r.ingame]) {
       if (!form) continue;
       const k = symKey(form);
-      if (k) ix.push({ k: '\u0002' + k, r, sym: true });
+      if (k) ix.push({ k: '\u0002' + k, r, sym: true, cps: symCodes(form) });
     }
   }
   return ix;
@@ -384,7 +402,22 @@ function buildIndex(roster) {
 // That is the right way round: a rejected row goes to the second look, which offers it a
 // shortlist and a forced choice, and failing that lands in front of you. A confident wrong
 // match just quietly enters the sheet.
-const CLAIM_MIN = 0.8;
+// How far a reading must resemble the roster entry the model claims depends on how far the
+// reading itself can be trusted, and that is not constant across names.
+//
+// A name drawn in ordinary Latin letters is transcribed accurately, so a claim that disagrees
+// with the reading is the model reaching for a roster entry that is not there: HÊNK, absent
+// from the roster, filed as LeeK at 0.50. The strict bar exists for exactly that.
+//
+// A name drawn in stylised Unicode is the opposite case — the transcription is the unreliable
+// half and the recognition is the half we asked for. ŊŲƁĮ came back as ŊŲƁĮ, Ḏṳḇị, DUBI,
+// 𝓡𝓑𝓙 and ṆḶḄḶ across five runs of one recording; at the strict bar only the first two are
+// believed and the same player lands in the review list on the other three runs.
+//
+// So the concession is made, and confined: it applies only when the drawn name and the roster
+// entry are BOTH stylised, which is the situation it was reasoned about. HÊNK scores 0.25 on
+// that measure and MiniMe 0.00, so neither is offered the lower bar; ṆḶḄḶ scores 1.00.
+const CLAIM_MIN = 0.8, CLAIM_MIN_STYLISED = 0.45;
 function claimPlausible(seen, entry) {
   const key = usableFold(seen);
   const forms = [entry.search, entry.ingame].filter(Boolean);
@@ -402,25 +435,65 @@ function claimPlausible(seen, entry) {
       return s === seenSym || s.includes(seenSym) || seenSym.includes(s);
     });
   }
+  const bothStylised = exoticness(seen) >= EXOTIC
+                       && forms.some(f => exoticness(f) >= EXOTIC);
+  const bar = bothStylised ? CLAIM_MIN_STYLISED : CLAIM_MIN;
   for (const form of forms) {
     const f = usableFold(form);
     if (!f) continue;            // this form is symbols; judge against the other one
-    if (f === key || sim(key, f) >= CLAIM_MIN) return true;
+    if (f === key || sim(key, f) >= bar) return true;
   }
   return false;
 }
 
 // True when two keys are at most one edit apart. Cheaper than computing the distance:
 // past the first mismatch the remainders either line up or they do not.
+// Works on sequences rather than strings, so a name made of emoji can be compared codepoint
+// by codepoint. 🐼❄️ and 🐻❄️ differ in exactly one element that way, where their UTF-16 units
+// would not line up at all.
 function lev1(a, b) {
-  if (a === b) return true;
-  const [s, t] = a.length <= b.length ? [a, b] : [b, a];
+  if (a.length === b.length) {
+    let diff = 0;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i] && ++diff > 1) return false;
+    return true;                                          // nothing, or one substitution
+  }
+  const [s, t] = a.length < b.length ? [a, b] : [b, a];
   if (t.length - s.length > 1) return false;
   let i = 0;
   while (i < s.length && s[i] === t[i]) i++;
-  if (i === s.length) return true;                                   // one extra at the end
-  if (s.length === t.length) return s.slice(i + 1) === t.slice(i + 1);   // substitution
-  return s.slice(i) === t.slice(i + 1);                              // insertion
+  for (let k = i; k < s.length; k++) if (s[k] !== t[k + 1]) return false;
+  return true;                                            // one insertion
+}
+// The codepoints of a name with the joiners and modifiers taken out — the same reduction
+// symKey performs, kept as numbers so one emoji counts as one element.
+function symCodes(s) {
+  const out = [];
+  for (const ch of String(s || '')) {
+    const cp = ch.codePointAt(0);
+    if (cp === 0x200D || cp === 0xFE0E || cp === 0xFE0F) continue;   // ZWJ, variation
+    if (cp >= 0x1F3FB && cp <= 0x1F3FF) continue;                    // skin tone
+    if (cp <= 0x20) continue;                                        // spaces, control
+    out.push(cp);
+  }
+  return out;
+}
+// A symbol name one codepoint away from exactly one roster player. Two elements minimum,
+// which matters: a bare 🐼 is one codepoint from every single-emoji player on the roster and
+// would match whichever happened to be alone in that neighbourhood, so it stays unmatched and
+// goes to you. 🐼❄️ against 🐻❄️ is a different proposition — the snowflake agrees and only the
+// animal is in dispute, which is exactly how the model misread it.
+const SYM_MIN_LEN = 2;
+function nearSymMatch(raw, ix) {
+  const cps = symCodes(raw);
+  if (cps.length < SYM_MIN_LEN || usableFold(raw)) return null;
+  let hit = null;
+  for (const e of ix) {
+    if (!e.sym || !e.cps || e.cps.length < SYM_MIN_LEN) continue;
+    if (!lev1(cps, e.cps)) continue;
+    if (hit && hit !== e.r) return null;                  // more than one player this close
+    hit = e.r;
+  }
+  return hit;
 }
 // The last resort, and the one that took the longest to get right.
 //
@@ -455,7 +528,7 @@ function resolve(name, plain, ix, aliases) {
   // match against the roster must use usableFold, or a name stylised down to one stray
   // letter exact-matches whichever player is actually called that. "ʟᴇxɪᴄᴏɴ" reduces to
   // "x" and was resolving to the player X before the symbol path ever got a look in.
-  for (const cand of [fold(name), fold(plain)]) {
+  for (const cand of [aliasKey(name), aliasKey(plain)]) {
     if (!cand) continue;
     if (aliases[cand]) {
       const al = aliases[cand];
@@ -480,6 +553,10 @@ function resolve(name, plain, ix, aliases) {
   }
   for (const cand of [usableFold(name), usableFold(plain)]) {
     const hit = nearMatch(cand, ix);
+    if (hit) return { r: hit, score: 1, near1: true };
+  }
+  for (const raw of [name, plain]) {
+    const hit = nearSymMatch(raw, ix);
     if (hit) return { r: hit, score: 1, near1: true };
   }
   // Nothing matched. Find the closest name anyway, but only to show as a suggestion: it
@@ -625,6 +702,66 @@ const seek = async (video, t) => {
 // budget evenly across accumulated motion, so a slow careful scroll and a fast flick both
 // come out with the same coverage and the same cost.
 let lastCropBox = null;
+// A chosen timestamp is a position in the scroll, not a promise that the frame is legible.
+// The list is frequently mid-flick at that instant, and when it is, the names smear into
+// unreadable strokes while the rank numbers and points — large, bold, high-contrast —
+// survive intact. That failure is invisible in the output: the row arrives with a confident
+// rank and a nonsense name. Rank 4 came back as 𝓡𝓑𝓙 from such a frame while a sharp frame
+// two tenths of a second away reads the same row as DUBI, which the roster then resolves.
+//
+// So each pick is treated as the centre of a short window and the sharpest frame in that
+// window is the one sent. Sharpness is the mean absolute Laplacian over the cropped list:
+// high where glyph edges are crisp, low where motion has smeared them. Measured on this
+// recording the sharp frames score about 15 and the blurred ones about 7, so the two are
+// not close and the comparison does not need to be subtle.
+// The window has to stay inside this pick's own share of the scroll. A fixed offset looked
+// fine until it cost three players: while the list is flicking past, two tenths of a second
+// is a whole screen of names, so a pick that slid sideways to find a sharper frame landed on
+// ground the neighbouring pick had already covered and left a band of the list unphotographed.
+// Ranks are numbered by position afterwards, so a band lost that way does not leave a hole —
+// it silently renumbers everyone below it. Hence the window is bounded by the distance to the
+// nearest neighbouring pick, which is small exactly when the scroll is fast.
+const SHARP_MAX = 0.2, SHARP_STEPS = 3;
+
+// Every image costs the model the same ~1090 tokens whatever its pixel dimensions, which is
+// why enlarging a frame before sending it changes nothing: 1x and 3x arrive as the same 1092
+// tokens and read identically. The budget is spent on whatever is in the picture, so a whole
+// frame spends most of it on rank numerals, avatars and "Contribution (Pt)" captions, and
+// leaves each name a few dozen tokens.
+//
+// Cutting the frame into bands spends N times the budget on the same pixels, and costs
+// exactly what sending N frames costs. Rank 37's name is a lone emoji about twenty pixels
+// across: whole, it came back as 🐼, and as three bands — 3304 image tokens instead of 1080 —
+// it came back as 🐻‍❄️, which is what it actually is. The bands overlap so that a row falling
+// on a seam still appears whole in its neighbour.
+const STRIPS = 3, STRIP_OVERLAP = 0.08;
+function sliceStrips(src) {
+  const w = src.width, h = src.height;
+  const band = h / STRIPS, pad = band * STRIP_OVERLAP;
+  const out = [];
+  for (let i = 0; i < STRIPS; i++) {
+    const y0 = Math.max(0, Math.round(i * band - pad));
+    const y1 = Math.min(h, Math.round((i + 1) * band + pad));
+    const c = Object.assign(document.createElement('canvas'), { width: w, height: y1 - y0 });
+    c.getContext('2d').drawImage(src, 0, y0, w, y1 - y0, 0, 0, w, y1 - y0);
+    out.push(c.toDataURL('image/jpeg', 0.85).split(',')[1]);
+  }
+  return out;
+}
+function sharpness(canvas) {
+  const w = canvas.width, h = canvas.height;
+  if (w < 8 || h < 8) return 0;
+  const d = canvas.getContext('2d').getImageData(0, 0, w, h).data;
+  const lum = i => d[i] * 0.299 + d[i+1] * 0.587 + d[i+2] * 0.114;
+  let acc = 0, n = 0;
+  for (let y = 1; y < h - 1; y += 2)
+    for (let x = 1; x < w - 1; x += 2) {
+      const i = (y * w + x) * 4;
+      acc += Math.abs(4*lum(i) - lum(i-4) - lum(i+4) - lum(i - w*4) - lum(i + w*4));
+      n++;
+    }
+  return n ? acc / n : 0;
+}
 async function extractFrames(file, budget, onProg) {
   const video = await openVideo(file);
   const dur = video.duration;
@@ -669,10 +806,28 @@ async function extractFrames(file, budget, onProg) {
 
   const frames = [];
   for (let i = 0; i < picks.length; i++) {
-    await seek(video, Math.min(picks[i], dur - 0.05));
-    cx.drawImage(video, 0, 0, W, H);
-    const send = cropFrame(cv, W, H, box);
-    frames.push(send.toDataURL('image/jpeg', 0.82).split(',')[1]);
+    const prevGap = i > 0 ? picks[i] - picks[i-1] : Infinity;
+    const nextGap = i < picks.length - 1 ? picks[i+1] - picks[i] : Infinity;
+    // A quarter of the way to the nearest neighbour, not four tenths. Two picks can move in
+    // opposite directions, so the reach is doubled in the worst case, and at four tenths that
+    // was enough to open a hole: ranks 86 to 88 fell between two picks that had each slid away
+    // from the other and were photographed by neither.
+    const reach = Math.min(SHARP_MAX, 0.25 * Math.min(prevGap, nextGap));
+    let bestT = null, bestScore = -1;
+    for (let k = 0; k < SHARP_STEPS; k++) {
+      const off = reach * (2 * k / (SHARP_STEPS - 1) - 1);   // -reach .. +reach
+      const t = picks[i] + off;
+      if (t < 0 || t > dur - 0.05) continue;
+      await seek(video, t);
+      cx.drawImage(video, 0, 0, W, H);
+      const score = sharpness(cropFrame(cv, W, H, box));
+      if (score > bestScore) { bestScore = score; bestT = t; }
+    }
+    if (bestT !== null) {
+      await seek(video, bestT);
+      cx.drawImage(video, 0, 0, W, H);
+      for (const strip of sliceStrips(cropFrame(cv, W, H, box))) frames.push(strip);
+    }
     onProg(0.6 + 0.4 * (i + 1) / picks.length, frames.length);
   }
   URL.revokeObjectURL(video.src);
@@ -837,6 +992,24 @@ ${once}
 - Output raw JSON only. No markdown fence, no commentary.`;
 }
 
+// The free tier meters requests per minute — fifteen a minute for this model — not per day.
+// That never bit while a run was six requests, but slicing each frame into strips triples the
+// number of images and so triples the batches, and eighteen requests leaving at once is well
+// over the line. They go through a gate instead, twelve to the minute, and anything refused
+// even so is waited out by withFallback rather than dropped.
+const RPM = 12;
+const rateGate = (() => {
+  const started = [];
+  return async () => {
+    for (;;) {
+      const now = Date.now();
+      while (started.length && now - started[0] > 60000) started.shift();
+      if (started.length < RPM) { started.push(now); return; }
+      await new Promise(r => setTimeout(r, 60000 - (now - started[0]) + 250));
+    }
+  };
+})();
+
 async function callModel(frames) {
   const sheet = $('sheetimg').checked ? rosterSheet(currentRoster()) : null;
   const batches = [];
@@ -844,8 +1017,9 @@ async function callModel(frames) {
   let done = 0;
   const switched = new Set();
   const one = async b => {
-    const rows = await withFallback(m => callProxy(sheet ? [sheet, ...b] : b, m, API_BASE),
-                                    modelChain(), m => switched.add(m), false);
+    const rows = await withFallback(async m => { await rateGate();
+                                      return callProxy(sheet ? [sheet, ...b] : b, m, API_BASE); },
+                                    modelChain(), m => switched.add(m), true);
     done++; setProg(0.5 + 0.5 * done / batches.length);
     log(`read ${done} of ${batches.length} batches…`
         + (switched.size ? `  (fell back to ${[...switched].join(', ')})` : ''));
@@ -862,6 +1036,11 @@ const isBusy = e => /\b(429|500|502|503|504)\b/.test(e.message);
 function waitHint(e) {
   const h = (e.message.match(/retry-after ([\d.]+)/) || [])[1];
   if (h) return Math.min(90, Math.ceil(+h));
+  // Gemini words it "Please retry in 57.598635818s", which the pattern below did not match,
+  // so a wait the server had explicitly asked for was read as no hint at all and the batch
+  // was abandoned instead of retried.
+  const retry = (e.message.match(/retry in ([\d.]+)\s*s/i) || [])[1];
+  if (retry) return Math.min(90, Math.ceil(+retry));
   const inline = (e.message.match(/try again in ([\d.]+)(m?s)/i) || []);
   if (inline[1]) return Math.min(90, Math.ceil(+inline[1] * (inline[2] === 'ms' ? 0.001 : 1)));
   return 0;
@@ -1095,7 +1274,7 @@ $('go').onclick = async () => {
     rows = base.map(r => {
       // Order matters, most authoritative first.
       // 1. Something you corrected by hand and saved. Nothing should overrule that.
-      const al = aliases[fold(r.plain || r.name)] || aliases[fold(r.name)];
+      const al = aliases[aliasKey(r.plain || r.name)] || aliases[aliasKey(r.name)];
       if (al) {
         const nm = typeof al === 'string' ? al : al.name;
         const hit = soleMatch(fold(nm)) || byFold.get(fold(nm))?.values().next().value;
@@ -1157,8 +1336,21 @@ $('go').onclick = async () => {
         r.match = null; r.pick = ''; r.score = 1;
       }
     }
+    // The rank the game printed is the rank. It is also the single most reliable thing on the
+    // card — the numerals are the largest, boldest, highest-contrast marks in the frame and
+    // survive even the motion-blurred frames that reduce names to strokes.
+    //
+    // Renumbering by position instead looked tidier and was quietly destructive. Three players
+    // in the eighties that the sampling never photographed pushed every row beneath them up by
+    // three, so Amp came out as 138 where the game plainly showed 142, and roughly sixty rows
+    // went into the sheet with the wrong rank against the right name. A gap in the numbering is
+    // honest and the banner below points straight at it; a silent off-by-three is not.
     let n = 0;
-    for (const r of rows) r.rank = r.skipped ? null : ++n;
+    for (const r of rows) {
+      if (r.skipped) { r.rank = null; continue; }
+      r.rank = r.seenRank > 0 ? r.seenRank : ++n;
+      if (r.rank > n) n = r.rank;
+    }
     render(roster);
     log(`done — ${sightings.length} readings → ${rows.length} players`);
     setProg(1);
@@ -1166,7 +1358,7 @@ $('go').onclick = async () => {
     const m = e.message;
     log(/\b429\b/.test(m) && /quota|per day/i.test(m)
       ? '✗ Daily free-tier quota used up (Gemini allows 20 requests a day). Each run costs '
-        + Math.ceil(+$('sens').value / 8) + ' of them. Wait for the reset, lower "Frames to send", '
+        + Math.ceil(+$('sens').value * STRIPS / BATCH) + ' of them. Wait for the reset, lower "Frames to send", '
         + 'or enable billing on the key.'
       : '✗ ' + m);
   }
@@ -1184,16 +1376,30 @@ function render(roster) {
   // silently short list is the one failure the sheet cannot catch downstream.
   const seenRanks = rows.map(r => r.seenRank).filter(n => typeof n === 'number' && n > 0);
   const top = Math.max(0, ...seenRanks);
-  const gap = top > rows.length;   // excluded rows still count as captured
+  // Which ranks are actually absent, rather than merely how many. The missing ones arrive in
+  // a run — a band of the list the sampling skipped over — and saying which band turns
+  // "something is short" into something you can go and check.
+  const have = new Set(seenRanks);
+  const holes = [];
+  for (let i = 1; i <= top; i++) if (!have.has(i)) holes.push(i);
+  const gap = holes.length > 0;
+  const holeText = holes.length > 12
+    ? holes.slice(0, 12).join(', ') + ` and ${holes.length - 12} more`
+    : holes.join(', ');
   $('verdict').innerHTML =
     `<div class="${need || gap ? 'warnbox' : 'okbox'}">${rows.length} players &middot; `
     + `${rows.length - need - dropped} matched to the roster`
     + (dropped ? ` &middot; ${dropped} excluded (${esc($('skip').value.trim())})` : '')
     + (need ? ` &middot; <strong>${need} to confirm below</strong>` : '')
     + `</div>`
-    + (gap ? `<div class="warnbox">The game showed a rank as high as ${top} but only `
-        + `${rows.length} rows came through — ${top - rows.length} row(s) were probably `
-        + `never captured. Raise <em>Frames to send</em> and run it again.</div>` : '');
+    + (gap ? `<div class="warnbox">The game showed ranks up to ${top}, but `
+        + (holes.length === 1 ? `rank <strong>${holeText}</strong> was never captured, so that `
+                              + `player is missing from the rows below. `
+                            : `${holes.length} ranks were never captured — `
+                              + `<strong>${holeText}</strong> — so those players are missing `
+                              + `from the rows below. `)
+        + `Everyone else keeps the rank the game gave them. Raise <em>Frames to send</em> and `
+        + `run it again if you want the gap filled.</div>` : '');
   refreshRosterList();
   $('tbl').innerHTML =
     '<thead><tr><th>Rank</th><th>Name in video</th><th>Game Name</th><th>Alliance</th>'
@@ -1395,8 +1601,12 @@ function outName(r) {
   }
   return r.plain || r.name;
 }
+// The game's own rank, not this row's position in the list. They agree only when every
+// player was captured, and when they disagree it is the position that is wrong: one player
+// missed near the top used to shift every rank beneath them, which is how sixty correct names
+// went into the sheet against ranks that were three too small.
 const outRows = () => rows.filter(r => r.pick !== '\u0000drop' && !r.skipped)
-  .map((r, i) => [$('datestr').value || '', i + 1, outName(r), r.points]);
+  .map(r => [$('datestr').value || '', r.rank, outName(r), r.points]);
 const OUT_HEADERS = ['Date', 'Rank', 'Game Name', 'Kartz Points'];
 $('copy').onclick = async () => {
   const tsv = outRows().map(r => r.join('\t')).join('\n');
@@ -1417,7 +1627,7 @@ $('learn').onclick = () => {
   for (const r of rows) {
     if (r.match || !r.pick || r.pick === '\u0000drop') continue;
     // stored as an object so an alliance can ride along; older entries were a bare string
-    a[fold(r.plain || r.name)] = { name: r.pick, alliance: r.alliancePick || '' };
+    a[aliasKey(r.plain || r.name)] = { name: r.pick, alliance: r.alliancePick || '' };
     n++;
   }
   store.set('aliases', a);

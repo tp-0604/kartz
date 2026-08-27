@@ -55,8 +55,9 @@ must be link-readable (*Share → General access → Anyone with the link → Vi
 | **contested** | two rows both resolve to one roster entry, usually a main and an alt sharing a display name. Neither is emitted until you choose. |
 | **excluded** | in a filtered alliance, left out of the copied rows |
 
-A **coverage warning** means the game showed a higher rank than the number of rows that came
-through, so players were missed. Raise *Frames to send* and run again.
+A **coverage warning** names the ranks that were never photographed. Everyone else keeps the
+rank the game gave them, so a gap costs you those players and nothing else. Raise *Frames to
+send* and run again if you want it filled.
 
 ---
 
@@ -102,10 +103,38 @@ pictures — and when the page is open on the phone that made the recording, the
 the emoji with the same font the game used, so they are near enough identical. A bare 🐼 used
 to come back as the player "Vyking"; the same row now reads 🐻‍❄️ correctly.
 
+**Sends each frame as three bands.** Every image costs the model about the same 1090 tokens
+whatever its dimensions — enlarging a frame before sending it changes nothing, and 1x and 3x
+come back identical. The budget is spent on whatever is in the picture, and a whole frame
+spends most of it on rank numerals, avatars and *Contribution (Pt)* captions. Cut into three,
+the same pixels get three times the attention at exactly the cost of sending three frames.
+Rank 37's name is a lone emoji twenty pixels across: whole it read 🐼, in bands it read 🐻‍❄️.
+
+**Picks the sharpest frame nearby.** A timestamp is a position in the scroll, not a promise
+that the frame is readable. Mid-flick the names smear while the rank numbers — big, bold,
+high-contrast — survive, so the row arrives with a confident rank and a nonsense name. Each
+pick is now the centre of a short window and the sharpest frame in it is the one sent. On the
+test recording sharp frames score about 15 on that measure and blurred ones about 7.
+
+**Keeps the rank the game printed.** Renumbering rows by position looked tidier and was
+quietly destructive: three players the sampling missed pushed every row beneath them up by
+three, so Amp went into the sheet as 138 where the game plainly showed 142. The game's number
+is now carried straight through, so a missed player costs you that player and leaves the
+others alone.
+
+**Believes a claim in proportion to how readable the name was.** A name in ordinary letters is
+transcribed accurately, so a claim that disagrees with the reading is the model reaching for a
+roster entry that is not there — HÊNK, absent from the roster, was being filed as LeeK. A name
+in stylised Unicode is the reverse case: the transcription is the unreliable half. ŊŲƁĮ came
+back as ŊŲƁĮ, Ḏṳḇị, ḐŲḂĮ, DUBI, 𝓡𝓑𝓙 and ṆḶḄḶ across six runs of one recording. So the bar
+drops, but only when the drawn name and the roster entry are both stylised.
+
 **Alliance dropdown** on unconfirmed rows, for saying which alliance a new player belongs to.
 
 **Remember my fixes** stores the name and the alliance together, so anything you resolve by
-hand is matched automatically from the next run onward. That list only ever shrinks.
+hand is matched automatically from the next run onward. That list only ever shrinks. Names
+made of emoji can be taught too — they fold to nothing, so they used to be filed under a blank
+key, each overwriting the last and none ever found again.
 
 **Filter rows** defaults to `z3.?, z1.Transferred`. Those players are recognised but left out
 of the copied rows, rather than deleted — so they do not come back every month as unknowns.
@@ -114,9 +143,9 @@ of the copied rows, rather than deleted — so they do not come back every month
 
 ## Settings
 
-**Frames to send** (default 48) is the only control. More frames means better coverage of a
-long list and more sightings to vote on; fewer is quicker. The banner tells you if the list
-came up short.
+**Frames to send** (default 64) is the only control. Each one is sliced into three bands, so
+64 means 192 images and 16 requests. More means better coverage of a long list and more
+sightings to vote on; fewer is quicker. The banner tells you if the list came up short.
 
 Model is `gemini-3.5-flash-lite`, fixed, with no fallback chain — a run either works or says
 why.
@@ -130,7 +159,8 @@ A 43-second recording of a 153-player list:
 | | |
 |---|---|
 | players found | **153 of 153** |
-| matched to the roster | **143** (93%) |
-| needing a decision | 10 |
-| time | 13 seconds |
-| coverage warning | none |
+| ranks matching the game | all — checked against the recording at 142 and 143 |
+| matched to the roster | **141** (92%) |
+| needing a decision | 10, and all ten are genuinely new players |
+| wrong matches | none |
+| time | 77 seconds, 16 requests |
