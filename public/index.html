@@ -121,8 +121,8 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
       <input id="sens" type="range" min="8" max="72" step="4" value="48">
       <label style="display:flex;align-items:center;gap:7px;margin-top:8px">
         <input type="checkbox" id="sheetimg" checked style="width:auto;margin:0">
-        <span>Send a picture of the symbol names &mdash; lets the model compare emoji as
-        images rather than guess what they depict</span>
+        <span>Send a picture of the unusual names &mdash; lets the model compare odd
+        lettering and emoji as images instead of reading them character by character</span>
       </label>
     </div>
   </div>
@@ -634,15 +634,28 @@ async function extractFrames(file, budget, onProg) {
 // pictures are near enough identical. That is a far easier question than "polar bear or
 // panda", and it is the one failure that text alone could not fix.
 //
-// Only the names that survive folding as nothing go on the sheet; ordinary words are already
-// well handled by the roster list in the prompt, and drawing all 689 would be unreadable.
+// Which names go on it: any whose in-game form is mostly not plain ASCII. That is wider than
+// the emoji-only set — "ŊŲƁĮ" is ordinary letters as far as folding is concerned, yet it kept
+// coming back as MK19 — and narrower than the whole roster, which at 689 entries would draw
+// a sheet too dense to read.
+//
+// Worth knowing where this helps most: emoji are drawn by the phone's own font, so a sheet
+// rendered on the phone that made the recording matches the game exactly. Exotic letterforms
+// are drawn by whatever fallback font the browser picks, which may not be the font the game
+// used — the shapes are still distinctive, but the match is a likeness rather than a copy.
+const EXOTIC = 0.5;
+function exoticness(str) {
+  const ch = [...String(str || '')].filter(c => c.codePointAt(0) > 0x20);
+  if (!ch.length) return 0;
+  return ch.filter(c => c.codePointAt(0) > 0x7E).length / ch.length;
+}
 function rosterSheet(roster) {
   const items = roster
-    .filter(r => (r.ingame || '').trim() && !usableFold(r.ingame))
+    .filter(r => (r.ingame || '').trim() && exoticness(r.ingame) >= EXOTIC)
     .map(r => ({ glyph: r.ingame.trim(), label: r.search }));
   if (!items.length) return null;
 
-  const COLS = 3, ROW_H = 54, PAD = 14, COL_W = 300;
+  const COLS = 4, ROW_H = 54, PAD = 14, COL_W = 260;
   const rowsN = Math.ceil(items.length / COLS);
   const cv = Object.assign(document.createElement('canvas'), {
     width: COLS * COL_W + PAD * 2, height: rowsN * ROW_H + PAD * 2 + 34 });
@@ -655,7 +668,7 @@ function rosterSheet(roster) {
     const c = i % COLS, rw = Math.floor(i / COLS);
     const x = PAD + c * COL_W, y = PAD + 34 + rw * ROW_H;
     cx.fillStyle = '#111';
-    cx.font = '30px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+    cx.font = '29px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
     cx.fillText(it.glyph, x, y);
     cx.fillStyle = '#555'; cx.font = '13px sans-serif';
     cx.fillText(it.label, x, y + 34);
@@ -716,10 +729,12 @@ phone, so judge by what is depicted, never by an exact shape. Two animals being 
 colours does not make them the same animal.` : '';
   const sheetNote = sheetOn ? `
 
-The FIRST image is not a leaderboard. It is a reference sheet showing how each symbol-only
-name is drawn, with that player's roster name printed underneath it. When a leaderboard row's
-name has no letters, compare it against the pictures on that sheet and answer with the roster
-name printed beneath the one it matches. Never report a row from the reference sheet itself.` : '';
+The FIRST image is not a leaderboard. It is a reference sheet showing how the unusually
+written names are drawn, each with that player's roster name printed underneath. Whenever a
+leaderboard row's name is in an odd script, decorated lettering or emoji, compare the shapes
+against that sheet and answer with the roster name printed beneath the one it matches —
+that is far more reliable than reading such a name character by character. Never report a row
+from the reference sheet itself.` : '';
   return `${src}
 Each row has a rank number (a gold, silver or bronze medal for ranks 1, 2 and 3), a player
 name, and a line reading "Contribution (Pt): <number>".
@@ -870,8 +885,13 @@ function parseJSON(text) {
     try {
       const r = JSON.parse(o);
       if (r.seen !== undefined || r.roster_name !== undefined) {
+        // Both of these are the RAW reading. The model's roster pick stays in roster_name
+        // and travels only by the verified route: it used to be copied into `plain` as well,
+        // which meant a claim rejected as implausible simply came back through the other
+        // argument to resolve() and matched anyway. A verification that can be walked around
+        // is not a verification.
         r.name  = r.seen || r.roster_name || '';
-        r.plain = r.roster_name || r.seen || '';
+        r.plain = r.seen || r.roster_name || '';
       }
       // the schema returns strings; "1,234" and "#4" both turn up
       const num = v => {
