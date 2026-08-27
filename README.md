@@ -16,7 +16,7 @@ Live at `https://kartz.<your-subdomain>.workers.dev`
 | **Step 2** | Open the site and choose the recording. On a phone this opens the camera roll. |
 | **Step 3** | Check the date. It defaults to today. |
 | **Step 4** | Press **Extract**. About 15 seconds. |
-| **Step 5** | Deal with any rows marked *confirm* or *contested* — see below. Usually a handful. |
+| **Step 5** | Glance at any rows marked *confirm* — tick the ones that look right, correct the rest. Usually a handful. |
 | **Step 6** | Press **Copy for sheet**. |
 | **Step 7** | Paste into the alliance tab. Four columns: Date, Rank, Game Name, Kartz Points. |
 
@@ -53,7 +53,6 @@ must be link-readable (*Share → General access → Anyone with the link → Vi
 | **1 char** | one character off a single roster name — see below |
 | **confirmed** | you ticked it: the name is right as the video drew it |
 | **confirm** | not in the roster — pick the right player, or leave it as a new one |
-| **contested** | two rows both resolve to one roster entry, usually a main and an alt sharing a display name |
 | **excluded** | in a filtered alliance, left out of the copied rows — still editable, and naming somebody else brings the row back in with its rank |
 
 A **coverage warning** names the ranks that were never photographed. Everyone else keeps the
@@ -86,6 +85,11 @@ A name in ordinary letters is transcribed accurately, so a reading one edit from
 entry is not that player misread — it is somebody else, usually a new joiner. Allowing it
 regardless put `Weezy` down as Peezy and `DARTH` as Dart on a second recording, and `Weezy`
 turned out to be a real player on the transferred list.
+
+**Never enters one player twice.** When two rows resolve to the same roster entry — usually a
+main and an alt sharing a display name — neither keeps the match, and both go through under
+the name the video showed, flagged for confirmation. The duplicate the sheet would have
+double-counted never appears, and no question is put to you about which is which.
 
 **Groups readings by rank, not by name**, then votes on the name within each rank. A name
 read three ways stays one player instead of becoming three.

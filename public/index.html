@@ -1349,13 +1349,14 @@ $('go').onclick = async () => {
       if (!claims.has(k)) claims.set(k, []);
       claims.get(k).push(r);
     }
+    // The collision is still worth catching — two rows entered under one roster name would be
+    // double-counted — but it is no longer a question put to you. The pair is nearly always a
+    // main and an alt sharing a display name, and in both cases the answer is the same one it
+    // is for any unmatched row: the name the video actually showed. So neither keeps the match,
+    // and both carry their own names on, flagged for confirmation like anything else.
     for (const [, group] of claims) {
       if (group.length < 2) continue;
-      for (const r of group) {
-        r.near = r.match;          // keep it as the suggestion before clearing the match
-        r.contested = group.length;
-        r.match = null; r.pick = ''; r.score = 1;
-      }
+      for (const r of group) { r.match = null; r.pick = ''; r.score = 0; }
     }
     // The rank the game printed is the rank. It is also the single most reliable thing on the
     // card — the numerals are the largest, boldest, highest-contrast marks in the frame and
@@ -1428,11 +1429,11 @@ function render(roster) {
     + rows.map((r, i) => {
         // Settled means the name needs nothing from you: matched to the roster, ticked off by
         // hand, or an excluded player whose identity is already known. Everything else — an
-        // open edit, a contested pair, a discarded row — gets the search box.
+        // an open edit, or a discarded row — gets the search box.
         // Excluding a row is a separate fact from what the row is called. They used to share
         // r.pick, one storing itself over the other, so throwing a row out discarded a name you
         // had just chosen and bringing it back returned it blank.
-        const settled = !r.editing && !r.contested && !r.dropped;
+        const settled = !r.editing && !r.dropped;
         const green   = r.match || r.confirmed || r.skipped;
         const shown   = r.skipped && !r.pick ? (r.skipped.ingame || r.skipped.search) : outName(r);
         // The alliance is offered on every row now, not only the ones in doubt: a matched
@@ -1453,9 +1454,7 @@ function render(roster) {
                     + ` title="this name is right as it is"`
                     + ` style="width:auto;padding:4px 9px;margin-left:6px">✓</button>` : '')
               : `<input data-i="${i}" class="pickbox" data-row="${i}" placeholder="type to search…"
-                        value="${esc(r.pick || (r.editing ? shown : ''))}" spellcheck="false">`}${
-            (r.contested && r.near) ? `<div class="note" style="margin:2px 0 0">`
-                    + `${esc(r.near.search)} — claimed by ${r.contested} rows, pick one</div>` : ''}</td>
+                        value="${esc(r.pick || (r.editing ? shown : ''))}" spellcheck="false">`}</td>
         <td><select class="allipick" data-i="${i}">
               ${opts.map(a => `<option value="${esc(a)}"${a === alli ? ' selected' : ''}>`
                             + `${esc(a) || '—'}</option>`).join('')}
@@ -1464,7 +1463,6 @@ function render(roster) {
         <td>${r.skipped ? '<span class="pill p-new">excluded</span>'
             : r.match ? `<span class="pill p-ok">${r.near1 ? '1 char' : 'exact'}</span>`
             : r.confirmed ? '<span class="pill p-ok">confirmed</span>'
-            : r.contested ? '<span class="pill p-bad">contested</span>'
                       : '<span class="pill p-new">confirm</span>'}</td>
         <td><button class="ghost rowdrop" data-i="${i}"
                     title="${r.dropped ? 'bring this row back' : 'not a real row'}"
@@ -1511,7 +1509,7 @@ function render(roster) {
       setTimeout(() => render(lastRoster), 0);
     });
     const r = rows[+inp.dataset.i];
-    // A box that is not an edit — a contested row, or one you discarded and are refilling —
+    // A box that is not an edit — one you discarded and are refilling, say —
     // has no earlier state to go back to, so whatever is in it when you leave is the answer.
     // Without this the text would sit there visibly while r.pick stayed empty, and the row
     // would go to the sheet under a name the screen was not showing.
