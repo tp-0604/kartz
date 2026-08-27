@@ -381,7 +381,16 @@ function buildIndex(roster) {
 // folding is comparable to the roster entry and must actually resemble it, while a name made
 // of emoji or heavy styling folds to nothing, cannot be judged that way, and is exactly the
 // case where the model's reading is the only signal there is.
-const CLAIM_MIN = 0.5;
+// Where to set this is settled by what the readings actually score. In a full run every
+// correct claim matched an exact form and scored 1.00, while the wrong ones — "M[i]bi" filed
+// as MB, "HÊNK" as LeeK — sat at exactly 0.50, and "MiniMe" as Mexi ALT at 0.75. A reading
+// only half-resembling the name it is said to be is not evidence.
+//
+// The cost of the higher bar is that a correct claim behind a poor reading gets rejected too.
+// That is the right way round: a rejected row goes to the second look, which offers it a
+// shortlist and a forced choice, and failing that lands in front of you. A confident wrong
+// match just quietly enters the sheet.
+const CLAIM_MIN = 0.8;
 function claimPlausible(seen, entry) {
   const key = usableFold(seen);
   const forms = [entry.search, entry.ingame].filter(Boolean);
@@ -1064,6 +1073,12 @@ function consolidate(sightings, frameCount) {
       points: mode(g.map(x => x.points)),
       name:   mode(g.map(x => x.name)),
       plain:  mode(g.map(x => x.plain || x.name)),
+      // Every distinct reading of this rank, not only the commonest. A name misread three
+      // ways is three chances to recognise the player: taking the mode and discarding the
+      // rest threw away the readings that would have matched. "M[Y/B]" is one noisy
+      // observation of a row, not the row's name.
+      obs:    [...new Set(g.map(x => x.name).filter(Boolean))],
+      claims: [...new Set(names)],
       pick_:  names.length ? mode(names) : '',
       rank:   rank > 0 ? rank : null,
       seenRank: rank > 0 ? rank : 0,
@@ -1130,18 +1145,36 @@ $('go').onclick = async () => {
       //    glyphs and a fold cannot tell those two apart.
       // Only the drawn name here — r.plain carries the model's own answer, and folding that
       // would just be step 3 wearing a disguise.
-      const bySeen = soleMatch(fold(r.name));
-      if (bySeen) return { ...r, match: bySeen, score: 1, pick: bySeen.search };
-      // 3. The roster entry the model named, provided it really exists.
-      const claimed = r.pick_ ? (soleMatch(fold(r.pick_))
-                                 || byFold.get(fold(r.pick_))?.values().next().value) : null;
-      if (claimed) return { ...r, match: claimed, score: 1, pick: claimed.search, claimed: true };
-      // 4. Fuzzy, and failing that the row is raised for confirmation.
-      const m = resolve(r.name, r.plain, index, aliases);
-      if (m.r) return { ...r, match: m.r, score: m.score, pick: m.r.search };
+      //    Every distinct reading of the row is tried, not just the commonest: a name read
+      //    three ways is three chances to land on the player, and taking only the mode threw
+      //    the other attempts away.
+      const readings = (r.obs && r.obs.length) ? r.obs : [r.name];
+      for (const o of readings) {
+        const bySeen = soleMatch(fold(o));
+        if (bySeen) return { ...r, match: bySeen, score: 1,
+                             pick: bySeen.ingame || bySeen.search, via: 'drawn:' + o };
+      }
+      // 3. The roster entry the model named — provided it really exists AND some reading of
+      //    the row actually supports it. Without that second test this step accepts whatever
+      //    the model asserts, which is how a row drawn "𝓡𝓝/𝓑" was confidently filed as MB.
+      for (const c of (r.claims && r.claims.length ? r.claims : [r.pick_]).filter(Boolean)) {
+        const entry = soleMatch(fold(c)) || byFold.get(fold(c))?.values().next().value;
+        if (!entry) continue;
+        if (!readings.some(o => claimPlausible(o, entry))) continue;
+        return { ...r, match: entry, score: 1,
+                 pick: entry.ingame || entry.search, claimed: true, via: 'claim:' + c };
+      }
+      // 4. Fuzzy over every reading, and failing that the row is raised for confirmation.
+      let m = { r: null, score: 0, near: null }, from = '';
+      for (const o of readings) {
+        const t = resolve(o, o, index, aliases);
+        if (t.score > m.score) { m = t; from = o; }
+      }
+      if (m.r) return { ...r, match: m.r, score: m.score,
+                        pick: m.r.ingame || m.r.search, via: 'fuzzy:' + from };
       const sk = skipIndex.length ? resolve(r.name, r.plain, skipIndex, {}) : { r: null };
       if (sk.r) return { ...r, match: null, skipped: sk.r, score: sk.score, pick: '\u0000drop' };
-      return { ...r, match: null, score: m.score, near: m.near, pick: '' };
+      return { ...r, match: null, score: m.score, near: m.near, pick: '', via: 'none' };
     });
     // Two rows resolving to one player means at least one of them is wrong, and neither the
     // model nor the fuzzy match can tell which. Surface both rather than silently emitting a
