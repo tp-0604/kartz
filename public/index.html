@@ -356,10 +356,24 @@ function buildIndex(roster) {
 const CLAIM_MIN = 0.5;
 function claimPlausible(seen, entry) {
   const key = usableFold(seen);
-  if (!key) return true;                       // nothing to judge it against
-  for (const form of [entry.search, entry.ingame]) {
+  const forms = [entry.search, entry.ingame].filter(Boolean);
+  if (!key) {
+    // The row's name is symbols only. That cannot be compared letter by letter, but it is
+    // not a free pass either. A bare 🐼 was being accepted as "Vyking" — whose names are
+    // "Vyking" and "Vyking🐳", both ordinary words — purely because the panda side was
+    // unjudgeable. Requiring merely that the claimed player also has a symbolic form is not
+    // enough: that would let any emoji stand for any of them, so 🐼 could pass as ☁️.
+    // The characters themselves have to overlap.
+    const seenSym = symKey(seen);
+    return forms.some(f => {
+      if (usableFold(f)) return false;                 // that form is a word, not symbols
+      const s = symKey(f);
+      return s === seenSym || s.includes(seenSym) || seenSym.includes(s);
+    });
+  }
+  for (const form of forms) {
     const f = usableFold(form);
-    if (!f) return true;                       // roster side is symbols; cannot judge either
+    if (!f) continue;            // this form is symbols; judge against the other one
     if (f === key || sim(key, f) >= CLAIM_MIN) return true;
   }
   return false;
