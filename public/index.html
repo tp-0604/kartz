@@ -1099,6 +1099,161 @@ const rateGate = (() => {
   };
 })();
 
+// One row, against the roster. Pulled out of the run so the second look can put a row
+// through exactly the same ladder rather than a reimplementation of it that drifts.
+function resolveRow(r, ctx) {
+  const { index, aliases, skipIndex, byFold, soleMatch } = ctx;
+    // Order matters, most authoritative first.
+    // 1. Something you corrected by hand and saved. Nothing should overrule that.
+    const al = aliases[aliasKey(r.plain || r.name)] || aliases[aliasKey(r.name)];
+    if (al) {
+      const nm = typeof al === 'string' ? al : al.name;
+      const hit = soleMatch(fold(nm)) || byFold.get(fold(nm))?.values().next().value;
+      if (hit) return { ...r, match: hit, score: 1, pick: hit.search };
+    }
+    // 2. The name as actually drawn, when exactly one roster entry reduces to it. This is
+    //    stronger evidence than the model's own choice: a player shown as "JoJo🐼" folds to
+    //    jojo, which only Jojo answers to, however the model happened to label the row.
+    //    Where a key is shared, we skip this and let the model decide, since it saw the
+    //    glyphs and a fold cannot tell those two apart.
+    // Only the drawn name here — r.plain carries the model's own answer, and folding that
+    // would just be step 3 wearing a disguise.
+    //    Every distinct reading of the row is tried, not just the commonest: a name read
+    //    three ways is three chances to land on the player, and taking only the mode threw
+    //    the other attempts away.
+    const readings = (r.obs && r.obs.length) ? r.obs : [r.name];
+    for (const o of readings) {
+      const bySeen = soleMatch(fold(o));
+      if (bySeen) return { ...r, match: bySeen, score: 1,
+                           pick: bySeen.ingame || bySeen.search, via: 'drawn:' + o };
+    }
+    // 3. The roster entry the model named — provided it really exists AND some reading of
+    //    the row actually supports it. Without that second test this step accepts whatever
+    //    the model asserts, which is how a row drawn "𝓡𝓝/𝓑" was confidently filed as MB.
+    for (const c of (r.claims && r.claims.length ? r.claims : [r.pick_]).filter(Boolean)) {
+      const entry = soleMatch(fold(c)) || byFold.get(fold(c))?.values().next().value;
+      if (!entry) continue;
+      if (!readings.some(o => claimPlausible(o, entry))) continue;
+      return { ...r, match: entry, score: 1,
+               pick: entry.ingame || entry.search, claimed: true, via: 'claim:' + c };
+    }
+    // There is no step here for "the model named a player but nothing in the reading
+    // supports it". One was tried, guarded by requiring the claim to be unanimous within the
+    // run, and it matched rank 33 to angkasa — the row is batman. That row reads as Thai one
+    // run, IPA the next and 🦇man the third, and the claim flips between batman and angkasa
+    // with it, so agreement inside a single run says nothing about being right. A name the
+    // model cannot transcribe and cannot consistently recognise belongs in the confirm list.
+    // 4. Fuzzy over every reading, and failing that the row is raised for confirmation.
+    let m = { r: null, score: 0, near: null }, from = '';
+    for (const o of readings) {
+      const t = resolve(o, o, index, aliases);
+      if (t.score > m.score) { m = t; from = o; }
+    }
+    if (m.r) return { ...r, match: m.r, score: m.score, near1: m.near1,
+                      pick: m.r.ingame || m.r.search, via: 'near:' + from };
+    const sk = skipIndex.length ? resolve(r.name, r.plain, skipIndex, {}) : { r: null };
+    if (sk.r) return { ...r, match: null, skipped: sk.r, score: sk.score, pick: '' };
+    return { ...r, match: null, score: m.score, near: m.near, pick: '', via: 'none' };
+}
+
+
+// A second look at the rows the small model could not read, using a larger one.
+//
+// gemini-3.5-flash reads glyphs the lite model cannot. On the row spelled "᥇ꪖꪻꪑꪖꪀ" — batman
+// in Tai Viet — lite returned ʟᴀɪϙᴜʜ and claimed the wrong player, while flash returned the
+// exact codepoints three times out of three. It is about two and a half times slower per
+// request and cannot take a full batch: at 29 images the Cloudflare Worker gives up waiting
+// and returns a 524, where 17 came back comfortably in nine seconds. So it is pointed at a
+// handful of strips rather than the whole recording.
+//
+// Only stylised rows are sent. A new player called ChiGrub is unmatched because they are not
+// on the roster, and no amount of model will change that; it is the names written in scripts
+// the fold cannot reach that are worth a second opinion.
+const SECOND_MODEL = 'gemini-3.5-flash';
+// Eight, not sixteen. The larger model's latency swings: seventeen images came back in nine
+// seconds on a quiet account and timed the Worker out entirely on a busy one, and a 524 costs
+// the whole request. Eight answered in 23 seconds and six in 14, both reliably, so the batch
+// is sized for the bad day rather than the good one.
+const SECOND_BATCH = 8;
+const SECOND_MAX_REQUESTS = 3;
+
+// The strips that most likely carried a given rank, by interpolating within the batch that
+// reported it. Ranks run in order down the scroll, so a batch covering ranks 30-42 across
+// strips 28-56 puts rank 33 about a fifth of the way in.
+function stripsForRank(rank, frames) {
+  const span = (callModel.spans || []).find(x => rank >= x.lo && rank <= x.hi);
+  if (!span) return [];
+  const width = Math.max(1, span.hi - span.lo);
+  const at = span.from + Math.round((rank - span.lo) / width * (span.to - span.from));
+  const lo = Math.max(0, at - 5), hi = Math.min(frames.length, at + 6);
+  return Array.from({ length: hi - lo }, (_, i) => lo + i);
+}
+
+async function secondLook(rows, frames, ctx) {
+  // Which rows are worth a second opinion. Being written in an odd script is one signal, but
+  // not a sufficient one: when the small model mangles ᥇ꪖꪻꪑꪖꪀ into "laIruqh" the row stops
+  // looking odd at all, and that is precisely the row that needs re-reading.
+  //
+  // The other signal is the model naming a real roster player and the reading failing to bear
+  // it out. That is the shape of a row it half-recognised — it read the batman row as plain
+  // letters and still reached for a roster name — whereas a genuinely new player produces a
+  // claim that is simply their own name and matches nobody. So new joiners are left alone and
+  // the re-read stays small.
+  const named = c => !!(ctx.soleMatch(fold(c)) || ctx.byFold.get(fold(c)));
+  const wanted = rows.filter(r => !r.match && !r.skipped && r.rank > 0
+                                  && (exoticness(r.name || '') >= EXOTIC
+                                      || (r.claims || []).some(named)));
+  if (!wanted.length) return 0;
+
+  // Gather the strips for all of them, then cut the collection into requests the Worker can
+  // wait out. Strips shared by two ranks are sent once.
+  const idx = new Set();
+  for (const r of wanted) for (const i of stripsForRank(r.rank, frames)) idx.add(i);
+  const list = [...idx].sort((a, b) => a - b).slice(0, SECOND_BATCH * SECOND_MAX_REQUESTS);
+  if (!list.length) return 0;
+
+  const groups = [];
+  for (let i = 0; i < list.length; i += SECOND_BATCH) groups.push(list.slice(i, i + SECOND_BATCH));
+  log(`second look at ${wanted.length} unusual name${wanted.length > 1 ? 's' : ''}…`);
+
+  const promptTokens = Math.ceil(buildPrompt(false).length / CHARS_PER_TOKEN);
+  const seen = new Map();       // rank -> { obs:Set, claims:Set }
+  // Together rather than one after another: at 23 seconds apiece three in sequence would add
+  // over a minute to a run that otherwise takes twenty seconds. Each still waits its turn at
+  // the rate gate, so they leave spaced out rather than all at once.
+  await Promise.all(groups.map(async g => {
+    try {
+      await rateGate(g.length * IMG_TOKENS + promptTokens);
+      const got = await callProxy(g.map(i => frames[i]), SECOND_MODEL, API_BASE);
+      for (const row of got || []) {
+        const k = +String(row.rank).replace(/\D/g, '');
+        if (!k) continue;
+        if (!seen.has(k)) seen.set(k, { obs: new Set(), claims: new Set() });
+        if (row.name) seen.get(k).obs.add(row.name);
+        if (row.roster_name) seen.get(k).claims.add(row.roster_name);
+      }
+    } catch (e) {
+      // The first pass already produced a usable answer, so a failure here costs the
+      // improvement and nothing else. One group giving up does not stop the others.
+      log(`second look: one batch gave up (${String(e.message || e).slice(0, 40)})`);
+    }
+  }));
+
+  let fixed = 0;
+  for (const r of wanted) {
+    const extra = seen.get(r.rank);
+    if (!extra) continue;
+    const merged = { ...r,
+      obs:    [...new Set([...(r.obs || []), ...extra.obs])],
+      claims: [...new Set([...(r.claims || []), ...extra.claims])] };
+    const out = resolveRow(merged, ctx);
+    if (!out.match) continue;
+    Object.assign(r, out, { via: (out.via || '') + ' (2nd look)' });
+    fixed++;
+  }
+  if (fixed) log(`second look resolved ${fixed} of ${wanted.length}`);
+  return fixed;
+}
 async function callModel(frames) {
   const sheet = $('sheetimg').checked ? rosterSheet(currentRoster()) : null;
   const batches = [];
@@ -1107,11 +1262,19 @@ async function callModel(frames) {
   let done = 0;
   const switched = new Set();
   const promptTokens = Math.ceil(buildPrompt(false).length / CHARS_PER_TOKEN);
-  const one = async b => {
+  // Which strips a rank was read from. The model answers per request, not per image, so the
+  // finest we can know is the block of strips a batch carried and the span of ranks that came
+  // back from it — enough to point the second look at the right part of the scroll instead of
+  // re-sending the whole recording.
+  callModel.spans = [];
+  const one = async (b, bi) => {
     const est = (b.length + (sheet ? 1 : 0)) * IMG_TOKENS + promptTokens;
     const rows = await withFallback(async m => { await rateGate(est);
                                       return callProxy(sheet ? [sheet, ...b] : b, m, API_BASE); },
                                     modelChain(), m => switched.add(m), true);
+    const ks = (rows || []).map(x => +String(x.rank).replace(/\D/g, '')).filter(Boolean);
+    if (ks.length) callModel.spans.push({ from: bi * B, to: bi * B + b.length,
+                                          lo: Math.min(...ks), hi: Math.max(...ks) });
     done++; setProg(0.5 + 0.5 * done / batches.length);
     log(`read ${done} of ${batches.length} batches…`
         + (switched.size ? `  (fell back to ${[...switched].join(', ')})` : ''));
@@ -1376,62 +1539,16 @@ $('go').onclick = async () => {
       byFold.get(e.k).add(e.r);
     }
     const soleMatch = k => { const set = k && byFold.get(k); return set && set.size === 1 ? [...set][0] : null; };
+    const ladderCtx = { index, aliases, skipIndex, byFold, soleMatch };
 
     sightings = dropForeignRows(sightings);
     const base = consolidate(sightings, frameCount);
-    rows = base.map(r => {
-      // Order matters, most authoritative first.
-      // 1. Something you corrected by hand and saved. Nothing should overrule that.
-      const al = aliases[aliasKey(r.plain || r.name)] || aliases[aliasKey(r.name)];
-      if (al) {
-        const nm = typeof al === 'string' ? al : al.name;
-        const hit = soleMatch(fold(nm)) || byFold.get(fold(nm))?.values().next().value;
-        if (hit) return { ...r, match: hit, score: 1, pick: hit.search };
-      }
-      // 2. The name as actually drawn, when exactly one roster entry reduces to it. This is
-      //    stronger evidence than the model's own choice: a player shown as "JoJo🐼" folds to
-      //    jojo, which only Jojo answers to, however the model happened to label the row.
-      //    Where a key is shared, we skip this and let the model decide, since it saw the
-      //    glyphs and a fold cannot tell those two apart.
-      // Only the drawn name here — r.plain carries the model's own answer, and folding that
-      // would just be step 3 wearing a disguise.
-      //    Every distinct reading of the row is tried, not just the commonest: a name read
-      //    three ways is three chances to land on the player, and taking only the mode threw
-      //    the other attempts away.
-      const readings = (r.obs && r.obs.length) ? r.obs : [r.name];
-      for (const o of readings) {
-        const bySeen = soleMatch(fold(o));
-        if (bySeen) return { ...r, match: bySeen, score: 1,
-                             pick: bySeen.ingame || bySeen.search, via: 'drawn:' + o };
-      }
-      // 3. The roster entry the model named — provided it really exists AND some reading of
-      //    the row actually supports it. Without that second test this step accepts whatever
-      //    the model asserts, which is how a row drawn "𝓡𝓝/𝓑" was confidently filed as MB.
-      for (const c of (r.claims && r.claims.length ? r.claims : [r.pick_]).filter(Boolean)) {
-        const entry = soleMatch(fold(c)) || byFold.get(fold(c))?.values().next().value;
-        if (!entry) continue;
-        if (!readings.some(o => claimPlausible(o, entry))) continue;
-        return { ...r, match: entry, score: 1,
-                 pick: entry.ingame || entry.search, claimed: true, via: 'claim:' + c };
-      }
-      // There is no step here for "the model named a player but nothing in the reading
-      // supports it". One was tried, guarded by requiring the claim to be unanimous within the
-      // run, and it matched rank 33 to angkasa — the row is batman. That row reads as Thai one
-      // run, IPA the next and 🦇man the third, and the claim flips between batman and angkasa
-      // with it, so agreement inside a single run says nothing about being right. A name the
-      // model cannot transcribe and cannot consistently recognise belongs in the confirm list.
-      // 4. Fuzzy over every reading, and failing that the row is raised for confirmation.
-      let m = { r: null, score: 0, near: null }, from = '';
-      for (const o of readings) {
-        const t = resolve(o, o, index, aliases);
-        if (t.score > m.score) { m = t; from = o; }
-      }
-      if (m.r) return { ...r, match: m.r, score: m.score, near1: m.near1,
-                        pick: m.r.ingame || m.r.search, via: 'near:' + from };
-      const sk = skipIndex.length ? resolve(r.name, r.plain, skipIndex, {}) : { r: null };
-      if (sk.r) return { ...r, match: null, skipped: sk.r, score: sk.score, pick: '' };
-      return { ...r, match: null, score: m.score, near: m.near, pick: '', via: 'none' };
-    });
+    rows = base.map(r => resolveRow(r, ladderCtx));
+    // The second look works by rank, so the rows need their numbers before it runs. This is
+    // the same assignment made further down; doing it twice is harmless and keeps the two
+    // concerns — which strips to re-read, and what finally goes in the sheet — apart.
+    for (const r of rows) if (!r.skipped && !(r.rank > 0)) r.rank = r.seenRank || null;
+    await secondLook(rows, frames, ladderCtx);
     // Two rows resolving to one player means at least one of them is wrong, and neither the
     // model nor the fuzzy match can tell which. Surface both rather than silently emitting a
     // duplicate the sheet would then double-count.

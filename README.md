@@ -87,6 +87,22 @@ entry is not that player misread — it is somebody else, usually a new joiner. 
 regardless put `Weezy` down as Peezy and `DARTH` as Dart on a second recording, and `Weezy`
 turned out to be a real player on the transferred list.
 
+**Asks a bigger model about the names the small one cannot read.** The main pass is
+`gemini-3.5-flash-lite`, which is quick and handles almost everything. A handful of rows every
+run are written in scripts it cannot transcribe — it read `᥇ꪖꪻꪑꪖꪀ`, batman in Tai Viet, as
+`ɩզɩⱴɊɦ` and as `laIruqh` on different runs, and reached for the wrong roster name both times.
+Those rows go to `gemini-3.5-flash`, which returns `batman`, and the row resolves.
+
+Only rows that failed are re-read, and only the strips that carried them, so it costs two or
+three extra requests rather than a second run. A row is picked out either because it is
+written in an odd script or because the model named a real roster player the reading did not
+support — the second signal matters, since a mangled exotic name often does not look exotic
+any more. Genuinely new players claim nobody and are left alone.
+
+The bigger model is slower and its latency swings: sixteen images came back in nine seconds on
+a quiet account and timed the Worker out on a busy one, so batches are eight. If the second
+look fails, the first pass's answer stands and the run is unaffected.
+
 **Tolerates glyph drift in names written in unusual scripts.** `᥇ꪖꪻꪑꪖꪀ` is batman spelled in
 Tai Viet and Limbu — characters chosen to look like Latin letters, though their Unicode names
 say otherwise (the "b" is LIMBU DIGIT ONE). Nothing can fold that to `batman`, so it matches
@@ -204,4 +220,5 @@ A 43-second recording of a 153-player list:
 | matched to the roster | **141** (92%) |
 | needing a decision | 10, and all ten are genuinely new players |
 | wrong matches | none |
-| time | 14 seconds, 6 requests, 233K tokens |
+| time | ~20s for the main pass, plus ~25s when a second look is needed |
+| requests | 6 to `flash-lite`, plus up to 3 to `flash` |
