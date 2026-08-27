@@ -56,8 +56,9 @@ must be link-readable (*Share → General access → Anyone with the link → Vi
 | **excluded** | in a filtered alliance, left out of the copied rows — still editable, and naming somebody else brings the row back in with its rank |
 
 A **coverage warning** names the ranks that were never photographed. Everyone else keeps the
-rank the game gave them, so a gap costs you those players and nothing else. Raise *Frames to
-send* and run again if you want it filled.
+rank the game gave them, so a gap costs you those players and nothing else. It comes from
+scrolling faster than the sampling could follow, so re-record that stretch more slowly if you
+want it filled.
 
 ---
 
