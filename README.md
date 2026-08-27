@@ -159,6 +159,12 @@ costs nothing — click anywhere outside and it goes back exactly as it was, hal
 and all. The ✕ at the far right throws a row out and turns into ↺ to bring it back, keeping
 whatever name you had chosen.
 
+**Buttons say what they did.** Every action reported itself in the log at the top of the page,
+which is nowhere near a button at the foot of it — *Copy for sheet* worked perfectly and looked
+exactly like nothing happening. Buttons now dip when pressed, and one that finishes something
+turns green and says so for a second and a half: *Copied 132 rows ✓*, *Remembered 3 ✓*,
+*Saved ✓*.
+
 **One alliance for the whole run**, chosen at the head of the Alliance column. A recording is
 of a single alliance's board, so answering that per row was a hundred-odd answers to one
 question. It starts on *as found* — each row showing whatever the roster knows about that

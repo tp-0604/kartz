@@ -32,6 +32,13 @@ input,select,textarea,button{font:inherit;color:var(--ink);background:var(--pane
 textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;resize:vertical}
 button{background:var(--accent);color:#fff;border:0;font-weight:600;cursor:pointer}
 button:disabled{opacity:.45;cursor:default}
+button{transition:transform .06s ease, filter .12s ease, background .12s ease}
+button:not(:disabled):active{transform:translateY(1px)}
+button:not(.ghost):not(:disabled):active{filter:brightness(.88)}
+button.ghost:not(:disabled):active{background:var(--line)}
+/* what a finished action looks like, for the second or so it says so */
+button.done, button.ghost.done{background:var(--ok);border-color:var(--ok);color:#fff;
+  filter:none;transform:none}
 button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line);font-weight:500}
 .row{display:flex;gap:10px;flex-wrap:wrap}
 .row>*{flex:1;min-width:150px}
@@ -214,7 +221,7 @@ function refreshState() {
 $('save').onclick = () => {
   ['sheet','skip','datestr'].forEach(k => store.set(k, $(k).value));
   store.set('rosterRaw', $('roster').value);
-  refreshState(); log('setup saved');
+  refreshState(); log('setup saved'); flash($('save'), 'Saved ✓');
 };
 $('roster').addEventListener('input', refreshState);
 
@@ -222,6 +229,7 @@ $('pull').onclick = async () => {
   const link = $('sheet').value.trim();
   $('pull').disabled = true;
   const was = $('pull').textContent; $('pull').textContent = 'Pulling…';
+  let ok = false;
   try {
     rosterCache = await pullRoster(link);
     store.set('sheet', link); store.set('skip', $('skip').value);
@@ -229,8 +237,10 @@ $('pull').onclick = async () => {
     log(`roster: ${rosterCache.active.length} names`
         + (rosterCache.skipped.length
            ? ` (${rosterCache.skipped.length} skipped: ${skipList().join(', ')})` : ''));
+    ok = true;
   } catch (e) { log('✗ ' + e.message); }
   $('pull').textContent = was; $('pull').disabled = false;
+  if (ok) flash($('pull'), `${rosterCache.active.length} names ✓`);
   refreshState();
 };
 
@@ -655,6 +665,22 @@ function resolve(name, plain, ix, aliases) {
 /* ---------------- frame extraction ---------------- */
 let videoFile = null;
 const log = m => { $('log').textContent = m; };
+// Say it on the button. Each of these actions reports what it did in the log at the top of
+// the page, which is nowhere near a button at the foot of it: pressing Copy for sheet worked
+// perfectly and looked exactly like nothing happening. The label answers for a moment and
+// then goes back to what it was.
+function flash(btn, text, ms = 1600) {
+  if (!btn || btn.dataset.flashing) return;
+  const label = btn.textContent;
+  btn.dataset.flashing = '1';
+  btn.textContent = text;
+  btn.classList.add('done');
+  setTimeout(() => {
+    btn.textContent = label;
+    btn.classList.remove('done');
+    delete btn.dataset.flashing;
+  }, ms);
+}
 const setProg = p => { $('prog').style.width = (p * 100) + '%'; };
 
 $('drop').onclick = () => $('file').click();
@@ -1833,8 +1859,11 @@ const outRows = () => rows.filter(r => !r.dropped && !r.skipped)
 const OUT_HEADERS = ['Date', 'Rank', 'Game Name', 'Kartz Points'];
 $('copy').onclick = async () => {
   const tsv = outRows().map(r => r.join('\t')).join('\n');
-  try { await navigator.clipboard.writeText(tsv); log('copied — paste into the sheet'); }
-  catch { prompt('Copy these rows:', tsv); }
+  try {
+    await navigator.clipboard.writeText(tsv);
+    log('copied — paste into the sheet');
+    flash($('copy'), `Copied ${outRows().length} rows ✓`);
+  } catch { prompt('Copy these rows:', tsv); }
 };
 $('csv').onclick = () => {
   const csv = OUT_HEADERS.join(',') + '\n'
@@ -1843,6 +1872,7 @@ $('csv').onclick = () => {
     href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
     download: `kartz-${$('datestr').value || 'export'}.csv` });
   a.click(); URL.revokeObjectURL(a.href);
+  flash($('csv'), 'Downloaded ✓');
 };
 $('learn').onclick = () => {
   const a = store.get('aliases') || {};
@@ -1856,6 +1886,7 @@ $('learn').onclick = () => {
   store.set('aliases', a);
   log(n ? `remembered ${n} name${n>1?'s':''} — they will match automatically next time`
         : 'nothing new to remember');
+  flash($('learn'), n ? `Remembered ${n} ✓` : 'Nothing new');
 };
 
 
