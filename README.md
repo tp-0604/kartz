@@ -159,8 +159,12 @@ costs nothing — click anywhere outside and it goes back exactly as it was, hal
 and all. The ✕ at the far right throws a row out and turns into ↺ to bring it back, keeping
 whatever name you had chosen.
 
-**Alliance dropdown on every row**, not only the ones in doubt: a matched player arrives with
-theirs already filled in, a new one starts blank for you to say.
+**One alliance for the whole run**, chosen at the head of the Alliance column. A recording is
+of a single alliance's board, so answering that per row was a hundred-odd answers to one
+question. It starts on *as found* — each row showing whatever the roster knows about that
+player — and choosing an alliance sets every row to it. Choosing *as found* again puts them
+back. The choice is filed with the name by **Remember my fixes**, so a new player is
+recognised next month as one of yours.
 
 **Remember my fixes** stores the name and the alliance together, so anything you resolve by
 hand is matched automatically from the next run onward. That list only ever shrinks. Names

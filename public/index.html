@@ -1513,6 +1513,12 @@ $('go').onclick = async () => {
 };
 
 let lastRoster = [];
+// One alliance for the whole run, chosen once at the head of the column. A recording is of a
+// single alliance's board, so setting it per row was thirteen dozen answers to one question.
+// Empty means "leave each row as it stands", which is how the run starts: a matched player
+// shows the alliance the roster has for them, and only choosing here overrides that.
+let allianceAll = '';
+const ALLIANCES = ['698W', '698S', '698N', '698C'];
 function render(roster) {
   lastRoster = roster;
   const dropped = rows.filter(r => r.skipped).length;
@@ -1549,7 +1555,11 @@ function render(roster) {
         + `slowly if you want the gap filled.</div>` : '');
   refreshRosterList();
   $('tbl').innerHTML =
-    '<thead><tr><th>Rank</th><th>Name in video</th><th>Game Name</th><th>Alliance</th>'
+    '<thead><tr><th>Rank</th><th>Name in video</th><th>Game Name</th>'
+    + `<th>Alliance<br><select id="alliall" class="allipick">`
+    + ['', ...ALLIANCES].map(a => `<option value="${esc(a)}"`
+        + `${a === allianceAll ? ' selected' : ''}>${esc(a) || 'as found'}</option>`).join('')
+    + '</select></th>'
     + '<th>Kartz Points</th><th></th><th></th></tr></thead><tbody>'
     + rows.map((r, i) => {
         // Settled means the name needs nothing from you: matched to the roster, ticked off by
@@ -1561,14 +1571,11 @@ function render(roster) {
         const settled = !r.editing && !r.dropped;
         const green   = r.match || r.confirmed || r.skipped;
         const shown   = r.skipped && !r.pick ? (r.skipped.ingame || r.skipped.search) : outName(r);
-        // The alliance is offered on every row now, not only the ones in doubt: a matched
-        // player arrives with theirs already chosen, a new one starts blank for you to say.
-        // A row excluded by alliance keeps its own, which is not one of the four, so it is
-        // added to the list rather than silently displayed as blank.
-        const alli = r.alliancePick !== undefined ? r.alliancePick
-                   : r.match ? r.match.alliance : r.skipped ? r.skipped.alliance : '';
-        const opts = ['', '698W', '698S', '698N', '698C']
-                     .concat(alli && !['698W','698S','698N','698C'].includes(alli) ? [alli] : []);
+        // What the row's alliance ends up as: the one chosen for the whole run if there is
+        // one, otherwise whatever the row already knew about itself.
+        const alli = allianceAll
+                   || (r.alliancePick !== undefined ? r.alliancePick
+                      : r.match ? r.match.alliance : r.skipped ? r.skipped.alliance : '');
         return `<tr class="${green || r.pick ? 'ok' : 'new'}${r.dropped ? ' drop' : ''}">
         <td>${r.skipped ? (r.seenRank || '—') : r.rank}</td>
         <td>${esc(r.name)}</td>
@@ -1580,10 +1587,7 @@ function render(roster) {
                     + ` style="width:auto;padding:4px 9px;margin-left:6px">✓</button>` : '')
               : `<input data-i="${i}" class="pickbox" data-row="${i}" placeholder="type to search…"
                         value="${esc(r.pick || (r.editing ? shown : ''))}" spellcheck="false">`}</td>
-        <td><select class="allipick" data-i="${i}">
-              ${opts.map(a => `<option value="${esc(a)}"${a === alli ? ' selected' : ''}>`
-                            + `${esc(a) || '—'}</option>`).join('')}
-            </select></td>
+        <td>${alli ? esc(alli) : '<span class="note">—</span>'}</td>
         <td>${r.points}</td>
         <td>${r.skipped ? '<span class="pill p-new">excluded</span>'
             : r.match ? `<span class="pill p-ok">${r.near1 ? '1 char' : 'exact'}</span>`
@@ -1656,9 +1660,21 @@ function render(roster) {
   // A row that could not be matched is usually somebody new. Recording which alliance they
   // belong to here means the answer is kept with the name, so the pair can go into the sheet
   // and the player is recognised from the next run on.
-  $('tbl').querySelectorAll('.allipick').forEach(sel => sel.onchange = () => {
-    rows[+sel.dataset.i].alliancePick = sel.value;
-  });
+  // Choosing at the head of the column answers for every row. The value is written onto each
+  // one rather than only being displayed, because Remember my fixes files the alliance with
+  // the name, and a new player is worth nothing next month without knowing whose they are.
+  const allSel = $('alliall');
+  if (allSel) allSel.onchange = () => {
+    allianceAll = allSel.value;
+    // Going back to "as found" has to remove the choice, not set it to nothing: an empty
+    // alliancePick is still an answer, and it left every row blank rather than returning them
+    // to the alliance the roster had for them.
+    for (const r of rows) {
+      if (allianceAll) r.alliancePick = allianceAll;
+      else delete r.alliancePick;
+    }
+    render(lastRoster);
+  };
   $('tbl').querySelectorAll('.rowdrop').forEach(b => b.onclick = () => {
     const r = rows[+b.dataset.i];
     r.dropped = !r.dropped;              // leaves r.pick, and any name you chose, untouched
