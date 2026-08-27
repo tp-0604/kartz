@@ -49,7 +49,8 @@ must be link-readable (*Share → General access → Anyone with the link → Vi
 
 | badge | meaning |
 |---|---|
-| **exact** / a percentage | matched to the roster, nothing to do |
+| **exact** | matched to the roster, nothing to do |
+| **1 char** | one character off a single roster name — see below |
 | **confirm** | not in the roster — pick the right player, or leave it as a new one |
 | **contested** | two rows both resolve to one roster entry, usually a main and an alt sharing a display name. Neither is emitted until you choose. |
 | **excluded** | in a filtered alliance, left out of the copied rows |
@@ -68,6 +69,15 @@ rather than *what does this say*, which is why stylised names resolve — `ŊŲ�
 `ɬąŋʝıཞơ` → Tanjiro, `xØ₲x` → OG. Both the sheet name and the in-game name are supplied,
 because for 40% of the roster they differ and some pairs no spell-check could bridge
 (`ERank` is Aalonsoj ALT).
+
+**Accepts a name that is one character off, when only one player is that close.** These
+readings fail in a particular way: the model gets almost every glyph and argues about one.
+`ŊŲƁĮ` came back as `DUBI`, `ḐUBĮ`, `ɳUBI` and `กUBI` on different runs, with `UBI` intact
+every time. Similarity scoring could not use that — it rated `MiniMe` against Mexi ALT at
+0.75 and `DUBI` against Nubi at 0.75 too, and one of those has to be rejected. Counting
+edits separates them: one substitution against five. Names must be at least four characters
+and exactly one player may be that close, so an ambiguous reading is put to you instead of
+being guessed at. Rows matched this way are badged **1 char**.
 
 **Groups readings by rank, not by name**, then votes on the name within each rank. A name
 read three ways stays one player instead of becoming three.

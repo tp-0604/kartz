@@ -120,11 +120,6 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
       <label for="sens">Frames to send <span id="sensVal" class="note"></span></label>
       <input id="sens" type="range" min="8" max="72" step="4" value="48">
       <label style="display:flex;align-items:center;gap:7px;margin-top:8px">
-        <input type="checkbox" id="repair" checked style="width:auto;margin:0">
-        <span>Take a second look at rows that did not match &mdash; one extra request, offers
-        the model a shortlist to choose from</span>
-      </label>
-      <label style="display:flex;align-items:center;gap:7px;margin-top:8px">
         <input type="checkbox" id="sheetimg" checked style="width:auto;margin:0">
         <span>Send a picture of the unusual names &mdash; lets the model compare odd
         lettering and emoji as images instead of reading them character by character</span>
@@ -355,7 +350,6 @@ function sim(a, b) {                       // levenshtein similarity
   }
   return 1 - prev[b.length] / Math.max(a.length, b.length);
 }
-const CONF = 0.82;
 function buildIndex(roster) {
   const ix = [];
   for (const r of roster) {
@@ -416,6 +410,46 @@ function claimPlausible(seen, entry) {
   return false;
 }
 
+// True when two keys are at most one edit apart. Cheaper than computing the distance:
+// past the first mismatch the remainders either line up or they do not.
+function lev1(a, b) {
+  if (a === b) return true;
+  const [s, t] = a.length <= b.length ? [a, b] : [b, a];
+  if (t.length - s.length > 1) return false;
+  let i = 0;
+  while (i < s.length && s[i] === t[i]) i++;
+  if (i === s.length) return true;                                   // one extra at the end
+  if (s.length === t.length) return s.slice(i + 1) === t.slice(i + 1);   // substitution
+  return s.slice(i) === t.slice(i + 1);                              // insertion
+}
+// The last resort, and the one that took the longest to get right.
+//
+// It used to be similarity above a threshold, which cannot work here. "MiniMe" — a genuinely
+// new player — scored 0.75 against Mexi ALT. "DUBI", the reading of ŊŲƁĮ, scored Nubi at
+// exactly 0.75 as well. One must be rejected and the other accepted, and no threshold placed
+// anywhere separates two numbers that are equal.
+//
+// Edit distance does separate them: dubi→nubi is a single substitution, minime→mexialt is
+// five. That also matches how these readings actually fail. The model gets nearly every
+// glyph and argues about one: ŊŲƁĮ came back as DUBI, ḐUBĮ, ɳUBI and กUBI on different runs,
+// with UBI intact every time.
+//
+// Two guards keep it honest. Four characters minimum, so short names are not one edit from
+// half the roster; and a sole hit, so a crowded neighbourhood goes to you rather than being
+// guessed at. Measured against this roster it recovers ŊŲƁĮ and leaves all eight of the
+// known new players alone.
+const NEAR_MIN_LEN = 4;
+function nearMatch(cand, ix) {
+  if (!cand || cand.length < NEAR_MIN_LEN) return null;
+  let hit = null;
+  for (const e of ix) {
+    if (e.sym || e.k.length < NEAR_MIN_LEN) continue;   // symbol keys are exact-match only
+    if (!lev1(cand, e.k)) continue;
+    if (hit && hit !== e.r) return null;                // more than one player this close
+    hit = e.r;
+  }
+  return hit;
+}
 function resolve(name, plain, ix, aliases) {
   // Aliases stay keyed on the raw fold — that is how they were written — but the exact
   // match against the roster must use usableFold, or a name stylised down to one stray
@@ -444,6 +478,12 @@ function resolve(name, plain, ix, aliases) {
     const hit = ix.find(e => e.k === k);
     if (hit) return { r: hit.r, score: 1 };
   }
+  for (const cand of [usableFold(name), usableFold(plain)]) {
+    const hit = nearMatch(cand, ix);
+    if (hit) return { r: hit, score: 1, near1: true };
+  }
+  // Nothing matched. Find the closest name anyway, but only to show as a suggestion: it
+  // decides nothing now, so a poor guess costs a hint rather than a wrong row in the sheet.
   let best = null, score = 0;
   for (const cand of [usableFold(name), usableFold(plain)]) {
     if (!cand) continue;
@@ -452,7 +492,7 @@ function resolve(name, plain, ix, aliases) {
       const s = sim(cand, e.k); if (s > score) { score = s; best = e.r; }
     }
   }
-  return score >= CONF ? { r: best, score } : { r: null, score, near: best };
+  return { r: null, score, near: best };
 }
 
 /* ---------------- frame extraction ---------------- */
@@ -968,84 +1008,6 @@ function dropForeignRows(sightings) {
 //
 // Only unmatched rows go through this, so it is one extra request rather than a second pass
 // over everything.
-const REPAIR_CANDIDATES = 20;
-function shortlistFor(seen, roster) {
-  const key = usableFold(seen) || fold(seen);
-  return [...new Set(roster
-    .map(r => ({ r, s: Math.max(sim(key, usableFold(r.search) || fold(r.search)),
-                                sim(key, usableFold(r.ingame) || fold(r.ingame))) }))
-    .sort((a, b) => b.s - a.s)
-    .slice(0, REPAIR_CANDIDATES)
-    .map(x => (x.r.ingame || x.r.search).trim())
-    .filter(Boolean))];
-}
-
-async function repairUnmatched(unresolved, frames, roster) {
-  if (!unresolved.length || !frames.length) return {};
-  // one property per row, each constrained to that row's own candidates
-  const props = {}, lists = {};
-  for (const r of unresolved) {
-    const key = 'r' + r.rank;
-    const list = shortlistFor(r.name, roster);
-    if (list.length < 2) continue;
-    lists[key] = list;
-    props[key] = { type: 'STRING', enum: [...list, 'NONE OF THESE'] };
-  }
-  const keys = Object.keys(props);
-  if (!keys.length) return {};
-
-  // frames covering roughly where each rank sits in the scroll
-  const total = Math.max(...unresolved.map(r => r.rank), 1);
-  const wanted = new Set();
-  for (const r of unresolved) {
-    const at = Math.round((r.rank / total) * (frames.length - 1));
-    for (let d = -1; d <= 1; d++) wanted.add(Math.min(frames.length - 1, Math.max(0, at + d)));
-  }
-  const pick = [...wanted].sort((a, b) => a - b).slice(0, 12).map(i => frames[i]);
-
-  const ask = unresolved.map(r => props['r' + r.rank]
-    ? `rank ${r.rank} — read as "${r.name}", ${r.points} points` : null).filter(Boolean).join('\n');
-  const body = {
-    contents: [{ role: 'user', parts: [
-      ...pick.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d } })),
-      { text: `These frames come from a game leaderboard. A few rows could not be identified:
-
-${ask}
-
-For each, find that row in the frames and decide which candidate its name is, comparing the
-glyph shapes rather than trying to spell it out. Unusual letterforms and diacritics matter.
-Answer "NONE OF THESE" only if the name is plainly not among the candidates.` }] }],
-    generationConfig: { temperature: 0, maxOutputTokens: 4096,
-      thinkingConfig: { thinkingLevel: 'low' },
-      responseMimeType: 'application/json',
-      responseSchema: { type: 'OBJECT', properties: props } },
-  };
-  const r = await fetch(API_BASE + '/' + encodeURIComponent(MODEL), {
-    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  if (!r.ok) { log('second look failed: ' + r.status); return {}; }
-  const j = await r.json();
-  let picked = {};
-  try { picked = JSON.parse(j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '{}'); }
-  catch { return {}; }
-  const out = {};
-  for (const [k, v] of Object.entries(picked)) {
-    if (!v || v === 'NONE OF THESE' || !lists[k] || !lists[k].includes(v)) continue;
-    out[+k.slice(1)] = v;      // rank -> chosen in-game name
-  }
-  return out;
-}
-
-/* ---------------- consolidate ---------------- */
-// a player's score holds steady across frames; their name does not. so sightings that
-// share a score and read similarly are the same person, however badly the tag rendered.
-// Group by rank, then vote on everything else.
-//
-// Clustering by name was the earlier approach and it has a specific failure: a name read
-// three different ways becomes three players, so a 153-player list can come back as 158
-// rows, each seen once, with no majority to correct anything. Rank does not have that
-// problem — it is a plain numeral the model reads reliably — so it makes a far better key.
-// Voting still happens, but within a rank rather than within a spelling, which is what lets
-// a good reading outvote a bad one instead of splitting away from it.
 function consolidate(sightings, frameCount) {
   const byRank = new Map();
   const orphans = [];
@@ -1171,8 +1133,8 @@ $('go').onclick = async () => {
         const t = resolve(o, o, index, aliases);
         if (t.score > m.score) { m = t; from = o; }
       }
-      if (m.r) return { ...r, match: m.r, score: m.score,
-                        pick: m.r.ingame || m.r.search, via: 'fuzzy:' + from };
+      if (m.r) return { ...r, match: m.r, score: m.score, near1: m.near1,
+                        pick: m.r.ingame || m.r.search, via: 'near:' + from };
       const sk = skipIndex.length ? resolve(r.name, r.plain, skipIndex, {}) : { r: null };
       if (sk.r) return { ...r, match: null, skipped: sk.r, score: sk.score, pick: '\u0000drop' };
       return { ...r, match: null, score: m.score, near: m.near, pick: '', via: 'none' };
@@ -1197,23 +1159,6 @@ $('go').onclick = async () => {
     }
     let n = 0;
     for (const r of rows) r.rank = r.skipped ? null : ++n;
-
-    if ($('repair').checked) {
-      const stuck = rows.filter(r => !r.match && !r.skipped && !r.contested && r.rank);
-      if (stuck.length) {
-        log(`taking a second look at ${stuck.length} row${stuck.length>1?'s':''}…`);
-        const chosen = await repairUnmatched(stuck, frames, roster);
-        let fixed = 0;
-        for (const r of stuck) {
-          const name = chosen[r.rank];
-          if (!name) continue;
-          const hit = roster.find(x => (x.ingame || x.search).trim() === name);
-          if (!hit || !claimPlausible(r.name, hit)) continue;   // same bar as any other claim
-          r.match = hit; r.pick = hit.ingame || hit.search; r.score = 1; r.repaired = true; fixed++;
-        }
-        if (fixed) log(`second look resolved ${fixed} of ${stuck.length}`);
-      }
-    }
     render(roster);
     log(`done — ${sightings.length} readings → ${rows.length} players`);
     setProg(1);
@@ -1280,8 +1225,7 @@ function render(roster) {
                </select>`}</td>
         <td>${r.points}</td>
         <td>${r.skipped ? '<span class="pill p-new">excluded</span>'
-            : r.match ? `<span class="pill p-ok">${r.repaired ? 'second look'
-                          : r.score === 1 ? 'exact' : (r.score*100|0)+'%'}</span>`
+            : r.match ? `<span class="pill p-ok">${r.near1 ? '1 char' : 'exact'}</span>`
             : r.contested ? '<span class="pill p-bad">contested</span>'
                       : '<span class="pill p-new">confirm</span>'}</td>
       </tr>`).join('') + '</tbody>';
