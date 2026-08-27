@@ -129,11 +129,12 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
          one sensible answer — as many as the request allowance permits. 96 sample points come
          to 288 images, which the batch sizing still fits into twelve requests, so turning it
          down saves nothing and costs coverage. -->
-    <!-- 72, not 96. The binding allowance turned out to be tokens rather than requests: an
-         image costs a flat ~1100 whatever its size, so 96 frames sliced three ways came to
-         317,000 tokens against a limit of 250,000 a minute, and the run was throttled. 72
-         frames is 217,000, which fits with room to spare. -->
-    <input id="sens" type="hidden" value="72">
+    <!-- 64. The binding allowance is tokens, not requests: an image costs a flat ~1100 whatever
+         its size, so the frame count is the whole budget. 96 frames came to 317,000 against a
+         limit of 250,000 a minute and was throttled; 72 came to 246,000, which fits only by
+         dribbling the requests out a dozen seconds apart and made every run take a minute. 64
+         is about 223,000 and goes in one burst, which is what makes the run quick again. -->
+    <input id="sens" type="hidden" value="64">
     <input id="sheetimg" type="checkbox" checked class="hide">
   </div>
   <button id="go" style="margin-top:12px" disabled>Extract</button>
@@ -180,7 +181,11 @@ const API_BASE = '/api';
 // Six rather than twelve. The roster prompt is resent with every request — 5,800 tokens of
 // it, because names in exotic scripts tokenise at about 2.3 characters to the token — so
 // halving the requests halves that duplication and returns some 35,000 tokens a run.
-const REQ_CAP = 6, BATCH_MIN = 8, BATCH_MAX = 48;
+// Six. Four was tried, to save the roster prompt that rides along with every request, and it
+// was a bad trade: 47 images to a request instead of 31 dropped the match rate from 91 of 129
+// to 67, for about 14,000 tokens. The model attends to a long batch worse than a short one,
+// and the tokens saved are not worth the reading lost.
+const REQ_CAP = 6, BATCH_MIN = 8, BATCH_MAX = 40;
 const batchSize = n => Math.min(BATCH_MAX, Math.max(BATCH_MIN, Math.ceil(n / REQ_CAP)));
 
 /* ---------------- persistence ---------------- */
@@ -1074,28 +1079,47 @@ ${once}
 // The gate therefore meters both, and a request waits until the rolling minute has room for
 // its own estimated cost. A run simply takes as many minutes as it needs, rather than failing
 // partway through and throwing away the batches already paid for.
-const TPM = 200000;                    // under the published 250,000, with room to spare
+const TPM = 240000;                    // the published limit is 250,000
 // Roster names in exotic scripts tokenise badly: the prompt measures 13,320 characters and
 // 5,657 tokens, which is 2.35 to the token rather than the usual 4. Estimating at 4 put the
 // spend a third under what it really was, which is the wrong direction to be wrong in here.
 const CHARS_PER_TOKEN = 2.3;
 const IMG_TOKENS = 1100;               // measured: 1092 for a frame, and flat in its dimensions
-// Departures are spaced so the average token rate stays inside the allowance. The spend of a
-// request is known before it leaves — images dominate and are charged flat per image — so the
-// minute divided by that spend gives the interval to leave between them.
+
+// A budget for the minute, not a speed limit.
 //
-// A rolling-window gate was tried first and behaved badly. A request refused with a 429 costs
-// nothing, but the window had already been charged for it, so every retry double-counted and
-// the run wedged with a handful of batches held indefinitely. Spacing departures needs no
-// accounting after the fact and cannot drift out of step with what was actually spent.
+// The previous version spaced departures evenly: it took the spend of a request, divided the
+// minute by it, and left that long between each. That holds the average rate inside the
+// allowance, but it also means a run that would fit in one burst is dribbled out anyway — six
+// requests twelve seconds apart put the last one on the wire at sixty-one seconds, so every
+// run took over a minute however quickly the model answered.
+//
+// What the allowance actually says is that a rolling minute may carry 250,000 tokens. A whole
+// run is a little under that, so it can go at once and the minute is simply spent. Requests
+// wait only when the window is genuinely full.
+//
+// Charging the window before a request leaves is what makes it safe, and refunding a request
+// that failed is what makes it correct: a 429 costs nothing, and an earlier attempt at this
+// left those charges standing, so retries double-counted and the run wedged. The lease handed
+// back here settles the charge against what the response says was really spent, or cancels it.
 const rateGate = (() => {
-  let next = 0;
+  const win = [];                      // { t, tokens } for the last minute
   return async (tokens = 0) => {
-    const interval = Math.ceil(60000 * Math.max(tokens, 1) / TPM);
-    const now = Date.now();
-    const at = Math.max(now, next);
-    next = at + interval;
-    if (at > now) await new Promise(r => setTimeout(r, at - now));
+    for (;;) {
+      const now = Date.now();
+      while (win.length && now - win[0].t > 60000) win.shift();
+      const used = win.reduce((n, e) => n + e.tokens, 0);
+      if (!win.length || used + tokens <= TPM) {
+        const entry = { t: now, tokens };
+        win.push(entry);
+        return {
+          settle: actual => { if (actual > 0) entry.tokens = actual; },
+          refund: () => { entry.tokens = 0; },
+        };
+      }
+      log(`waiting for the per-minute token allowance…`);
+      await new Promise(r => setTimeout(r, 1000));
+    }
   };
 })();
 
@@ -1109,8 +1133,15 @@ async function callModel(frames) {
   const promptTokens = Math.ceil(buildPrompt(false).length / CHARS_PER_TOKEN);
   const one = async b => {
     const est = (b.length + (sheet ? 1 : 0)) * IMG_TOKENS + promptTokens;
-    const rows = await withFallback(async m => { await rateGate(est);
-                                      return callProxy(sheet ? [sheet, ...b] : b, m, API_BASE); },
+    const rows = await withFallback(async m => {
+                                      const lease = await rateGate(est);
+                                      try {
+                                        const got = await callProxy(sheet ? [sheet, ...b] : b,
+                                                                    m, API_BASE);
+                                        lease.settle(callProxy.lastUsage);
+                                        return got;
+                                      } catch (e) { lease.refund(); throw e; }
+                                    },
                                     modelChain(), m => switched.add(m), true);
     done++; setProg(0.5 + 0.5 * done / batches.length);
     log(`read ${done} of ${batches.length} batches…`
@@ -1208,7 +1239,8 @@ async function callProxy(batch, model, base) {
   // What it actually cost, as reported rather than guessed — the gate above is working from an
   // estimate, and an estimate that drifts low would walk the run straight back into a 429.
   if (j.usageMetadata) {
-    callProxy.spent = (callProxy.spent || 0) + (j.usageMetadata.totalTokenCount || 0);
+    callProxy.lastUsage = j.usageMetadata.totalTokenCount || 0;
+    callProxy.spent = (callProxy.spent || 0) + callProxy.lastUsage;
     callProxy.calls = (callProxy.calls || 0) + 1;
   }
   return parseJSON(j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '');
