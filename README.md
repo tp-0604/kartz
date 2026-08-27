@@ -167,10 +167,18 @@ of the copied rows, rather than deleted — so they do not come back every month
 ## Settings
 
 There are none left to set. Frames were a slider and the reference picture a checkbox, and
-neither was a real choice: the picture earns its place on every run, and the frame count has
-one sensible answer, which is as many as the request allowance permits. Both are now fixed —
-96 sample points, sliced three ways into 288 images, which the batch sizing still fits into
-twelve requests. Turning either down saved nothing and cost accuracy.
+neither was a real choice. Both are fixed now: 72 sample points, sliced three ways, sent as
+six requests.
+
+72 rather than more, because the allowance that binds is **tokens**, not requests. An image
+costs a flat ~1,100 tokens whatever its dimensions, so the picture count is the whole budget:
+96 frames came to 317,000 tokens against a limit of 250,000 a minute, and runs were throttled
+into taking minutes. 72 frames is 233,000 and fits. It also costs nothing measurable — on the
+test recording both found all 153 players with no gaps, and matched 144 against 145.
+
+Six requests rather than twelve for the same reason: the roster prompt is resent with every
+one of them, and at 5,800 tokens a time — names in exotic scripts tokenise at about 2.3
+characters to the token — halving the requests returns some 35,000 tokens a run.
 
 Model is `gemini-3.5-flash-lite`, fixed, with no fallback chain — a run either works or says
 why.
@@ -188,4 +196,4 @@ A 43-second recording of a 153-player list:
 | matched to the roster | **141** (92%) |
 | needing a decision | 10, and all ten are genuinely new players |
 | wrong matches | none |
-| time | 77 seconds, 16 requests |
+| time | 14 seconds, 6 requests, 233K tokens |
