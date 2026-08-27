@@ -51,9 +51,10 @@ must be link-readable (*Share → General access → Anyone with the link → Vi
 |---|---|
 | **exact** | matched to the roster, nothing to do |
 | **1 char** | one character off a single roster name — see below |
+| **confirmed** | you ticked it: the name is right as the video drew it |
 | **confirm** | not in the roster — pick the right player, or leave it as a new one |
-| **contested** | two rows both resolve to one roster entry, usually a main and an alt sharing a display name. Neither is emitted until you choose. |
-| **excluded** | in a filtered alliance, left out of the copied rows |
+| **contested** | two rows both resolve to one roster entry, usually a main and an alt sharing a display name |
+| **excluded** | in a filtered alliance, left out of the copied rows — still editable, and naming somebody else brings the row back in with its rank |
 
 A **coverage warning** names the ranks that were never photographed. Everyone else keeps the
 rank the game gave them, so a gap costs you those players and nothing else. Raise *Frames to
@@ -137,7 +138,14 @@ in stylised Unicode is the reverse case: the transcription is the unreliable hal
 back as ŊŲƁĮ, Ḏṳḇị, ḐŲḂĮ, DUBI, 𝓡𝓑𝓙 and ṆḶḄḶ across six runs of one recording. So the bar
 drops, but only when the drawn name and the roster entry are both stylised.
 
-**Alliance dropdown** on unconfirmed rows, for saying which alliance a new player belongs to.
+**Every row can be settled without typing.** A name that matched nothing already reads as the
+video drew it, so the tick beside it says *that is right* — the text turns green and the row
+leaves the confirm tally. The pencil changes any name at all, and an edit opened by accident
+costs nothing: click anywhere outside and the row goes back exactly as it was. The ✕ at the
+far right throws a row out and turns into ↺ to bring it back.
+
+**Alliance dropdown on every row**, not only the ones in doubt: a matched player arrives with
+theirs already filled in, a new one starts blank for you to say.
 
 **Remember my fixes** stores the name and the alliance together, so anything you resolve by
 hand is matched automatically from the next run onward. That list only ever shrinks. Names
@@ -151,9 +159,11 @@ of the copied rows, rather than deleted — so they do not come back every month
 
 ## Settings
 
-**Frames to send** (default 64) is the only control. Each one is sliced into three bands, so
-64 means 192 images and 16 requests. More means better coverage of a long list and more
-sightings to vote on; fewer is quicker. The banner tells you if the list came up short.
+There are none left to set. Frames were a slider and the reference picture a checkbox, and
+neither was a real choice: the picture earns its place on every run, and the frame count has
+one sensible answer, which is as many as the request allowance permits. Both are now fixed —
+96 sample points, sliced three ways into 288 images, which the batch sizing still fits into
+twelve requests. Turning either down saved nothing and cost accuracy.
 
 Model is `gemini-3.5-flash-lite`, fixed, with no fallback chain — a run either works or says
 why.

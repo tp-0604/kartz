@@ -61,6 +61,10 @@ tr.new{background:var(--warnbg)}
 .pencil{background:none;border:0;color:var(--muted);cursor:pointer;font-size:13px;
   padding:0 4px;width:auto;line-height:1;opacity:.5}
 .pencil:hover{opacity:1;color:var(--accent)}
+.tickok{background:none;border:0;color:var(--ok);cursor:pointer;font-size:14px;
+  padding:0 4px;width:auto;line-height:1;opacity:.65}
+.tickok:hover{opacity:1}
+#tbl tr.drop{opacity:.4}
 .menu{position:fixed;z-index:50;background:var(--panel);border:1px solid var(--line);
   border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.16);max-height:210px;overflow-y:auto;
   min-width:200px;padding:4px 0}
@@ -117,15 +121,13 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
       <label for="datestr">Date</label>
       <input id="datestr" type="date">
     </div>
-    <div>
-      <label for="sens">Frames to send <span id="sensVal" class="note"></span></label>
-      <input id="sens" type="range" min="8" max="96" step="4" value="64">
-      <label style="display:flex;align-items:center;gap:7px;margin-top:8px">
-        <input type="checkbox" id="sheetimg" checked style="width:auto;margin:0">
-        <span>Send a picture of the unusual names &mdash; lets the model compare odd
-        lettering and emoji as images instead of reading them character by character</span>
-      </label>
-    </div>
+    <!-- Settled rather than offered. Both of these were controls, and neither was a real
+         choice: the reference picture earns its place on every run, and the frame count has
+         one sensible answer — as many as the request allowance permits. 96 sample points come
+         to 288 images, which the batch sizing still fits into twelve requests, so turning it
+         down saves nothing and costs coverage. -->
+    <input id="sens" type="hidden" value="96">
+    <input id="sheetimg" type="checkbox" checked class="hide">
   </div>
   <button id="go" style="margin-top:12px" disabled>Extract</button>
   <div class="bar"><i id="prog"></i></div>
@@ -606,12 +608,6 @@ function pickFile(f) {
   $('fileName').textContent = f.name + '  ·  ' + (f.size / 1e6).toFixed(0) + ' MB';
   refreshState();
 }
-$('sens').oninput = () => {
-  const n = +$('sens').value;
-  // roughly seven rows fit on screen, and consecutive frames need to overlap
-  $('sensVal').textContent = `${n} — covers about ${Math.round(n * 3.6)} players`;
-};
-$('sens').oninput();
 
 const once = (el, ev) => new Promise(res => el.addEventListener(ev, res, { once: true }));
 
@@ -1385,7 +1381,7 @@ $('go').onclick = async () => {
     const m = e.message;
     log(/\b429\b/.test(m) && /quota|per day/i.test(m)
       ? '✗ Daily free-tier quota used up (Gemini allows 20 requests a day). Each run costs '
-        + Math.ceil(+$('sens').value * STRIPS / batchSize(+$('sens').value * STRIPS)) + ' of them. Wait for the reset, lower "Frames to send", '
+        + Math.ceil(+$('sens').value * STRIPS / batchSize(+$('sens').value * STRIPS)) + ' of them. Wait for the reset, '
         + 'or enable billing on the key.'
       : '✗ ' + m);
   }
@@ -1396,7 +1392,7 @@ let lastRoster = [];
 function render(roster) {
   lastRoster = roster;
   const dropped = rows.filter(r => r.skipped).length;
-  const need = rows.filter(r => !r.match && !r.skipped
+  const need = rows.filter(r => !r.match && !r.skipped && !r.confirmed
                                  && !(r.pick && r.pick !== '\u0000drop')).length;
   // The model reports the rank it saw; we renumber by score. Where the two disagree,
   // a row between them was probably never captured — worth saying out loud, because a
@@ -1430,48 +1426,51 @@ function render(roster) {
   refreshRosterList();
   $('tbl').innerHTML =
     '<thead><tr><th>Rank</th><th>Name in video</th><th>Game Name</th><th>Alliance</th>'
-    + '<th>Kartz Points</th><th></th></tr></thead><tbody>'
-    + rows.map((r, i) => `<tr class="${r.skipped ? ''
-        : (r.match || (r.pick && r.pick !== '\u0000drop')) ? 'ok' : 'new'}"${
-        r.skipped ? ' style="opacity:.45"' : ''}>
-        <td>${r.skipped ? '—' : r.rank}</td>
+    + '<th>Kartz Points</th><th></th><th></th></tr></thead><tbody>'
+    + rows.map((r, i) => {
+        // Settled means the name needs nothing from you: matched to the roster, ticked off by
+        // hand, or an excluded player whose identity is already known. Everything else — an
+        // open edit, a contested pair, a discarded row — gets the search box.
+        const settled = !r.editing && !r.contested && r.pick !== '\u0000drop';
+        const green   = r.match || r.confirmed || r.skipped;
+        const shown   = r.skipped && !r.pick ? (r.skipped.ingame || r.skipped.search) : outName(r);
+        // The alliance is offered on every row now, not only the ones in doubt: a matched
+        // player arrives with theirs already chosen, a new one starts blank for you to say.
+        // A row excluded by alliance keeps its own, which is not one of the four, so it is
+        // added to the list rather than silently displayed as blank.
+        const alli = r.alliancePick !== undefined ? r.alliancePick
+                   : r.match ? r.match.alliance : r.skipped ? r.skipped.alliance : '';
+        const opts = ['', '698W', '698S', '698N', '698C']
+                     .concat(alli && !['698W','698S','698N','698C'].includes(alli) ? [alli] : []);
+        return `<tr class="${green || (r.pick && r.pick !== '\u0000drop') ? 'ok' : 'new'}${
+                             r.pick === '\u0000drop' ? ' drop' : ''}">
+        <td>${r.skipped ? (r.seenRank || '—') : r.rank}</td>
         <td>${esc(r.name)}</td>
-        <td>${r.skipped ? esc(r.skipped.search)
-            // A row reads as settled text unless it actually needs a decision from you.
-            // A name that matched nothing on the roster is settled too: it is whoever the
-            // video showed, carried across exactly as drawn. It keeps the confirm badge, so
-            // you can still see it and still change it, but it no longer holds up the paste
-            // by demanding that something be typed first. Contested rows are the exception —
-            // there the whole point is that one of two rows must be chosen between.
-            : (!r.editing && !r.contested && r.pick !== '\u0000drop')
-              ? `<span class="${r.match ? 'named' : 'asdrawn'}">${esc(outName(r))}</span>`
+        <td>${settled
+              ? `<span class="${green ? 'named' : 'asdrawn'}">${esc(shown)}</span>`
+                + (!green ? `<button class="tickok" data-i="${i}"`
+                    + ` title="this name is right as it is">✓</button>` : '')
                 + `<button class="pencil" data-i="${i}" title="change this name">✎</button>`
-                + (r.match ? '' : `<button class="ghost rowdrop" data-i="${i}"`
-                    + ` title="not a real row" style="width:auto;padding:4px 9px;`
-                    + `margin-left:6px">✕</button>`)
-            : `<div style="display:flex;gap:6px;align-items:center">
-                 <input data-i="${i}" class="pickbox" data-row="${i}" placeholder="type to search…"
+              : `<input data-i="${i}" class="pickbox" data-row="${i}" placeholder="type to search…"
                         value="${esc(r.pick === '\u0000drop' ? ''
-                                   : (r.pick || (r.editing ? outName(r) : '')))}" spellcheck="false">
-                 <button class="ghost rowdrop" data-i="${i}" title="not a real row"
-                         style="flex:0 0 auto;width:auto;padding:4px 9px">✕</button>
-               </div>`}${
+                                   : (r.pick || (r.editing ? shown : '')))}" spellcheck="false">`}${
             (r.near && !r.match) ? `<div class="note" style="margin:2px 0 0">${r.contested
                     ? `${esc(r.near.search)} — claimed by ${r.contested} rows, pick one`
                     : `closest: ${esc(r.near.search)} (${(r.score*100|0)}%)`}</div>` : ''}</td>
-        <td>${r.skipped ? esc(r.skipped.alliance)
-            : r.match ? esc(r.match.alliance)
-            : `<select class="allipick" data-i="${i}">
-                 ${['', '698W', '698S', '698N', '698C']
-                    .map(a => `<option value="${a}"${a === (r.alliancePick || '') ? ' selected' : ''}>`
-                            + `${a || '—'}</option>`).join('')}
-               </select>`}</td>
+        <td><select class="allipick" data-i="${i}">
+              ${opts.map(a => `<option value="${esc(a)}"${a === alli ? ' selected' : ''}>`
+                            + `${esc(a) || '—'}</option>`).join('')}
+            </select></td>
         <td>${r.points}</td>
         <td>${r.skipped ? '<span class="pill p-new">excluded</span>'
             : r.match ? `<span class="pill p-ok">${r.near1 ? '1 char' : 'exact'}</span>`
+            : r.confirmed ? '<span class="pill p-ok">confirmed</span>'
             : r.contested ? '<span class="pill p-bad">contested</span>'
                       : '<span class="pill p-new">confirm</span>'}</td>
-      </tr>`).join('') + '</tbody>';
+        <td><button class="ghost rowdrop" data-i="${i}"
+                    title="${r.pick === '\u0000drop' ? 'bring this row back' : 'not a real row'}"
+                    style="width:auto;padding:4px 9px">${r.pick === '\u0000drop' ? '↺' : '✕'}</button></td>
+      </tr>`; }).join('') + '</tbody>';
   // Any row can be corrected, not just the ones flagged for attention — a confident wrong
   // answer is exactly the kind that needs a way out.
   $('tbl').querySelectorAll('.pencil').forEach(b => b.onclick = () => {
@@ -1485,13 +1484,44 @@ function render(roster) {
     const box = $('tbl').querySelector(`.pickbox[data-row="${b.dataset.i}"]`);
     if (box) { box.focus(); box.select(); }
   });
-  $('tbl').querySelectorAll('.pickbox').forEach(inp => wirePicker(inp, v => {
+  // Ticking a row says the name is right as the video drew it. Nothing about the row's
+  // contents changes — it was always going to the sheet that way — so this only settles the
+  // question of whether you have looked at it, which is what the confirm badge was asking.
+  $('tbl').querySelectorAll('.tickok').forEach(b => b.onclick = () => {
+    rows[+b.dataset.i].confirmed = true;
+    render(lastRoster);
+  });
+  $('tbl').querySelectorAll('.pickbox').forEach(inp => {
+    wirePicker(inp, v => {
+      const r = rows[+inp.dataset.i];
+      r.pick = v;
+      // a row being edited no longer rides on its original match, nor on the excluded player
+      // it used to be taken for — choosing a name here is choosing to put the row in the sheet
+      if (r.editing) {
+        r.match = null; r.editing = false; r.confirmed = true;
+        // Bringing an excluded row back has to give it its rank again. Excluded rows are
+        // numbered null, because they were never going to the sheet; clearing the exclusion
+        // without this sent the row on with no rank at all.
+        if (r.skipped) { r.skipped = null; if (!(r.rank > 0)) r.rank = r.seenRank || null; }
+      }
+      closeMenu();
+      setTimeout(() => render(lastRoster), 0);
+    });
+    // An edit opened by accident should cost nothing. A mousedown anywhere outside the box
+    // puts the row back exactly as it was. The suggestion menu is excepted, because it hangs
+    // off the body rather than the row, so clicking an option is otherwise "outside".
     const r = rows[+inp.dataset.i];
-    r.pick = v;
-    // a row being edited no longer rides on its original match
-    if (r.editing) r.match = null;
-    inp.closest('tr').style.opacity = 1;
-  }));
+    if (!r || !r.editing) return;
+    const escape = ev => {
+      if (inp.contains(ev.target) || (menuEl && menuEl.contains(ev.target))) return;
+      document.removeEventListener('mousedown', escape, true);
+      if (!r.editing) return;
+      r.editing = false;
+      closeMenu();
+      render(lastRoster);
+    };
+    document.addEventListener('mousedown', escape, true);
+  });
   // A row that could not be matched is usually somebody new. Recording which alliance they
   // belong to here means the answer is kept with the name, so the pair can go into the sheet
   // and the player is recognised from the next run on.
@@ -1501,9 +1531,8 @@ function render(roster) {
   $('tbl').querySelectorAll('.rowdrop').forEach(b => b.onclick = () => {
     const r = rows[+b.dataset.i];
     r.pick = r.pick === '\u0000drop' ? '' : '\u0000drop';
-    b.closest('tr').style.opacity = r.pick === '\u0000drop' ? .4 : 1;
-    const box = b.closest('tr').querySelector('.pickbox');
-    if (box && r.pick === '\u0000drop') box.value = '';
+    if (r.pick === '\u0000drop') r.editing = false;
+    render(lastRoster);
   });
   $('out').classList.remove('hide');
 }
