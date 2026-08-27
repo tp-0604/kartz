@@ -445,11 +445,16 @@ function claimPlausible(seen, entry) {
     // unjudgeable. Requiring merely that the claimed player also has a symbolic form is not
     // enough: that would let any emoji stand for any of them, so 🐼 could pass as ☁️.
     // The characters themselves have to overlap.
-    const seenSym = symKey(seen);
+    const seenSym = symKey(seen), seenCps = symCodes(seen);
     return forms.some(f => {
       if (usableFold(f)) return false;                 // that form is a word, not symbols
       const s = symKey(f);
-      return s === seenSym || s.includes(seenSym) || seenSym.includes(s);
+      if (s === seenSym || s.includes(seenSym) || seenSym.includes(s)) return true;
+      // Not identical, but these may be letters rather than emoji, and letters drift.
+      const fc = symCodes(f);
+      if (seenCps.length < SYM_NEAR_MIN || fc.length < SYM_NEAR_MIN) return false;
+      const cap = symCap(Math.max(seenCps.length, fc.length));
+      return seqEdits(seenCps, fc, cap) <= cap;
     });
   }
   const bothStylised = exoticness(seen) >= EXOTIC
@@ -499,6 +504,34 @@ function symCodes(s) {
 // would match whichever happened to be alone in that neighbourhood, so it stays unmatched and
 // goes to you. 🐼❄️ against 🐻❄️ is a different proposition — the snowflake agrees and only the
 // animal is in dispute, which is exactly how the model misread it.
+// How many single-codepoint edits separate two sequences, abandoning the count once it is
+// past `cap` — the answer is only ever compared against a threshold.
+function seqEdits(a, b, cap) {
+  if (Math.abs(a.length - b.length) > cap) return cap + 1;
+  let prev = [...Array(b.length + 1).keys()];
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    let best = i;
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j] + 1, cur[j-1] + 1, prev[j-1] + (a[i-1] === b[j-1] ? 0 : 1));
+      if (cur[j] < best) best = cur[j];
+    }
+    if (best > cap) return cap + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+}
+// A name written in letters the fold has never heard of — Tai Viet, Limbu, Osage — is read
+// glyph by glyph out of a row twenty pixels tall, in a script the model has no words for, so
+// some of the glyphs drift. "᥇ꪖꪻꪑꪖꪀ" is batman spelled in Tai Viet, and one or two codepoints
+// off is a good reading of it, not a different player.
+//
+// Four codepoints is where the tolerance starts, and below it nothing is tolerated at all.
+// That is the difference between a word and an emoji: in a six-glyph word two wrong glyphs
+// still leave four agreeing, whereas one codepoint IS the whole of 🐼, and one substitution
+// turns it into 🦊.
+const SYM_NEAR_MIN = 4;
+const symCap = n => Math.max(1, Math.floor(n / 3));
 const SYM_MIN_LEN = 2;
 function nearSymMatch(raw, ix) {
   const cps = symCodes(raw);
@@ -506,7 +539,9 @@ function nearSymMatch(raw, ix) {
   let hit = null;
   for (const e of ix) {
     if (!e.sym || !e.cps || e.cps.length < SYM_MIN_LEN) continue;
-    if (!lev1(cps, e.cps)) continue;
+    const long = cps.length >= SYM_NEAR_MIN && e.cps.length >= SYM_NEAR_MIN;
+    const cap = long ? symCap(Math.max(cps.length, e.cps.length)) : 1;
+    if (seqEdits(cps, e.cps, cap) > cap) continue;
     if (hit && hit !== e.r) return null;                  // more than one player this close
     hit = e.r;
   }

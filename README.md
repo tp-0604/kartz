@@ -87,6 +87,14 @@ entry is not that player misread — it is somebody else, usually a new joiner. 
 regardless put `Weezy` down as Peezy and `DARTH` as Dart on a second recording, and `Weezy`
 turned out to be a real player on the transferred list.
 
+**Tolerates glyph drift in names written in unusual scripts.** `᥇ꪖꪻꪑꪖꪀ` is batman spelled in
+Tai Viet and Limbu — characters chosen to look like Latin letters, though their Unicode names
+say otherwise (the "b" is LIMBU DIGIT ONE). Nothing can fold that to `batman`, so it matches
+on its codepoints instead, and a reading may be a couple of glyphs out and still be believed:
+in a six-glyph word, two wrong glyphs leave four agreeing. Below four glyphs nothing is
+tolerated, because that is where emoji live and one codepoint is the whole name — a single
+substitution turns 🐼 into 🦊.
+
 **Never enters one player twice.** When two rows resolve to the same roster entry — usually a
 main and an alt sharing a display name — neither keeps the match, and both go through under
 the name the video showed, flagged for confirmation. The duplicate the sheet would have
