@@ -98,7 +98,8 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
 <body>
 <div class="wrap">
 <h1>Kartz Extractor</h1>
-<p class="sub">Screen recording &rarr; paste-ready rows. Runs in the browser on any device. Your video never leaves the phone; only a handful of cropped frames go to the model.</p>
+<p class="sub">Screen recording &rarr; paste-ready rows. Runs in the browser on any device. Your video never leaves the phone; only a handful of cropped frames go to the model.
+  <span id="build" class="note" style="white-space:nowrap"></span></p>
 
 <section>
   <h2>1 &middot; Setup <span id="setupState" class="pill p-new">not configured</span></h2>
@@ -173,6 +174,10 @@ const $ = id => document.getElementById(id);
 // One configuration. The model call goes to /api on this same deployment, where the Worker
 // holds the Google key — nothing about the model or the credentials is exposed here, and
 // there is nothing for anyone to configure or get wrong.
+// Shown on the page. Several people run this from their own phones and a browser can sit on
+// an open tab for days, so "it is still happening" and "it is fixed" are easy to say about
+// different builds. Bump it with any change worth telling apart from the one before.
+const BUILD = '2026-08-27f';
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
@@ -665,6 +670,8 @@ function resolve(name, plain, ix, aliases) {
 /* ---------------- frame extraction ---------------- */
 let videoFile = null;
 const log = m => { $('log').textContent = m; };
+if ($('build')) $('build').textContent =
+  ` · build ${BUILD}`;
 // Say it on the button. Each of these actions reports what it did in the log at the top of
 // the page, which is nowhere near a button at the foot of it: pressing Copy for sheet worked
 // perfectly and looked exactly like nothing happening. The label answers for a moment and
