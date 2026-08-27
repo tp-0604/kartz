@@ -177,7 +177,7 @@ const $ = id => document.getElementById(id);
 // Shown on the page. Several people run this from their own phones and a browser can sit on
 // an open tab for days, so "it is still happening" and "it is fixed" are easy to say about
 // different builds. Bump it with any change worth telling apart from the one before.
-const BUILD = '2026-08-27f';
+const BUILD = '2026-08-27g';
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
@@ -1256,6 +1256,17 @@ async function callProxy(batch, model, base) {
         { text: buildPrompt(false) }] }],
       generationConfig: {
         temperature: 0, maxOutputTokens: 32768,
+        // The same recording gives the same rows. Temperature 0 was never enough on its own —
+        // two identical requests came back 3,666 and 3,883 characters long — because it only
+        // says "take the likeliest token", and which token that is still shifts with how the
+        // request happened to be batched on the server. A seed pins that down: the same pair
+        // of requests came back byte for byte identical.
+        //
+        // Frame extraction was already deterministic — three extractions of one video produced
+        // 153 byte-identical frames — so with this the whole pipeline is repeatable, and a run
+        // that loses a rank loses it every time rather than one time in five. That is worth as
+        // much as the fix: a fault you can reproduce is a fault you can chase.
+        seed: 7,
         thinkingConfig: { thinkingLevel: 'low' },
         // Ask the API to enforce the shape rather than hoping the model returns clean JSON.
         // Everything is a string: models will happily emit "1,234" or "#4" for a number and

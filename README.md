@@ -64,6 +64,18 @@ want it filled.
 
 ## What it does for you
 
+**The same recording gives the same rows.** Every run used to differ a little, and the cause
+was not where it looked. Frame extraction is exactly repeatable — three extractions of one
+video produce 153 byte-identical frames — so the drift was entirely the model. Temperature 0
+is not enough on its own: it only says *take the likeliest token*, and which token that is
+still moves with how the request happens to be batched on Google's side. Two identical
+requests came back 3,666 and 3,883 characters long.
+
+Passing a fixed **seed** pins it. The same two requests then came back byte for byte
+identical, and two complete runs of a 153-player recording now produce the same 153 rows with
+no differences at all. That is worth as much as any accuracy fix: a run that goes wrong now
+goes wrong the same way twice, and a fault you can reproduce is a fault you can chase.
+
 **Pulls the roster from the sheet.** No pasting 828 rows, and it cannot go stale.
 
 **Sends the roster with the request.** The model is asked *which of these players is this*
