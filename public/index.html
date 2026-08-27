@@ -57,6 +57,7 @@ tr.new{background:var(--warnbg)}
 .p-bad{background:var(--badbg);color:var(--bad)}
 .pickbox{padding:5px 8px;font-size:13px;min-width:170px}
 .named{color:var(--ok)}
+.asdrawn{color:var(--ink)}
 .pencil{background:none;border:0;color:var(--muted);cursor:pointer;font-size:13px;
   padding:0 4px;width:auto;line-height:1;opacity:.5}
 .pencil:hover{opacity:1;color:var(--accent)}
@@ -1410,18 +1411,28 @@ function render(roster) {
         <td>${r.skipped ? '—' : r.rank}</td>
         <td>${esc(r.name)}</td>
         <td>${r.skipped ? esc(r.skipped.search)
-            : (r.match && !r.editing)
-              ? `<span class="named">${esc(r.match.ingame || r.match.search)}</span>`
+            // A row reads as settled text unless it actually needs a decision from you.
+            // A name that matched nothing on the roster is settled too: it is whoever the
+            // video showed, carried across exactly as drawn. It keeps the confirm badge, so
+            // you can still see it and still change it, but it no longer holds up the paste
+            // by demanding that something be typed first. Contested rows are the exception —
+            // there the whole point is that one of two rows must be chosen between.
+            : (!r.editing && !r.contested && r.pick !== '\u0000drop')
+              ? `<span class="${r.match ? 'named' : 'asdrawn'}">${esc(outName(r))}</span>`
                 + `<button class="pencil" data-i="${i}" title="change this name">✎</button>`
+                + (r.match ? '' : `<button class="ghost rowdrop" data-i="${i}"`
+                    + ` title="not a real row" style="width:auto;padding:4px 9px;`
+                    + `margin-left:6px">✕</button>`)
             : `<div style="display:flex;gap:6px;align-items:center">
                  <input data-i="${i}" class="pickbox" data-row="${i}" placeholder="type to search…"
-                        value="${esc(r.pick === '\u0000drop' ? '' : r.pick)}" spellcheck="false">
+                        value="${esc(r.pick === '\u0000drop' ? ''
+                                   : (r.pick || (r.editing ? outName(r) : '')))}" spellcheck="false">
                  <button class="ghost rowdrop" data-i="${i}" title="not a real row"
                          style="flex:0 0 auto;width:auto;padding:4px 9px">✕</button>
-               </div>`
-              + (r.near ? `<div class="note" style="margin:2px 0 0">${r.contested
+               </div>`}${
+            (r.near && !r.match) ? `<div class="note" style="margin:2px 0 0">${r.contested
                     ? `${esc(r.near.search)} — claimed by ${r.contested} rows, pick one`
-                    : `closest: ${esc(r.near.search)} (${(r.score*100|0)}%)`}</div>` : '')}</td>
+                    : `closest: ${esc(r.near.search)} (${(r.score*100|0)}%)`}</div>` : ''}</td>
         <td>${r.skipped ? esc(r.skipped.alliance)
             : r.match ? esc(r.match.alliance)
             : `<select class="allipick" data-i="${i}">
@@ -1439,8 +1450,11 @@ function render(roster) {
   // answer is exactly the kind that needs a way out.
   $('tbl').querySelectorAll('.pencil').forEach(b => b.onclick = () => {
     const r = rows[+b.dataset.i];
+    // Only mark it as being edited. Filling in r.pick here would have counted as a decision
+    // before you had made one: a row with a pick drops out of the "to confirm" tally and out
+    // of the new-row styling, so merely opening the box to look would have quietly cleared
+    // the flag. The box is seeded from outName() at render time instead.
     r.editing = true;
-    r.pick = r.match ? (r.match.ingame || r.match.search) : r.pick;
     render(lastRoster);
     const box = $('tbl').querySelector(`.pickbox[data-row="${b.dataset.i}"]`);
     if (box) { box.focus(); box.select(); }
@@ -1599,7 +1613,10 @@ function outName(r) {
              || all.find(x => fold(x.search) === fold(r.pick) && fold(r.pick));
     return hit ? (hit.ingame || hit.search) : r.pick;      // genuinely new player
   }
-  return r.plain || r.name;
+  // Nothing matched, so the name is whatever the video showed. r.name first, not r.plain:
+  // r.name is the reading the sightings voted for and the one printed in the "Name in video"
+  // column, so taking it here keeps the copied name and the displayed name the same string.
+  return r.name || r.plain;
 }
 // The game's own rank, not this row's position in the list. They agree only when every
 // player was captured, and when they disagree it is the position that is wrong: one player
