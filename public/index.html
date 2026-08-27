@@ -119,6 +119,11 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
     <div>
       <label for="sens">Frames to send <span id="sensVal" class="note"></span></label>
       <input id="sens" type="range" min="8" max="72" step="4" value="48">
+      <label style="display:flex;align-items:center;gap:7px;margin-top:8px">
+        <input type="checkbox" id="sheetimg" checked style="width:auto;margin:0">
+        <span>Send a picture of the symbol names &mdash; lets the model compare emoji as
+        images rather than guess what they depict</span>
+      </label>
     </div>
   </div>
   <button id="go" style="margin-top:12px" disabled>Extract</button>
@@ -620,12 +625,50 @@ async function extractFrames(file, budget, onProg) {
   return frames;
 }
 
+// A picture of the roster, for the names that words cannot describe.
+//
+// Sending "Phil West Alt = 🐻‍❄️" as text asks the model to go from pixels on screen, to a
+// concept, to a character it has only read about. Sending a *picture* of that emoji asks it
+// to compare two images instead — and when the page is open on the phone that made the
+// recording, the browser draws the emoji with the very same font the game did, so the two
+// pictures are near enough identical. That is a far easier question than "polar bear or
+// panda", and it is the one failure that text alone could not fix.
+//
+// Only the names that survive folding as nothing go on the sheet; ordinary words are already
+// well handled by the roster list in the prompt, and drawing all 689 would be unreadable.
+function rosterSheet(roster) {
+  const items = roster
+    .filter(r => (r.ingame || '').trim() && !usableFold(r.ingame))
+    .map(r => ({ glyph: r.ingame.trim(), label: r.search }));
+  if (!items.length) return null;
+
+  const COLS = 3, ROW_H = 54, PAD = 14, COL_W = 300;
+  const rowsN = Math.ceil(items.length / COLS);
+  const cv = Object.assign(document.createElement('canvas'), {
+    width: COLS * COL_W + PAD * 2, height: rowsN * ROW_H + PAD * 2 + 34 });
+  const cx = cv.getContext('2d');
+  cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height);
+  cx.fillStyle = '#000'; cx.font = 'bold 20px sans-serif'; cx.textBaseline = 'top';
+  cx.fillText('ROSTER REFERENCE — not a leaderboard', PAD, PAD);
+
+  items.forEach((it, i) => {
+    const c = i % COLS, rw = Math.floor(i / COLS);
+    const x = PAD + c * COL_W, y = PAD + 34 + rw * ROW_H;
+    cx.fillStyle = '#111';
+    cx.font = '30px "Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+    cx.fillText(it.glyph, x, y);
+    cx.fillStyle = '#555'; cx.font = '13px sans-serif';
+    cx.fillText(it.label, x, y + 34);
+  });
+  return cv.toDataURL('image/jpeg', 0.9).split(',')[1];
+}
+
 /* ---------------- vision model ---------------- */
 // The model is not being asked to transcribe an unknown name — it is being asked which of
 // a few hundred known players a row belongs to. Handing it the roster turns a reading
 // problem into a recognition one, and that single change took usable names from about 76%
 // to 99% on a 153-player recording. The list costs roughly 1,300 tokens.
-function buildPrompt(forVideo) {
+function buildPrompt(forVideo, sheetOn = ($('sheetimg') || {}).checked) {
   const roster = currentRoster();
   // Give both forms. Column B holds the name as it is actually drawn in the game — the
   // stylised one the model is looking at — and for about a fifth of the roster it differs
@@ -671,6 +714,12 @@ codepoints tell you what each one actually is — work out what that character d
 decide which of them the picture on screen shows. Emoji are drawn differently on every
 phone, so judge by what is depicted, never by an exact shape. Two animals being similar
 colours does not make them the same animal.` : '';
+  const sheetNote = sheetOn ? `
+
+The FIRST image is not a leaderboard. It is a reference sheet showing how each symbol-only
+name is drawn, with that player's roster name printed underneath it. When a leaderboard row's
+name has no letters, compare it against the pictures on that sheet and answer with the roster
+name printed beneath the one it matches. Never report a row from the reference sheet itself.` : '';
   return `${src}
 Each row has a rank number (a gold, silver or bronze medal for ranks 1, 2 and 3), a player
 name, and a line reading "Contribution (Pt): <number>".
@@ -685,7 +734,7 @@ are given as "sheet name = name as drawn in game"; always answer with the sheet 
 This list is reference material — never report a word from it as a row you saw.
 ${names.join(', ')}
 
-${symbolNote}
+${symbolNote}${sheetNote}
 
 Return every row you can read ${scope} as a single JSON array, one object per row:
 {"rank": <int or null>, "roster_name": "<a name copied exactly from the ROSTER, or null>", "seen": "<the name as actually drawn on screen>", "points": <int>}
@@ -711,12 +760,13 @@ ${once}
 }
 
 async function callModel(frames) {
+  const sheet = $('sheetimg').checked ? rosterSheet(currentRoster()) : null;
   const batches = [];
   for (let i = 0; i < frames.length; i += BATCH) batches.push(frames.slice(i, i + BATCH));
   let done = 0;
   const switched = new Set();
   const one = async b => {
-    const rows = await withFallback(m => callProxy(b, m, API_BASE),
+    const rows = await withFallback(m => callProxy(sheet ? [sheet, ...b] : b, m, API_BASE),
                                     modelChain(), m => switched.add(m), false);
     done++; setProg(0.5 + 0.5 * done / batches.length);
     log(`read ${done} of ${batches.length} batches…`
@@ -1049,7 +1099,7 @@ function render(roster) {
         <td>${esc(r.name)}</td>
         <td>${r.skipped ? esc(r.skipped.search)
             : (r.match && !r.editing)
-              ? `<span class="named">${esc(r.match.search)}</span>`
+              ? `<span class="named">${esc(r.match.ingame || r.match.search)}</span>`
                 + `<button class="pencil" data-i="${i}" title="change this name">✎</button>`
             : `<div style="display:flex;gap:6px;align-items:center">
                  <input data-i="${i}" class="pickbox" data-row="${i}" placeholder="type to search…"
@@ -1078,7 +1128,7 @@ function render(roster) {
   $('tbl').querySelectorAll('.pencil').forEach(b => b.onclick = () => {
     const r = rows[+b.dataset.i];
     r.editing = true;
-    r.pick = r.match ? r.match.search : r.pick;
+    r.pick = r.match ? (r.match.ingame || r.match.search) : r.pick;
     render(lastRoster);
     const box = $('tbl').querySelector(`.pickbox[data-row="${b.dataset.i}"]`);
     if (box) { box.focus(); box.select(); }
@@ -1161,7 +1211,10 @@ function openMenu(input, onPick) {
   closeMenu();
   const q = fold(input.value);
   const all = fullRoster();
-  const hits = (q ? all.filter(r => fold(r.search).includes(q) || fold(r.ingame).includes(q))
+  // Filter on either form — typing the readable name should still find someone whose in-game
+  // name is unreadable — but show and return column B, which is what the sheet wants.
+  const hits = (q ? all.filter(r => fold(r.search).includes(q) || fold(r.ingame).includes(q)
+                                 || symKey(r.ingame).includes(symKey(q)))
                   : all).slice(0, 60);
   menuEl = document.createElement('div');
   menuEl.className = 'menu';
@@ -1173,8 +1226,10 @@ function openMenu(input, onPick) {
   menuEl.innerHTML =
     `<div data-v="\u0001new" class="newopt">${newLabel}</div><hr>`
     + (hits.length
-        ? hits.map(r => `<div data-v="${esc(r.search)}">`
-            + `${esc(r.search)}<span>${esc(r.alliance || '')}</span></div>`).join('')
+        ? hits.map(r => { const shown = (r.ingame || r.search).trim();
+            const hint = fold(shown) === fold(r.search) ? '' : ` · ${esc(r.search)}`;
+            return `<div data-v="${esc(shown)}">${esc(shown)}`
+                 + `<span>${esc(r.alliance || '')}${hint}</span></div>`; }).join('')
         : '<div class="none">no roster name matches that</div>');
   document.body.appendChild(menuEl);
   const first = menuEl.querySelector('div[data-v]:not(.newopt)');
@@ -1225,9 +1280,12 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt
 function outName(r) {
   if (r.match) return r.match.ingame || r.match.search;
   if (r.pick) {
-    const hit = fullRoster().find(x => x.search === r.pick)
-             || fullRoster().find(x => fold(x.search) === fold(r.pick));
-    return hit ? (hit.ingame || hit.search) : r.pick;      // typed in, not on the roster
+    // the dropdown hands back column B already; a typed-in name may be either form
+    const all = fullRoster();
+    const hit = all.find(x => (x.ingame || x.search) === r.pick)
+             || all.find(x => x.search === r.pick)
+             || all.find(x => fold(x.search) === fold(r.pick) && fold(r.pick));
+    return hit ? (hit.ingame || hit.search) : r.pick;      // genuinely new player
   }
   return r.plain || r.name;
 }

@@ -82,7 +82,15 @@ player called "Not Playing".
 
 **Search box instead of a dropdown.** Type a few letters; the list filters, stays about 210
 pixels tall and scrolls inside itself. **New player** sits at the top, above a rule, with the
-roster below. Arrow keys and Enter work.
+roster below. Arrow keys and Enter work. It lists and returns the **in-game** name — column B
+— with the searchable name shown greyed beside it, and typing either one finds the player.
+
+**Sends a picture of the symbol names.** Names made only of emoji or exotic script are drawn
+onto a reference sheet and sent as the first image, with each player's roster name printed
+underneath. That turns "is this a polar bear or a panda" into a comparison between two
+pictures — and when the page is open on the phone that made the recording, the browser draws
+the emoji with the same font the game used, so they are near enough identical. A bare 🐼 used
+to come back as the player "Vyking"; the same row now reads 🐻‍❄️ correctly.
 
 **Alliance dropdown** on unconfirmed rows, for saying which alliance a new player belongs to.
 
