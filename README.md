@@ -80,6 +80,12 @@ edits separates them: one substitution against five. Names must be at least four
 and exactly one player may be that close, so an ambiguous reading is put to you instead of
 being guessed at. Rows matched this way are badged **1 char**.
 
+It applies only to names written in stylised Unicode, because only those are unreliably read.
+A name in ordinary letters is transcribed accurately, so a reading one edit from a roster
+entry is not that player misread — it is somebody else, usually a new joiner. Allowing it
+regardless put `Weezy` down as Peezy and `DARTH` as Dart on a second recording, and `Weezy`
+turned out to be a real player on the transferred list.
+
 **Groups readings by rank, not by name**, then votes on the name within each rank. A name
 read three ways stays one player instead of becoming three.
 
@@ -87,9 +93,11 @@ read three ways stays one player instead of becoming three.
 card at the foot is physically not in the picture, and neither is the surrounding game UI.
 Works on any phone shape, because it is found rather than assumed.
 
-**Drops rows from other screens.** The opening seconds often show something else; scores far
-outside the list, or at zero, are discarded. The phone's music widget once arrived as a
-player called "Not Playing".
+**Drops rows from other screens.** The opening seconds often show something else, so a score
+many times the median is discarded. A score of *zero* is kept: the foot of the board is
+players who scored nothing all month, and treating zero as junk silently deleted five of them
+in a row. A zero row has to carry a rank number to be believed — the phone's music widget,
+which once arrived as a player called "Not Playing", had none.
 
 **Search box instead of a dropdown.** Type a few letters; the list filters, stays about 210
 pixels tall and scrolls inside itself. **New player** sits at the top, above a rule, with the

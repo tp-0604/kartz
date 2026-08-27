@@ -517,8 +517,19 @@ function nearSymMatch(raw, ix) {
 // guessed at. Measured against this roster it recovers ŊŲƁĮ and leaves all eight of the
 // known new players alone.
 const NEAR_MIN_LEN = 4;
-function nearMatch(cand, ix) {
+function nearMatch(cand, ix, raw) {
   if (!cand || cand.length < NEAR_MIN_LEN) return null;
+  // Only for names the model cannot be trusted to have transcribed. A name in ordinary
+  // letters is read accurately, so a reading one edit off a roster entry is not a misreading
+  // of that player — it is a different player, usually one who has just joined. Allowing it
+  // regardless cost two wrong rows on a second recording: Weezy filed as Peezy and DARTH as
+  // Dart, both of them plain ASCII, read cleanly, and neither on the roster at all.
+  //
+  // Nothing is given up by the restriction. Weezy against Peezy and ḐŲḂĮ against Nubi are the
+  // same shape — one substitution — so no structural rule separates them; only the question of
+  // whether the reading could be wrong in the first place does. And the stylised names this
+  // was built for now arrive either exactly right or close enough for the claim to carry them.
+  if (exoticness(raw === undefined ? cand : raw) < EXOTIC) return null;
   let hit = null;
   for (const e of ix) {
     if (e.sym || e.k.length < NEAR_MIN_LEN) continue;   // symbol keys are exact-match only
@@ -556,8 +567,8 @@ function resolve(name, plain, ix, aliases) {
     const hit = ix.find(e => e.k === k);
     if (hit) return { r: hit.r, score: 1 };
   }
-  for (const cand of [usableFold(name), usableFold(plain)]) {
-    const hit = nearMatch(cand, ix);
+  for (const raw of [name, plain]) {
+    const hit = nearMatch(usableFold(raw), ix, raw);
     if (hit) return { r: hit, score: 1, near1: true };
   }
   for (const raw of [name, plain]) {
@@ -1174,12 +1185,22 @@ function dropForeignRows(sightings) {
   if (pts.length < 8) return sightings;
   const median = pts[pts.length >> 1];
   const ceiling = median * 8;
-  // A zero or negative score is never a real Kartz row either — the phone's own UI leaks in
-  // at the start of a recording ("Not Playing" from the music widget turned up as a player).
-  const kept = sightings.filter(s => typeof s?.points === 'number'
-                                  && s.points > 0 && s.points <= ceiling);
+  // Zero is a real score. The foot of a Kartz board is players who scored nothing all month,
+  // and treating zero as proof of a bogus row quietly deleted five of them in a row — ranks
+  // 128 MndFlayr through 132 MEOW² — from a recording that showed them perfectly clearly.
+  //
+  // What a zero cannot supply is the corroboration a positive score gives, so that has to
+  // come from somewhere else: the rank. A row carrying a rank number is a row from the list.
+  // The case this filter was built for had none — "Not Playing", from the phone's music
+  // widget, leaked in at the start of a recording and arrived with no rank at all.
+  const kept = sightings.filter(s => {
+    if (!s || typeof s.points !== 'number') return false;
+    if (s.points > ceiling) return false;              // a score off some other screen
+    if (s.points > 0) return true;
+    return typeof s.rank === 'number' && s.rank > 0;   // zero, but it knows its place in the list
+  });
   const lost = sightings.length - kept.length;
-  if (lost) log(`ignored ${lost} row(s) from another screen (scores far outside the list)`);
+  if (lost) log(`ignored ${lost} row(s) that were not part of the list`);
   return kept;
 }
 
