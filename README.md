@@ -140,9 +140,11 @@ drops, but only when the drawn name and the roster entry are both stylised.
 
 **Every row can be settled without typing.** A name that matched nothing already reads as the
 video drew it, so the tick beside it says *that is right* — the text turns green and the row
-leaves the confirm tally. The pencil changes any name at all, and an edit opened by accident
-costs nothing: click anywhere outside and the row goes back exactly as it was. The ✕ at the
-far right throws a row out and turns into ↺ to bring it back.
+leaves the confirm tally. The pencil changes any name at all; typing only searches, and the
+row is not decided until you choose an entry or press Enter, so an edit opened by accident
+costs nothing — click anywhere outside and it goes back exactly as it was, half-typed letters
+and all. The ✕ at the far right throws a row out and turns into ↺ to bring it back, keeping
+whatever name you had chosen.
 
 **Alliance dropdown on every row**, not only the ones in doubt: a matched player arrives with
 theirs already filled in, a new one starts blank for you to say.

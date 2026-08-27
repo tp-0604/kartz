@@ -61,9 +61,7 @@ tr.new{background:var(--warnbg)}
 .pencil{background:none;border:0;color:var(--muted);cursor:pointer;font-size:13px;
   padding:0 4px;width:auto;line-height:1;opacity:.5}
 .pencil:hover{opacity:1;color:var(--accent)}
-.tickok{background:none;border:0;color:var(--ok);cursor:pointer;font-size:14px;
-  padding:0 4px;width:auto;line-height:1;opacity:.65}
-.tickok:hover{opacity:1}
+button.ghost.tickok{color:var(--ok)}
 #tbl tr.drop{opacity:.4}
 .menu{position:fixed;z-index:50;background:var(--panel);border:1px solid var(--line);
   border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.16);max-height:210px;overflow-y:auto;
@@ -1338,7 +1336,7 @@ $('go').onclick = async () => {
       if (m.r) return { ...r, match: m.r, score: m.score, near1: m.near1,
                         pick: m.r.ingame || m.r.search, via: 'near:' + from };
       const sk = skipIndex.length ? resolve(r.name, r.plain, skipIndex, {}) : { r: null };
-      if (sk.r) return { ...r, match: null, skipped: sk.r, score: sk.score, pick: '\u0000drop' };
+      if (sk.r) return { ...r, match: null, skipped: sk.r, score: sk.score, pick: '' };
       return { ...r, match: null, score: m.score, near: m.near, pick: '', via: 'none' };
     });
     // Two rows resolving to one player means at least one of them is wrong, and neither the
@@ -1393,7 +1391,7 @@ function render(roster) {
   lastRoster = roster;
   const dropped = rows.filter(r => r.skipped).length;
   const need = rows.filter(r => !r.match && !r.skipped && !r.confirmed
-                                 && !(r.pick && r.pick !== '\u0000drop')).length;
+                                 && !r.dropped && !r.pick).length;
   // The model reports the rank it saw; we renumber by score. Where the two disagree,
   // a row between them was probably never captured — worth saying out loud, because a
   // silently short list is the one failure the sheet cannot catch downstream.
@@ -1431,7 +1429,10 @@ function render(roster) {
         // Settled means the name needs nothing from you: matched to the roster, ticked off by
         // hand, or an excluded player whose identity is already known. Everything else — an
         // open edit, a contested pair, a discarded row — gets the search box.
-        const settled = !r.editing && !r.contested && r.pick !== '\u0000drop';
+        // Excluding a row is a separate fact from what the row is called. They used to share
+        // r.pick, one storing itself over the other, so throwing a row out discarded a name you
+        // had just chosen and bringing it back returned it blank.
+        const settled = !r.editing && !r.contested && !r.dropped;
         const green   = r.match || r.confirmed || r.skipped;
         const shown   = r.skipped && !r.pick ? (r.skipped.ingame || r.skipped.search) : outName(r);
         // The alliance is offered on every row now, not only the ones in doubt: a matched
@@ -1442,21 +1443,19 @@ function render(roster) {
                    : r.match ? r.match.alliance : r.skipped ? r.skipped.alliance : '';
         const opts = ['', '698W', '698S', '698N', '698C']
                      .concat(alli && !['698W','698S','698N','698C'].includes(alli) ? [alli] : []);
-        return `<tr class="${green || (r.pick && r.pick !== '\u0000drop') ? 'ok' : 'new'}${
-                             r.pick === '\u0000drop' ? ' drop' : ''}">
+        return `<tr class="${green || r.pick ? 'ok' : 'new'}${r.dropped ? ' drop' : ''}">
         <td>${r.skipped ? (r.seenRank || '—') : r.rank}</td>
         <td>${esc(r.name)}</td>
         <td>${settled
               ? `<span class="${green ? 'named' : 'asdrawn'}">${esc(shown)}</span>`
-                + (!green ? `<button class="tickok" data-i="${i}"`
-                    + ` title="this name is right as it is">✓</button>` : '')
                 + `<button class="pencil" data-i="${i}" title="change this name">✎</button>`
+                + (!green ? `<button class="ghost tickok" data-i="${i}"`
+                    + ` title="this name is right as it is"`
+                    + ` style="width:auto;padding:4px 9px;margin-left:6px">✓</button>` : '')
               : `<input data-i="${i}" class="pickbox" data-row="${i}" placeholder="type to search…"
-                        value="${esc(r.pick === '\u0000drop' ? ''
-                                   : (r.pick || (r.editing ? shown : '')))}" spellcheck="false">`}${
-            (r.near && !r.match) ? `<div class="note" style="margin:2px 0 0">${r.contested
-                    ? `${esc(r.near.search)} — claimed by ${r.contested} rows, pick one`
-                    : `closest: ${esc(r.near.search)} (${(r.score*100|0)}%)`}</div>` : ''}</td>
+                        value="${esc(r.pick || (r.editing ? shown : ''))}" spellcheck="false">`}${
+            (r.contested && r.near) ? `<div class="note" style="margin:2px 0 0">`
+                    + `${esc(r.near.search)} — claimed by ${r.contested} rows, pick one</div>` : ''}</td>
         <td><select class="allipick" data-i="${i}">
               ${opts.map(a => `<option value="${esc(a)}"${a === alli ? ' selected' : ''}>`
                             + `${esc(a) || '—'}</option>`).join('')}
@@ -1468,8 +1467,8 @@ function render(roster) {
             : r.contested ? '<span class="pill p-bad">contested</span>'
                       : '<span class="pill p-new">confirm</span>'}</td>
         <td><button class="ghost rowdrop" data-i="${i}"
-                    title="${r.pick === '\u0000drop' ? 'bring this row back' : 'not a real row'}"
-                    style="width:auto;padding:4px 9px">${r.pick === '\u0000drop' ? '↺' : '✕'}</button></td>
+                    title="${r.dropped ? 'bring this row back' : 'not a real row'}"
+                    style="width:auto;padding:4px 9px">${r.dropped ? '↺' : '✕'}</button></td>
       </tr>`; }).join('') + '</tbody>';
   // Any row can be corrected, not just the ones flagged for attention — a confident wrong
   // answer is exactly the kind that needs a way out.
@@ -1492,8 +1491,12 @@ function render(roster) {
     render(lastRoster);
   });
   $('tbl').querySelectorAll('.pickbox').forEach(inp => {
-    wirePicker(inp, v => {
+    wirePicker(inp, (v, committed) => {
       const r = rows[+inp.dataset.i];
+      // Typing decides nothing. Writing each keystroke into r.pick meant abandoning an edit
+      // left the half-typed fragment behind as the row's answer — "Peez" where ChiGrub had
+      // been — so the escape below could not actually put anything back.
+      if (!committed) return;
       r.pick = v;
       // a row being edited no longer rides on its original match, nor on the excluded player
       // it used to be taken for — choosing a name here is choosing to put the row in the sheet
@@ -1507,11 +1510,16 @@ function render(roster) {
       closeMenu();
       setTimeout(() => render(lastRoster), 0);
     });
+    const r = rows[+inp.dataset.i];
+    // A box that is not an edit — a contested row, or one you discarded and are refilling —
+    // has no earlier state to go back to, so whatever is in it when you leave is the answer.
+    // Without this the text would sit there visibly while r.pick stayed empty, and the row
+    // would go to the sheet under a name the screen was not showing.
+    if (!r) return;
+    if (!r.editing) { inp.onblur = () => { r.pick = inp.value.trim(); }; return; }
     // An edit opened by accident should cost nothing. A mousedown anywhere outside the box
     // puts the row back exactly as it was. The suggestion menu is excepted, because it hangs
     // off the body rather than the row, so clicking an option is otherwise "outside".
-    const r = rows[+inp.dataset.i];
-    if (!r || !r.editing) return;
     const escape = ev => {
       if (inp.contains(ev.target) || (menuEl && menuEl.contains(ev.target))) return;
       document.removeEventListener('mousedown', escape, true);
@@ -1530,8 +1538,8 @@ function render(roster) {
   });
   $('tbl').querySelectorAll('.rowdrop').forEach(b => b.onclick = () => {
     const r = rows[+b.dataset.i];
-    r.pick = r.pick === '\u0000drop' ? '' : '\u0000drop';
-    if (r.pick === '\u0000drop') r.editing = false;
+    r.dropped = !r.dropped;              // leaves r.pick, and any name you chose, untouched
+    if (r.dropped) r.editing = false;
     render(lastRoster);
   });
   $('out').classList.remove('hide');
@@ -1617,16 +1625,20 @@ function openMenu(input, onPick) {
   if (first) first.classList.add('on');
   menuEl.querySelectorAll('div[data-v]').forEach(d => d.onmousedown = ev => {
     ev.preventDefault();
-    if (d.dataset.v === '\u0001new') { onPick(input.value.trim()); closeMenu(); input.focus(); return; }
-    input.value = d.dataset.v; onPick(d.dataset.v); closeMenu();
+    if (d.dataset.v === '\u0001new') { onPick(input.value.trim(), true); closeMenu(); input.focus(); return; }
+    input.value = d.dataset.v; onPick(d.dataset.v, true); closeMenu();
   });
   menuOwner = input;
   placeMenu(input);
 }
 
+// onPick fires on every keystroke as well as on a choice, and the two mean different things:
+// the first is a search term half typed, the second is an answer. They were indistinguishable,
+// so a row that reacted to being answered reacted to the first letter instead and shut the box
+// before a second could be typed. The flag says which this is.
 function wirePicker(input, onPick) {
   input.autocomplete = 'off';
-  input.oninput = () => { onPick(input.value.trim()); openMenu(input, onPick); };
+  input.oninput = () => { onPick(input.value.trim(), false); openMenu(input, onPick); };
   input.onfocus  = () => openMenu(input, onPick);
   // clicking an already-focused box fires no focus event, so without this the menu could
   // not be reopened after it had been dismissed
@@ -1644,8 +1656,8 @@ function wirePicker(input, onPick) {
       items[next].scrollIntoView({ block: 'nearest' });
     } else if (e.key === 'Enter' && at >= 0) {
       e.preventDefault();
-      if (items[at].dataset.v === '\u0001new') { onPick(input.value.trim()); closeMenu(); return; }
-      input.value = items[at].dataset.v; onPick(input.value); closeMenu();
+      if (items[at].dataset.v === '\u0001new') { onPick(input.value.trim(), true); closeMenu(); return; }
+      input.value = items[at].dataset.v; onPick(input.value, true); closeMenu();
     } else if (e.key === 'Escape') closeMenu();
   };
 }
@@ -1677,7 +1689,7 @@ function outName(r) {
 // player was captured, and when they disagree it is the position that is wrong: one player
 // missed near the top used to shift every rank beneath them, which is how sixty correct names
 // went into the sheet against ranks that were three too small.
-const outRows = () => rows.filter(r => r.pick !== '\u0000drop' && !r.skipped)
+const outRows = () => rows.filter(r => !r.dropped && !r.skipped)
   .map(r => [$('datestr').value || '', r.rank, outName(r), r.points]);
 const OUT_HEADERS = ['Date', 'Rank', 'Game Name', 'Kartz Points'];
 $('copy').onclick = async () => {
@@ -1697,7 +1709,7 @@ $('learn').onclick = () => {
   const a = store.get('aliases') || {};
   let n = 0;
   for (const r of rows) {
-    if (r.match || !r.pick || r.pick === '\u0000drop') continue;
+    if (r.match || !r.pick || r.dropped) continue;
     // stored as an object so an alliance can ride along; older entries were a bare string
     a[aliasKey(r.plain || r.name)] = { name: r.pick, alliance: r.alliancePick || '' };
     n++;
