@@ -56,6 +56,10 @@ tr.new{background:var(--warnbg)}
 .p-new{background:var(--warnbg);color:var(--warn)}
 .p-bad{background:var(--badbg);color:var(--bad)}
 .pickbox{padding:5px 8px;font-size:13px;min-width:170px}
+.named{color:var(--ok)}
+.pencil{background:none;border:0;color:var(--muted);cursor:pointer;font-size:13px;
+  padding:0 4px;width:auto;line-height:1;opacity:.5}
+.pencil:hover{opacity:1;color:var(--accent)}
 .menu{position:fixed;z-index:50;background:var(--panel);border:1px solid var(--line);
   border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.16);max-height:210px;overflow-y:auto;
   min-width:200px;padding:4px 0}
@@ -340,6 +344,27 @@ function buildIndex(roster) {
   }
   return ix;
 }
+// Asking the model to pick from a list makes it want to pick *something*. HÊNK is not on
+// the roster, but TEKN is, and the model would sometimes answer TEKN — which we then trusted
+// outright because the name exists. Hence the same recording giving different answers on
+// different runs.
+//
+// So a claim is checked before it is believed. Only when it can be: a name that survives
+// folding is comparable to the roster entry and must actually resemble it, while a name made
+// of emoji or heavy styling folds to nothing, cannot be judged that way, and is exactly the
+// case where the model's reading is the only signal there is.
+const CLAIM_MIN = 0.5;
+function claimPlausible(seen, entry) {
+  const key = usableFold(seen);
+  if (!key) return true;                       // nothing to judge it against
+  for (const form of [entry.search, entry.ingame]) {
+    const f = usableFold(form);
+    if (!f) return true;                       // roster side is symbols; cannot judge either
+    if (f === key || sim(key, f) >= CLAIM_MIN) return true;
+  }
+  return false;
+}
+
 function resolve(name, plain, ix, aliases) {
   // Aliases stay keyed on the raw fold — that is how they were written — but the exact
   // match against the roster must use usableFold, or a name stylised down to one stray
@@ -591,6 +616,19 @@ function buildPrompt(forVideo) {
   const once = forVideo
     ? '- Report every player exactly once, in rank order. Do not skip rows and do not stop early.'
     : '- The same player appears in several frames. List every sighting; do not deduplicate.';
+  // Emoji render differently on every platform, and the model is looking at one phone's
+  // idea of a polar bear. Listing the symbol-only names as their own short set means it is
+  // choosing between a handful of known characters rather than naming an emoji from scratch.
+  const symbolic = roster
+    .filter(r => (r.ingame || '').trim() && !usableFold(r.ingame))
+    .map(r => `${r.search} = ${r.ingame.trim()}`);
+  const symbolNote = symbolic.length ? `
+
+Some players' names are only symbols, emoji or non-Latin characters. These are all of them:
+${symbolic.join(', ')}
+When a row's name has no letters, it is almost certainly one of those — compare what is drawn
+against that list and copy the matching entry. Emoji are drawn differently on each phone, so
+judge by what the picture depicts rather than by an exact shape.` : '';
   return `${src}
 Each row has a rank number (a gold, silver or bronze medal for ranks 1, 2 and 3), a player
 name, and a line reading "Contribution (Pt): <number>".
@@ -604,6 +642,8 @@ Known players (${names.length}). Where someone is written differently in the gam
 are given as "sheet name = name as drawn in game"; always answer with the sheet name.
 This list is reference material — never report a word from it as a row you saw.
 ${names.join(', ')}
+
+${symbolNote}
 
 Return every row you can read ${scope} as a single JSON array, one object per row:
 {"rank": <int or null>, "roster_name": "<a name copied exactly from the ROSTER, or null>", "seen": "<the name as actually drawn on screen>", "points": <int>}
@@ -935,9 +975,12 @@ $('go').onclick = async () => {
   $('go').disabled = false;
 };
 
+let lastRoster = [];
 function render(roster) {
+  lastRoster = roster;
   const dropped = rows.filter(r => r.skipped).length;
-  const need = rows.filter(r => !r.match && !r.skipped).length;
+  const need = rows.filter(r => !r.match && !r.skipped
+                                 && !(r.pick && r.pick !== '\u0000drop')).length;
   // The model reports the rank it saw; we renumber by score. Where the two disagree,
   // a row between them was probably never captured — worth saying out loud, because a
   // silently short list is the one failure the sheet cannot catch downstream.
@@ -956,15 +999,18 @@ function render(roster) {
   refreshRosterList();
   $('tbl').innerHTML =
     '<thead><tr><th>Rank</th><th>Name in video</th><th>Game Name</th><th>Alliance</th>'
-    + '<th>Kartz Points</th><th>Frames</th><th></th></tr></thead><tbody>'
-    + rows.map((r, i) => `<tr class="${r.skipped ? '' : r.match ? 'ok' : 'new'}"${
+    + '<th>Kartz Points</th><th></th></tr></thead><tbody>'
+    + rows.map((r, i) => `<tr class="${r.skipped ? ''
+        : (r.match || (r.pick && r.pick !== '\u0000drop')) ? 'ok' : 'new'}"${
         r.skipped ? ' style="opacity:.45"' : ''}>
         <td>${r.skipped ? '—' : r.rank}</td>
         <td>${esc(r.name)}</td>
         <td>${r.skipped ? esc(r.skipped.search)
-            : r.match ? esc(r.match.search)
+            : (r.match && !r.editing)
+              ? `<span class="named">${esc(r.match.search)}</span>`
+                + `<button class="pencil" data-i="${i}" title="change this name">✎</button>`
             : `<div style="display:flex;gap:6px;align-items:center">
-                 <input data-i="${i}" class="pickbox" placeholder="type to search…"
+                 <input data-i="${i}" class="pickbox" data-row="${i}" placeholder="type to search…"
                         value="${esc(r.pick === '\u0000drop' ? '' : r.pick)}" spellcheck="false">
                  <button class="ghost rowdrop" data-i="${i}" title="not a real row"
                          style="flex:0 0 auto;width:auto;padding:4px 9px">✕</button>
@@ -980,14 +1026,26 @@ function render(roster) {
                             + `${a || '—'}</option>`).join('')}
                </select>`}</td>
         <td>${r.points}</td>
-        <td>${r.seen}</td>
         <td>${r.skipped ? '<span class="pill p-new">excluded</span>'
             : r.match ? `<span class="pill p-ok">${r.score === 1 ? 'exact' : (r.score*100|0)+'%'}</span>`
             : r.contested ? '<span class="pill p-bad">contested</span>'
                       : '<span class="pill p-new">confirm</span>'}</td>
       </tr>`).join('') + '</tbody>';
+  // Any row can be corrected, not just the ones flagged for attention — a confident wrong
+  // answer is exactly the kind that needs a way out.
+  $('tbl').querySelectorAll('.pencil').forEach(b => b.onclick = () => {
+    const r = rows[+b.dataset.i];
+    r.editing = true;
+    r.pick = r.match ? r.match.search : r.pick;
+    render(lastRoster);
+    const box = $('tbl').querySelector(`.pickbox[data-row="${b.dataset.i}"]`);
+    if (box) { box.focus(); box.select(); }
+  });
   $('tbl').querySelectorAll('.pickbox').forEach(inp => wirePicker(inp, v => {
-    rows[+inp.dataset.i].pick = v;
+    const r = rows[+inp.dataset.i];
+    r.pick = v;
+    // a row being edited no longer rides on its original match
+    if (r.editing) r.match = null;
     inp.closest('tr').style.opacity = 1;
   }));
   // A row that could not be matched is usually somebody new. Recording which alliance they
