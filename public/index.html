@@ -159,13 +159,17 @@ const $ = id => document.getElementById(id);
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
-// Images per request. Twelve rather than eight because the cost that matters is the number
-// of REQUESTS, not the number of images: the free tier allows fifteen requests a minute and
-// is indifferent to how much each one carries. Slicing frames into strips tripled the images,
-// and at eight to a request that came to twenty-four requests — over the limit, so the run
-// stalled in ninety-second retries and took longer than four minutes. The same images at
-// twelve to a request fit inside the allowance.
-const BATCH = 12;
+// The allowance is fifteen REQUESTS a minute and it does not care what they carry: sixteen
+// images in one request costs the same one-fifteenth as four images would. So the number of
+// images per request is derived from the work rather than fixed, sized so that the whole run
+// fits inside a single minute's allowance however the frame slider is set. A fixed size could
+// not do that — at eight per request the tripled image count came to twenty-four requests,
+// which overran the limit and left the run stalled in ninety-second retries for four minutes.
+//
+// The floor stops a short run from sending near-empty requests; the ceiling stops one huge
+// request from putting the whole run on a single throw, since a failure costs everything in it.
+const REQ_CAP = 12, BATCH_MIN = 8, BATCH_MAX = 32;
+const batchSize = n => Math.min(BATCH_MAX, Math.max(BATCH_MIN, Math.ceil(n / REQ_CAP)));
 
 /* ---------------- persistence ---------------- */
 const store = {
@@ -1014,7 +1018,8 @@ const rateGate = (() => {
 async function callModel(frames) {
   const sheet = $('sheetimg').checked ? rosterSheet(currentRoster()) : null;
   const batches = [];
-  for (let i = 0; i < frames.length; i += BATCH) batches.push(frames.slice(i, i + BATCH));
+  const B = batchSize(frames.length);
+  for (let i = 0; i < frames.length; i += B) batches.push(frames.slice(i, i + B));
   let done = 0;
   const switched = new Set();
   const one = async b => {
@@ -1359,7 +1364,7 @@ $('go').onclick = async () => {
     const m = e.message;
     log(/\b429\b/.test(m) && /quota|per day/i.test(m)
       ? '✗ Daily free-tier quota used up (Gemini allows 20 requests a day). Each run costs '
-        + Math.ceil(+$('sens').value * STRIPS / BATCH) + ' of them. Wait for the reset, lower "Frames to send", '
+        + Math.ceil(+$('sens').value * STRIPS / batchSize(+$('sens').value * STRIPS)) + ' of them. Wait for the reset, lower "Frames to send", '
         + 'or enable billing on the key.'
       : '✗ ' + m);
   }
