@@ -273,6 +273,20 @@ function parseRoster(text) {
              .filter(c => c[0]).map(c => ({ search: c[0], ingame: c[1] || c[0], alliance: c[2] || '' }))
              .filter(r => !/^search\s*name/i.test(r.search));
 }
+// Generated from Unicode's own character names: every codepoint whose name says which
+// Latin letter or digit it is, and that NFKD does not already resolve. That covers the
+// enclosed, squared, struck-through and small-capital forms players decorate names with —
+// "\u{1F157}\u{1F150}\u{1F15D}\u{1F162}" is four NEGATIVE CIRCLED LATIN CAPITAL LETTERs spelling HANS, and
+// Unicode says so. Two parallel strings rather than an object literal, to keep it compact.
+const LATIN_K = '\u00D8\u00F8\u0110\u0111\u0126\u0127\u0141\u0142\u0166\u0167\u0180\u0181\u0182\u0183\u0187\u0188\u018A\u018B\u018C\u0191\u0192\u0193\u0197\u0198\u0199\u019A\u019D\u019E\u019F\u01A4\u01A5\u01AB\u01AC\u01AD\u01AE\u01B2\u01B3\u01B4\u01B5\u01B6\u01E4\u01E5\u01FE\u01FF\u0220\u0221\u0224\u0225\u0234\u0235\u0236\u023A\u023B\u023C\u023D\u023E\u023F\u0240\u0243\u0244\u0246\u0247\u0248\u0249\u024B\u024C\u024D\u024E\u024F\u0253\u0255\u0256\u0257\u0260\u0266\u0268\u026B\u026C\u026D\u0271\u0272\u0273\u027C\u027D\u027E\u0282\u0288\u0289\u028B\u0290\u0291\u029D\u02A0\u0363\u0364\u0365\u0366\u0367\u0368\u0369\u036A\u036B\u036C\u036D\u036E\u036F\u1ABF\u1D6C\u1D6D\u1D6E\u1D6F\u1D70\u1D71\u1D72\u1D73\u1D74\u1D75\u1D76\u1D7B\u1D7D\u1D7E\u1D80\u1D81\u1D82\u1D83\u1D84\u1D85\u1D86\u1D87\u1D88\u1D89\u1D8A\u1D8C\u1D8D\u1D8E\u1D8F\u1D91\u1D92\u1D96\u1D99\u1DCA\u1DD7\u1DDA\u1DDC\u1DDD\u1DE0\u1DE3\u1DE4\u1DE6\u1DE8\u1DEB\u1DEC\u1DED\u1DEE\u1DF0\u1DF1\u1DF2\u1DF3\u1DF4\u1EFE\u1EFF\u24F5\u24F6\u24F7\u24F8\u24F9\u24FA\u24FB\u24FC\u24FD\u24FF\u2776\u2777\u2778\u2779\u277A\u277B\u277C\u277D\u277E\u2780\u2781\u2782\u2783\u2784\u2785\u2786\u2787\u2788\u278A\u278B\u278C\u278D\u278E\u278F\u2790\u2791\u2792\u2C60\u2C61\u2C62\u2C63\u2C64\u2C65\u2C66\u2C67\u2C68\u2C69\u2C6A\u2C6B\u2C6C\u2C6E\u2C71\u2C72\u2C73\u2C74\u2C78\u2C7A\u2C7E\u2C7F\uA740\uA741\uA742\uA743\uA744\uA745\uA748\uA749\uA74A\uA74B\uA74C\uA74D\uA750\uA751\uA752\uA753\uA754\uA755\uA756\uA757\uA758\uA759\uA75A\uA75B\uA75E\uA75F\uA78E\uA790\uA791\uA792\uA793\uA794\uA795\uA796\uA797\uA798\uA799\uA7A0\uA7A1\uA7A2\uA7A3\uA7A4\uA7A5\uA7A6\uA7A7\uA7A8\uA7A9\uA7AA\uA7AD\uA7B2\uA7B8\uA7B9\uA7C4\uA7C5\uA7C6\uA7C7\uA7C8\uA7C9\uA7CA\uAB31\uAB34\uAB37\uAB38\uAB39\uAB3A\uAB3B\uAB47\uAB49\uAB4E\uAB4F\uAB52\uAB56\uAB57\uAB58\uAB59\uAB5A\u{1DF09}\u{1DF11}\u{1DF13}\u{1DF16}\u{1DF1A}\u{1DF1B}\u{1DF1D}\u{1DF1E}\u{1DF25}\u{1DF26}\u{1DF27}\u{1DF28}\u{1DF29}\u{1DF2A}\u{1F10B}\u{1F10C}\u{1F150}\u{1F151}\u{1F152}\u{1F153}\u{1F154}\u{1F155}\u{1F156}\u{1F157}\u{1F158}\u{1F159}\u{1F15A}\u{1F15B}\u{1F15C}\u{1F15D}\u{1F15E}\u{1F15F}\u{1F160}\u{1F161}\u{1F162}\u{1F163}\u{1F164}\u{1F165}\u{1F166}\u{1F167}\u{1F168}\u{1F169}\u{1F170}\u{1F171}\u{1F172}\u{1F173}\u{1F174}\u{1F175}\u{1F176}\u{1F177}\u{1F178}\u{1F179}\u{1F17A}\u{1F17B}\u{1F17C}\u{1F17D}\u{1F17E}\u{1F17F}\u{1F180}\u{1F181}\u{1F182}\u{1F183}\u{1F184}\u{1F185}\u{1F186}\u{1F187}\u{1F188}\u{1F189}\u{1F18A}\u{1F1A5}';
+const LATIN_V = 'OODDHHLLTTBBBBCCDDDFFGIKKLNNOPPTTTTVYYZZGGOONDZZLNTACCLTSZBUEEJJQRRYYBCDDGHILLLMNNRRRSTUVZZJQAEIOUCDHMRTVXWBDFMNPRRSTZIPUBDFGKLMNPRSVXZADEIURCGKLNRSZBFLOPUWAOUYY1234567890123456789123456789123456789LLLPRATHHKKZZMVWWVEOSZKKKKKKLLOOOOPPPPPPQQQQRRVVLNNCCCHBBFFGGKKNNRRSSHLJUUCSZDDSSAELLLMNRRUUUXXXXYTLLRIOCSDLNRST00ABCDEFGHIJKLMNOPQRSTUVWXYZABCDEFGHIJKLMNOPQRSTUVWXYZPD';
+const LATIN_MAP = (() => {
+  const m = {};
+  const ks = [...LATIN_K], vs = [...LATIN_V];
+  for (let i = 0; i < ks.length; i++) m[ks[i]] = vs[i];
+  return m;
+})();
+
 // stylised-unicode tags collapse onto plain ascii; the model also gives us a plain
 // reading of its own, so this only has to catch what slips through.
 const FOLD = { 'Ꭱ':'R','Ꭲ':'T','Ꮮ':'L','Ꮯ':'C','Ꮋ':'H','Ꭺ':'A','Ꭼ':'E','Ꮲ':'P','Ꮪ':'S','Ꮶ':'K',
@@ -282,7 +296,10 @@ const FOLD = { 'Ꭱ':'R','Ꭲ':'T','Ꮮ':'L','Ꮯ':'C','Ꮋ':'H','Ꭺ':'A','Ꭼ'
   'Ʌ':'A','Ƨ':'S','Ƽ':'S','Ʈ':'T','Ɗ':'D','Ɖ':'D','Ƙ':'K','Ɲ':'N','Ɍ':'R','Ɏ':'Y' };
 function fold(s) {
   if (!s) return '';
-  s = s.normalize('NFKD').split('').map(c => FOLD[c] || c).join('');
+  // [...s] iterates codepoints; split('') would cut every astral character in half and the
+  // maps would never see it — which is exactly why the squared-letter names folded to
+  // nothing despite being in the table.
+  s = [...s.normalize('NFKD')].map(c => FOLD[c] || LATIN_MAP[c] || c).join('');
   return s.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 // Twenty-four roster names survive fold() as an empty string: pure emoji, Cherokee,
@@ -334,10 +351,11 @@ function buildIndex(roster) {
   for (const r of roster) {
     for (const v of new Set([usableFold(r.search), usableFold(r.ingame)]))
       if (v) ix.push({ k: v, r });
-    // a form that folds away — or folds to debris — is indexed by its characters instead,
-    // so it can still be matched when the model reproduces it exactly
+    // Every form is also indexed by its literal characters. Not only the ones that fold
+    // away: improving the fold turns some of those into ordinary words, and without this
+    // they would quietly stop matching by the route that used to work for them.
     for (const form of [r.search, r.ingame]) {
-      if (!form || usableFold(form)) continue;
+      if (!form) continue;
       const k = symKey(form);
       if (k) ix.push({ k: '\u0002' + k, r, sym: true });
     }
@@ -400,9 +418,9 @@ function resolve(name, plain, ix, aliases) {
     const exact = ix.find(e => e.k === cand);
     if (exact) return { r: exact.r, score: 1 };
   }
-  // exact symbol match, for names stylised past the point where letters survive
+  // exact character match — an identical string is an identical string, however it folds
   for (const raw of [name, plain]) {
-    if (!raw || usableFold(raw)) continue;
+    if (!raw) continue;
     const k = '\u0002' + symKey(raw);
     const hit = ix.find(e => e.k === k);
     if (hit) return { r: hit.r, score: 1 };
@@ -633,16 +651,26 @@ function buildPrompt(forVideo) {
   // Emoji render differently on every platform, and the model is looking at one phone's
   // idea of a polar bear. Listing the symbol-only names as their own short set means it is
   // choosing between a handful of known characters rather than naming an emoji from scratch.
+  // The codepoints go in alongside the character. A model knows that U+1F43B is a bear face
+  // and U+2744 a snowflake, so it can work out that the two together are a polar bear — and
+  // then decide whether the small black-and-white animal on screen is that or a panda.
+  // Emoji are drawn differently on every phone; the codepoint is the thing that is not.
+  const cps = str => [...str].map(c => c.codePointAt(0))
+      .filter(c => c > 0x2000 && c !== 0x200D && c !== 0xFE0F && c !== 0xFE0E)
+      .map(c => 'U+' + c.toString(16).toUpperCase()).join(' ');
   const symbolic = roster
     .filter(r => (r.ingame || '').trim() && !usableFold(r.ingame))
-    .map(r => `${r.search} = ${r.ingame.trim()}`);
+    .map(r => { const g = r.ingame.trim(), c = cps(g);
+                return `${r.search} = ${g}${c ? ` [${c}]` : ''}`; });
   const symbolNote = symbolic.length ? `
 
 Some players' names are only symbols, emoji or non-Latin characters. These are all of them:
 ${symbolic.join(', ')}
-When a row's name has no letters, it is almost certainly one of those — compare what is drawn
-against that list and copy the matching entry. Emoji are drawn differently on each phone, so
-judge by what the picture depicts rather than by an exact shape.` : '';
+When a row's name has no letters, it is almost certainly one of those. The bracketed
+codepoints tell you what each one actually is — work out what that character depicts, then
+decide which of them the picture on screen shows. Emoji are drawn differently on every
+phone, so judge by what is depicted, never by an exact shape. Two animals being similar
+colours does not make them the same animal.` : '';
   return `${src}
 Each row has a rank number (a gold, silver or bronze medal for ranks 1, 2 and 3), a player
 name, and a line reading "Contribution (Pt): <number>".
@@ -1191,10 +1219,20 @@ function refreshRosterList() { closeMenu(); }
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
 
 /* ---------------- output ---------------- */
-// An unresolved row still has to land in the sheet as something a lookup can find, so
-// fall back to the plain reading rather than the decorated original.
+// The sheet wants the name as it is written in the game — column B of the roster — not the
+// searchable name in column A. The dropdown still offers column A, because that is the
+// readable one to pick from, so a chosen name is translated back here.
+function outName(r) {
+  if (r.match) return r.match.ingame || r.match.search;
+  if (r.pick) {
+    const hit = fullRoster().find(x => x.search === r.pick)
+             || fullRoster().find(x => fold(x.search) === fold(r.pick));
+    return hit ? (hit.ingame || hit.search) : r.pick;      // typed in, not on the roster
+  }
+  return r.plain || r.name;
+}
 const outRows = () => rows.filter(r => r.pick !== '\u0000drop' && !r.skipped)
-  .map((r, i) => [$('datestr').value || '', i + 1, r.pick || r.plain || r.name, r.points]);
+  .map((r, i) => [$('datestr').value || '', i + 1, outName(r), r.points]);
 const OUT_HEADERS = ['Date', 'Rank', 'Game Name', 'Kartz Points'];
 $('copy').onclick = async () => {
   const tsv = outRows().map(r => r.join('\t')).join('\n');
