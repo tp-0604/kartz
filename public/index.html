@@ -9,11 +9,16 @@
   --bg:#f4f5f8; --panel:#fff; --ink:#15181f; --muted:#666e7d; --line:#dfe3ea;
   --accent:#3b5bdb; --ok:#2b8a3e; --warn:#c26a00; --bad:#c92a2a;
   --okbg:#e9f7ed; --warnbg:#fff4e2; --badbg:#fdecec;
+  /* One hue per alliance, close enough to the accent to belong to the same page and far
+     enough apart to be told apart at chip size. Assigned by position in MAIN_ALLIANCES, so
+     an alliance keeps its colour across every view. */
+  --a0:#4c6ef5; --a1:#0ca678; --a2:#e8890c; --a3:#e64980; --aX:#868e96;
 }
 @media (prefers-color-scheme:dark){:root{
   --bg:#12141a; --panel:#1a1d25; --ink:#e8eaef; --muted:#98a0b0; --line:#2b303c;
   --accent:#748ffc; --ok:#69db7c; --warn:#ffc078; --bad:#ff8787;
   --okbg:#17301e; --warnbg:#33270f; --badbg:#361a1a;
+  --a0:#91a7ff; --a1:#38d9a9; --a2:#ffc078; --a3:#faa2c1; --aX:#909aa8;
 }}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
@@ -79,6 +84,70 @@ button.ghost.tickok{color:var(--ok)}
 .qrow.qdone .qstat{color:var(--ok)}
 .qrow.qfail{border-color:var(--bad)}
 .qrow.qfail .qstat{color:var(--bad)}
+/* ---------------------------------------------------------------------------------------
+   The history platform.
+
+   A spreadsheet shows every cell with equal weight and leaves the reading to you. The point
+   of building this instead is that the page can say what matters before you look for it: how
+   much is here, which rows a person has already touched, whether a score went up or down,
+   what a player's line looks like. The styles below exist to encode those, not to decorate.
+   --------------------------------------------------------------------------------------- */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px;margin:2px 0 14px}
+.stat{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.stat b{display:block;font-size:21px;font-weight:650;letter-spacing:-.02em;line-height:1.2;
+  font-variant-numeric:tabular-nums}
+.stat span{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted);margin-top:2px}
+.stat.wide b{font-size:15px;font-weight:600;letter-spacing:0}
+
+.chip{display:inline-flex;align-items:center;gap:5px;padding:2px 9px 2px 7px;border-radius:20px;
+  font-size:11.5px;font-weight:600;white-space:nowrap;background:color-mix(in srgb,currentColor 12%,transparent)}
+.chip::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.c0{color:var(--a0)} .c1{color:var(--a1)} .c2{color:var(--a2)} .c3{color:var(--a3)}
+.cX{color:var(--aX)}
+/* The alliance cell on a board stays editable, so it cannot be a pill — but it can still carry
+   the alliance's colour, which is what makes a 698S player inside a 698W board visible. */
+#histTbl td.c0,#histTbl td.c1,#histTbl td.c2,#histTbl td.c3,#histTbl td.cX{background:none}
+
+/* A score is easier to compare against its neighbours than to read in isolation, so the cell
+   carries a bar of its own size behind the number. */
+.barcell{position:relative}
+.barcell i{position:absolute;left:0;top:50%;transform:translateY(-50%);height:16px;
+  background:color-mix(in srgb,var(--accent) 13%,transparent);border-radius:3px;z-index:0}
+.barcell span{position:relative;z-index:1;font-variant-numeric:tabular-nums;padding-left:4px}
+
+.delta{font-variant-numeric:tabular-nums;font-size:12px}
+.up{color:var(--ok)} .down{color:var(--bad)} .flat{color:var(--muted)}
+
+.spark{display:block}
+.spark path{fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
+.spark .fill{fill:color-mix(in srgb,var(--accent) 12%,transparent);stroke:none}
+.spark circle{fill:var(--accent)}
+
+.tag{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:5px;font-weight:600;
+  letter-spacing:.02em}
+.tag-edit{color:var(--warn);background:var(--warnbg)}
+.tag-new{color:var(--muted);background:var(--line)}
+
+#histTbl th.sortable{cursor:pointer;user-select:none}
+#histTbl th.sortable:hover{color:var(--ink)}
+#histTbl th .dir{opacity:.5;font-size:9px}
+#histTbl tbody tr:hover{background:color-mix(in srgb,var(--accent) 5%,transparent)}
+#histTbl td.num{text-align:right;font-variant-numeric:tabular-nums}
+#histTbl td.rank{color:var(--muted);font-variant-numeric:tabular-nums;width:44px}
+
+.boardcard{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
+  padding:11px 13px;border:1px solid var(--line);border-radius:10px;background:var(--bg);
+  cursor:pointer}
+.boardcard:hover{border-color:var(--accent)}
+.boardcard .bmeta{display:flex;gap:9px;align-items:center;flex-wrap:wrap;min-width:0}
+.boardcard .bdate{font-weight:600;font-variant-numeric:tabular-nums}
+.boardcard .bsub{color:var(--muted);font-size:12px}
+.boardlist{display:flex;flex-direction:column;gap:7px}
+.monthhead{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);
+  font-weight:600;margin:12px 0 5px}
+.monthhead:first-child{margin-top:0}
+
 .tabs{display:flex;gap:4px;margin:10px 0 12px;flex-wrap:wrap}
 .tab{background:transparent;color:var(--muted);border:1px solid transparent;width:auto;
   padding:7px 13px;font-weight:500;border-radius:8px}
@@ -228,7 +297,7 @@ const $ = id => document.getElementById(id);
 // Shown on the page. Several people run this from their own phones and a browser can sit on
 // an open tab for days, so "it is still happening" and "it is fixed" are easy to say about
 // different builds. Bump it with any change worth telling apart from the one before.
-const BUILD = '2026-09-01c';
+const BUILD = '2026-09-01d';
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
@@ -2123,6 +2192,78 @@ async function saveRun() {
 }
 $('save').onclick = saveRun;
 
+/* ---- shared pieces -------------------------------------------------------------------- */
+
+// An alliance keeps the same colour everywhere it appears, so a board, a row and a player's
+// history all agree at a glance about who is who.
+const allianceChip = a => {
+  if (!a) return '<span class="chip cX">unknown</span>';
+  const i = MAIN_ALLIANCES.indexOf(a);
+  return `<span class="chip c${i < 0 ? 'X' : i}">${esc(a)}</span>`;
+};
+// A score compared against the best on the same board, drawn behind the number. Reading a
+// column of four-digit numbers is work; seeing which are long is not.
+const scoreCell = (v, max) => {
+  const w = max > 0 ? Math.max(2, Math.round((v / max) * 100)) : 0;
+  return `<td class="barcell num"><i style="width:${w}%"></i><span>${v.toLocaleString()}</span></td>`;
+};
+const delta = d => d === null || d === undefined || !isFinite(d) ? '<span class="flat">—</span>'
+  : d > 0 ? `<span class="delta up">▲ ${d.toLocaleString()}</span>`
+  : d < 0 ? `<span class="delta down">▼ ${Math.abs(d).toLocaleString()}</span>`
+          : '<span class="delta flat">0</span>';
+// Rank moves the other way round: a smaller number is better, so a fall in rank is a rise.
+const rankDelta = d => d === null || d === undefined ? ''
+  : d > 0 ? `<span class="delta up">▲${d}</span>`
+  : d < 0 ? `<span class="delta down">▼${Math.abs(d)}</span>`
+          : '<span class="delta flat">–</span>';
+
+// A line is the fastest way to read a sequence of numbers, and four points are enough for one.
+function sparkline(values, w = 78, h = 20) {
+  const v = values.filter(x => typeof x === 'number');
+  if (v.length < 2) return '';
+  const lo = Math.min(...v), hi = Math.max(...v), span = hi - lo || 1;
+  const pt = (x, i) => [
+    (i / (v.length - 1)) * (w - 3) + 1.5,
+    h - 2 - ((x - lo) / span) * (h - 4),
+  ];
+  const d = v.map((x, i) => { const [px, py] = pt(x, i); return `${i ? 'L' : 'M'}${px.toFixed(1)} ${py.toFixed(1)}`; }).join(' ');
+  const [ex, ey] = pt(v[v.length - 1], v.length - 1);
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">`
+    + `<path class="fill" d="${d} L${w - 1.5} ${h} L1.5 ${h} Z"></path>`
+    + `<path d="${d}"></path><circle cx="${ex.toFixed(1)}" cy="${ey.toFixed(1)}" r="2"></circle></svg>`;
+}
+
+const stats = items => `<div class="stats">` + items.map(([n, l, wide]) =>
+  `<div class="stat${wide ? ' wide' : ''}"><b>${n}</b><span>${esc(l)}</span></div>`).join('') + '</div>';
+
+// Sorting is per-view and remembered, so clicking a column and switching away and back does
+// not silently reorder underneath you.
+const sortState = {};
+function sortable(view, cols, rows) {
+  const st = sortState[view];
+  if (st) {
+    const c = cols[st.i];
+    if (c && c.get) rows.sort((a, b) => {
+      const x = c.get(a), y = c.get(b);
+      const n = typeof x === 'number' && typeof y === 'number' ? x - y
+              : String(x ?? '').localeCompare(String(y ?? ''));
+      return st.desc ? -n : n;
+    });
+  }
+  const head = '<thead><tr>' + cols.map((c, i) =>
+    `<th class="${c.get ? 'sortable' : ''}" data-i="${i}">${esc(c.h)}`
+    + (st && st.i === i ? ` <span class="dir">${st.desc ? '▼' : '▲'}</span>` : '') + '</th>').join('')
+    + '</tr></thead>';
+  return head;
+}
+function wireSort(view, redraw) {
+  $('histTbl').querySelectorAll('th.sortable').forEach(th => th.onclick = () => {
+    const i = +th.dataset.i, st = sortState[view];
+    sortState[view] = st && st.i === i ? { i, desc: !st.desc } : { i, desc: true };
+    redraw();
+  });
+}
+
 /* ---- view 1: every board saved ---- */
 async function loadBoards() {
   note('loading…');
@@ -2143,59 +2284,135 @@ async function loadBoards() {
   } catch (e) { note('✗ ' + e.message); }
 }
 function drawBoards() {
-  note(boardList.length
-    ? `${boardList.length} board${boardList.length > 1 ? 's' : ''} · `
-      + `${boardList.reduce((n, b) => n + b.players, 0)} rows`
-    : 'Nothing saved yet. Extract a recording, pick its alliance, and press Save to history.');
-  tbl(th(['Date', 'Event', 'Board', 'Label', 'Players', 'Top score', ''])
-    + '<tbody>' + boardList.map(b => `<tr>
-        <td>${esc(b.date)}</td><td>${esc(b.event)}</td><td>${esc(b.alliance)}</td>
-        <td>${esc(b.label || '—')}</td><td>${b.players}</td><td>${b.best ?? ''}</td>
-        <td><button class="ghost openboard" data-id="${esc(b.id)}"
-              style="width:auto;padding:4px 10px">open</button></td>
-      </tr>`).join('') + '</tbody>');
-  $('histTbl').querySelectorAll('.openboard').forEach(btn => btn.onclick = () => {
-    $('boardPick').value = btn.dataset.id;
+  if (!boardList.length) {
+    note('');
+    tbl('');
+    $('histNote').innerHTML = '<div class="stat" style="text-align:center;padding:26px">'
+      + '<b style="font-size:15px;font-weight:600">Nothing saved yet</b>'
+      + '<span style="text-transform:none;letter-spacing:0;font-size:13px;margin-top:6px">'
+      + 'Extract a recording, choose its alliance, and press Save to history.</span></div>';
+    return;
+  }
+  const rowsTotal = boardList.reduce((n, b) => n + b.players, 0);
+  const alls = [...new Set(boardList.map(b => b.alliance))];
+  const months = [...new Set(boardList.map(b => b.date.slice(0, 7)))];
+  // Boards grouped by month, because that is how the season is actually thought about, and a
+  // flat list of dates makes you do the grouping in your head every time.
+  const byMonth = {};
+  for (const b of boardList) (byMonth[b.date.slice(0, 7)] ||= []).push(b);
+  const fmtMonth = m => new Date(m + '-02').toLocaleDateString(undefined,
+    { month: 'long', year: 'numeric' });
+
+  $('histNote').innerHTML = stats([
+    [boardList.length, 'boards'],
+    [rowsTotal.toLocaleString(), 'scores'],
+    [alls.length, 'alliances'],
+    [months.length, months.length === 1 ? 'month' : 'months'],
+    [esc(boardList[0].date), 'latest', true],
+  ]) + Object.keys(byMonth).sort().reverse().map(m =>
+    `<div class="monthhead">${esc(fmtMonth(m))}</div><div class="boardlist">`
+    + byMonth[m].map(b => `<div class="boardcard" data-id="${esc(b.id)}">
+        <div class="bmeta">
+          ${allianceChip(b.alliance)}
+          <span class="bdate">${esc(b.date)}</span>
+          ${b.label ? `<span class="tag tag-new">${esc(b.label)}</span>` : ''}
+          <span class="bsub">${b.players} players · top ${(b.best ?? 0).toLocaleString()}</span>
+        </div>
+        <button class="ghost" style="width:auto;padding:5px 12px">Open</button>
+      </div>`).join('') + '</div>').join('');
+  tbl('');
+  $('histNote').querySelectorAll('.boardcard').forEach(card => card.onclick = () => {
+    $('boardPick').value = card.dataset.id;
     setView('board');
   });
 }
 
 /* ---- view 2: one board, and the only place a row can be corrected ---- */
+let boardData = null;
 async function loadBoard() {
   const id = $('boardPick').value;
   if (!id) { note('No board selected.'); tbl(''); return; }
   note('loading…');
   try {
-    const j = await api('/board?id=' + encodeURIComponent(id));
-    const b = j.board;
-    note(`${b.date} · ${b.alliance}${b.label ? ' · ' + b.label : ''} · ${j.rows.length} rows`
-         + ' — click a name, alliance or score to correct it');
-    tbl(th(['Rank', 'Player', 'Name in video', 'Alliance', 'Kartz Points', ''])
-      + '<tbody>' + j.rows.map(r => `<tr data-place="${r.place}">
-          <td>${r.place}</td>
-          <td contenteditable data-f="search">${esc(r.search || '')}</td>
-          <td contenteditable data-f="ingame">${esc(r.ingame)}</td>
-          <td contenteditable data-f="alliance">${esc(r.alliance || '')}</td>
-          <td contenteditable data-f="points">${r.points}</td>
-          <td>${r.edited ? '<span class="edited">edited</span>' : ''}</td>
-        </tr>`).join('') + '</tbody>');
-    // Committing on blur rather than on every keystroke: a cell being typed into is not yet
-    // an answer, and a request per character would be both wasteful and wrong.
-    $('histTbl').querySelectorAll('td[contenteditable]').forEach(td => {
-      const before = td.textContent;
-      td.onblur = async () => {
-        const now = td.textContent.trim();
-        if (now === before.trim()) return;
-        const place = +td.closest('tr').dataset.place;
-        try {
-          await api('/score', { method: 'PATCH',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ board: id, place, [td.dataset.f]: now }) });
-          loadBoard();
-        } catch (e) { note('✗ ' + e.message); td.textContent = before; }
-      };
-    });
+    boardData = await api('/board?id=' + encodeURIComponent(id));
+    // The same alliance's previous board, so each row can show which way it moved. This is the
+    // column a spreadsheet would need a lookup across two tabs to produce.
+    const b = boardData.board;
+    const prev = boardList.filter(x => x.alliance === b.alliance && x.date < b.date)
+                          .sort((x, y) => y.date.localeCompare(x.date))[0];
+    boardData.prev = prev ? await api('/board?id=' + encodeURIComponent(prev.id)) : null;
+    drawBoard();
   } catch (e) { note('✗ ' + e.message); }
+}
+function drawBoard() {
+  if (!boardData) return;
+  const { board: b, rows: rw, prev } = boardData;
+  const id = b.id;
+  const max = Math.max(...rw.map(r => r.points), 0);
+  const before = new Map();
+  if (prev) for (const r of prev.rows) if (r.search) before.set(r.search, r);
+  const matched = rw.filter(r => r.search).length;
+  const edited = rw.filter(r => r.edited).length;
+
+  $('histNote').innerHTML = stats([
+    [rw.length, 'players'],
+    [max.toLocaleString(), 'top score'],
+    [Math.round(rw.reduce((n, r) => n + r.points, 0) / (rw.length || 1)).toLocaleString(), 'average'],
+    [`${matched}/${rw.length}`, 'named'],
+    [edited, 'corrected'],
+  ]) + `<div style="margin-top:2px">${allianceChip(b.alliance)} `
+    + `<span class="bsub">${esc(b.date)}${b.label ? ' · ' + esc(b.label) : ''}`
+    + `${prev ? ` · compared with ${esc(prev.board.date)}` : ' · no earlier board to compare'}`
+    + ` — click a cell to correct it</span></div>`;
+
+  const cols = [
+    { h: 'Rank', get: r => r.place },
+    { h: 'Player', get: r => r.search || '' },
+    { h: 'Name in video', get: r => r.ingame },
+    { h: 'Alliance', get: r => r.alliance || '' },
+    { h: 'Points', get: r => r.points },
+    { h: 'Change', get: r => { const p = r.search && before.get(r.search);
+                               return p ? r.points - p.points : -Infinity; } },
+    { h: '' },
+  ];
+  const list = rw.slice();
+  const head = sortable('board', cols, list);
+  tbl(head + '<tbody>' + list.map(r => {
+    const p = r.search ? before.get(r.search) : null;
+    return `<tr data-place="${r.place}">
+      <td class="rank">${r.place}</td>
+      <td contenteditable data-f="search">${esc(r.search || '')}</td>
+      <td contenteditable data-f="ingame">${esc(r.ingame)}</td>
+      <td contenteditable data-f="alliance" class="${r.alliance
+            ? 'c' + (MAIN_ALLIANCES.indexOf(r.alliance) < 0 ? 'X'
+                     : MAIN_ALLIANCES.indexOf(r.alliance)) : ''}"
+          style="font-weight:${r.alliance ? 600 : 400}">${esc(r.alliance || '')}</td>
+      ${scoreCell(r.points, max).replace('<td', '<td contenteditable data-f="points"')}
+      <td>${p ? delta(r.points - p.points) : '<span class="flat">—</span>'}</td>
+      <td>${r.edited ? '<span class="tag tag-edit">edited</span>'
+           : !r.search ? '<span class="tag tag-new">new</span>' : ''}</td>
+    </tr>`;
+  }).join('') + '</tbody>');
+  wireSort('board', drawBoard);
+
+  // Committing on blur rather than on every keystroke: a cell being typed into is not yet an
+  // answer, and a request per character would be both wasteful and wrong.
+  $('histTbl').querySelectorAll('td[contenteditable]').forEach(td => {
+    const before2 = (td.querySelector('span') || td).textContent;
+    td.onfocus = () => { if (td.dataset.f === 'points') td.textContent = td.textContent.trim(); };
+    td.onblur = async () => {
+      const now = td.textContent.trim();
+      if (now === before2.trim()) { drawBoard(); return; }
+      const place = +td.closest('tr').dataset.place;
+      try {
+        await api('/score', { method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ board: id, place,
+            [td.dataset.f]: td.dataset.f === 'points' ? now.replace(/[^\d-]/g, '') : now }) });
+        loadBoard();
+      } catch (e) { note('✗ ' + e.message); drawBoard(); }
+    };
+  });
 }
 $('boardDel').onclick = async () => {
   const id = $('boardPick').value;
@@ -2205,66 +2422,108 @@ $('boardDel').onclick = async () => {
                + '\n\nThis cannot be undone.')) return;
   try {
     const j = await api('/board?id=' + encodeURIComponent(id), { method: 'DELETE' });
-    note(`deleted ${j.rows} rows`);
     await loadBoards();
     setView('boards');
+    note(`deleted ${j.rows} rows`);
   } catch (e) { note('✗ ' + e.message); }
 };
 
 /* ---- view 3: one month, scoring days across the top ---- */
+let monthData = null;
 async function loadMonth() {
   const month = $('monthPick').value, alliance = $('monthAlli').value;
   if (!month) { note('Pick a month.'); tbl(''); return; }
   note('loading…');
   try {
-    const j = await api(`/month?month=${encodeURIComponent(month)}`
-                        + (alliance ? `&alliance=${encodeURIComponent(alliance)}` : ''));
-    const days = [...new Set((j.rows || []).map(r => r.date))].sort();
-    if (!days.length) { note(`Nothing saved for ${month}.`); tbl(''); return; }
-    const label = {}; for (const r of j.rows) label[r.date] = r.label || r.date.slice(8);
-    // One row per player, one column per scoring day. Growth is a subtraction done here rather
-    // than a column anybody has to maintain.
-    const players = new Map();
-    for (const r of j.rows) {
-      const key = r.search || r.ingame;
-      if (!players.has(key)) players.set(key, { name: key, ingame: r.ingame, by: {} });
-      players.get(key).by[r.date] = r.points;
-    }
-    const list = [...players.values()].sort((a, b) =>
-      (b.by[days[days.length-1]] ?? -1) - (a.by[days[days.length-1]] ?? -1));
-    note(`${month}${alliance ? ' · ' + alliance : ''} · ${list.length} players · `
-         + `${days.length} scoring day${days.length > 1 ? 's' : ''}`);
-    tbl(th(['Player', ...days.map(d => esc(label[d])), 'Growth'])
-      + '<tbody>' + list.map(p => {
-          const first = p.by[days[0]], last = p.by[days[days.length-1]];
-          const growth = (first !== undefined && last !== undefined && days.length > 1)
-            ? (last - first) : null;
-          return `<tr><td>${esc(p.name)}</td>`
-            + days.map(d => `<td>${p.by[d] ?? ''}</td>`).join('')
-            + `<td>${growth === null ? '' : (growth >= 0 ? '+' : '') + growth}</td></tr>`;
-        }).join('') + '</tbody>');
+    monthData = await api(`/month?month=${encodeURIComponent(month)}`
+                          + (alliance ? `&alliance=${encodeURIComponent(alliance)}` : ''));
+    drawMonth();
   } catch (e) { note('✗ ' + e.message); }
+}
+function drawMonth() {
+  if (!monthData) return;
+  const j = monthData, month = $('monthPick').value, alliance = $('monthAlli').value;
+  const days = [...new Set((j.rows || []).map(r => r.date))].sort();
+  if (!days.length) { $('histNote').textContent = `Nothing saved for ${month}.`; tbl(''); return; }
+  const label = {}; for (const r of j.rows) label[r.date] = r.label || ('Day ' + r.date.slice(8));
+  // One row per player, one column per scoring day. Growth is a subtraction done here rather
+  // than a column anybody has to maintain and keep in step.
+  const players = new Map();
+  for (const r of j.rows) {
+    const key = r.search || r.ingame;
+    if (!players.has(key)) players.set(key, { name: key, alliance: r.alliance, by: {} });
+    players.get(key).by[r.date] = r.points;
+    if (r.alliance) players.get(key).alliance = r.alliance;
+  }
+  const list = [...players.values()];
+  const last = days[days.length - 1], first = days[0];
+  const growthOf = p => (p.by[first] !== undefined && p.by[last] !== undefined && days.length > 1)
+    ? p.by[last] - p.by[first] : null;
+  const max = Math.max(...list.map(p => p.by[last] ?? 0), 0);
+  const totals = days.map(d => j.rows.filter(r => r.date === d)
+                                     .reduce((n, r) => n + r.points, 0));
+
+  $('histNote').innerHTML = stats([
+    [list.length, 'players'],
+    [days.length, days.length === 1 ? 'scoring day' : 'scoring days'],
+    [totals[totals.length - 1].toLocaleString(), 'total scored'],
+    [esc(alliance || 'all'), 'alliance', true],
+  ]);
+
+  const cols = [
+    { h: 'Player', get: p => p.name },
+    { h: 'Alliance', get: p => p.alliance || '' },
+    ...days.map(d => ({ h: label[d], get: p => p.by[d] ?? -1 })),
+    ...(days.length > 1 ? [{ h: 'Trend' }, { h: 'Growth', get: p => growthOf(p) ?? -Infinity }] : []),
+  ];
+  if (!sortState.month) sortState.month = { i: 1 + days.length, desc: true };
+  const head = sortable('month', cols, list);
+  tbl(head + '<tbody>' + list.map(p => `<tr>
+      <td>${esc(p.name)}</td>
+      <td>${allianceChip(p.alliance)}</td>
+      ${days.map(d => p.by[d] === undefined ? '<td class="num flat">—</td>'
+                    : scoreCell(p.by[d], max)).join('')}
+      ${days.length > 1 ? `<td>${sparkline(days.map(d => p.by[d]))}</td>
+        <td>${delta(growthOf(p))}</td>` : ''}
+    </tr>`).join('') + '</tbody>');
+  wireSort('month', drawMonth);
 }
 
 /* ---- view 4: one player, every alliance, every month ---- */
 async function loadPlayer() {
   const who = $('playerFind').value.trim();
-  if (!who) { note('Type a roster name.'); tbl(''); return; }
+  if (!who) { $('histNote').textContent = 'Type a roster name.'; tbl(''); return; }
   note('loading…');
   try {
     const j = await api('/player?search=' + encodeURIComponent(who));
     const h = j.history || [];
-    if (!h.length) { note(`Nothing saved for "${who}".`); tbl(''); return; }
+    if (!h.length) { $('histNote').textContent = `Nothing saved for "${who}".`; tbl(''); return; }
     const names = [...new Set(h.map(r => r.ingame))];
-    note(`${who} · ${h.length} board${h.length > 1 ? 's' : ''}`
-         + (names.length > 1 ? ` · seen as ${names.map(n => '"' + n + '"').join(', ')}` : ''));
-    tbl(th(['Date', 'Board', 'Label', 'Rank', 'Name in video', 'Points', 'Change'])
+    const pts = h.map(r => r.points);
+    const best = Math.max(...pts);
+    const boards = [...new Set(h.map(r => r.board))];
+    $('histNote').innerHTML = stats([
+      [h.length, h.length === 1 ? 'board' : 'boards'],
+      [best.toLocaleString(), 'best score'],
+      [Math.round(pts.reduce((a, b) => a + b, 0) / pts.length).toLocaleString(), 'average'],
+      [names.length, names.length === 1 ? 'name used' : 'names used'],
+    ]) + `<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:2px">`
+      + `${sparkline(pts, 150, 32)}`
+      + `<span class="bsub">${boards.map(allianceChip).join(' ')}`
+      + (names.length > 1 ? ` · seen as ${names.map(n => '“' + esc(n) + '”').join(', ')}` : '')
+      + `</span></div>`;
+    tbl('<thead><tr><th>Date</th><th>Board</th><th>Label</th><th>Rank</th><th>Move</th>'
+      + '<th>Name in video</th><th>Points</th><th>Change</th></tr></thead>'
       + '<tbody>' + h.map((r, i) => {
-          const prev = i > 0 ? h[i-1].points : null;
-          const d = prev === null ? '' : (r.points - prev >= 0 ? '+' : '') + (r.points - prev);
-          return `<tr><td>${esc(r.date)}</td><td>${esc(r.board)}</td>
-            <td>${esc(r.label || '—')}</td><td>${r.place}</td>
-            <td>${esc(r.ingame)}</td><td>${r.points}</td><td>${d}</td></tr>`;
+          const prev = i > 0 ? h[i-1] : null;
+          return `<tr>
+            <td>${esc(r.date)}</td><td>${allianceChip(r.board)}</td>
+            <td>${esc(r.label || '—')}</td><td class="rank">${r.place}</td>
+            <td>${prev ? rankDelta(prev.place - r.place) : ''}</td>
+            <td>${esc(r.ingame)}</td>
+            ${scoreCell(r.points, best)}
+            <td>${prev ? delta(r.points - prev.points) : '<span class="flat">—</span>'}</td>
+          </tr>`;
         }).join('') + '</tbody>');
   } catch (e) { note('✗ ' + e.message); }
 }
@@ -2278,8 +2537,8 @@ function setView(v) {
     $('bar' + k[0].toUpperCase() + k.slice(1)).classList.toggle('hide', k !== v));
   ({ boards: drawBoards, board: loadBoard, month: loadMonth, player: loadPlayer })[v]();
 }
-$('histTabs').querySelectorAll('.tab').forEach(t => t.onclick = () => {
-  if (t.dataset.view !== 'boards' && !boardList.length) { loadBoards(); }
+$('histTabs').querySelectorAll('.tab').forEach(t => t.onclick = async () => {
+  if (t.dataset.view !== 'boards' && !boardList.length) await loadBoards();
   setView(t.dataset.view);
 });
 $('histLoad').onclick = loadBoards;
