@@ -68,10 +68,7 @@ tr.new{background:var(--warnbg)}
 .pencil{background:none;border:0;color:var(--muted);cursor:pointer;font-size:13px;
   padding:0 4px;width:auto;line-height:1;opacity:.5}
 .pencil:hover{opacity:1;color:var(--accent)}
-button.ghostselect[multiple]{padding:6px;height:auto}
-select[multiple] option{padding:5px 7px;border-radius:5px}
-select[multiple] option:checked{background:var(--accent);color:#fff}
-.tickok{color:var(--ok)}
+button.ghost.tickok{color:var(--ok)}
 /* Selects inherit width:100% from the base control rule, which made these stretch across a
    column sized for the header rather than for "698S". Sized to their content instead, with a
    floor so the four codes line up, and a ceiling so the one row carrying "z1.Transferred"
@@ -110,11 +107,8 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
        the same sheet, and a link box only invites a mistyped one. Hand-pasting went with it —
        it existed for when there was no sheet to pull from, and there always is one now. So the
        whole of setup is one list and one button. -->
-  <label for="skip">Filter rows &mdash; alliances left out of matching</label>
-  <select id="skip" multiple></select>
-  <p class="note" id="skipNote" style="margin:6px 0 0"></p>
-  <div class="row" style="margin-top:10px">
-    <button class="ghost" id="pull">Pull roster</button>
+  <div class="row">
+    <button class="ghost" id="pull">Pull / Update Alliance Roster</button>
   </div>
   <p class="note" id="keyNote"></p>
 </section>
@@ -176,7 +170,7 @@ const $ = id => document.getElementById(id);
 // Shown on the page. Several people run this from their own phones and a browser can sit on
 // an open tab for days, so "it is still happening" and "it is fixed" are easy to say about
 // different builds. Bump it with any change worth telling apart from the one before.
-const BUILD = '2026-08-28b';
+const BUILD = '2026-08-28c';
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
@@ -207,7 +201,6 @@ const ROSTER_SHEET =
 // The four alliances the sheet is actually organised around. Anything else in its Alliance
 // column — z3.?, z1.Transferred, a stray 698E — is a candidate for filtering out.
 const MAIN_ALLIANCES = ['698W', '698S', '698N', '698C'];
-const DEFAULT_SKIP = ['z3.?', 'z1.transferred'];
 
 const store = {
   get: k => { try { return JSON.parse(localStorage.getItem('kartz.' + k)); } catch { return null; } },
@@ -215,7 +208,6 @@ const store = {
 };
 
 function loadSetup() {
-  skipSel            = store.get('skipSel');           // null until you choose
   rosterCache        = store.get('roster')   || null;
   // A roster cached by an earlier version was stored already split. Put it back together, so
   // the filter can be changed without pulling again.
@@ -225,18 +217,12 @@ function loadSetup() {
   $('keyNote').textContent =
     'The Google key lives on this site\u2019s Worker, not in your browser. Nothing to set up '
     + 'and nothing to leak.';
-  refreshSkipBox(); refreshRosterList(); refreshState();
+  refreshRosterList(); refreshState();
 }
 function refreshState() {
   const names = currentRoster().length;
-  const total = (rosterCache && rosterCache.all && rosterCache.all.length) || 0;
   $('setupState').className = 'pill ' + (names ? 'p-ok' : 'p-new');
-  // Both numbers, because one of them on its own reads like a fault: the sheet holds 858 rows
-  // and the badge said 695, which looks exactly like a pull that stopped early rather than a
-  // filter doing its job.
-  $('setupState').textContent = !names ? 'not configured'
-    : total && total !== names ? `${names} of ${total} roster names`
-    : `${names} roster names`;
+  $('setupState').textContent = names ? `${names} roster names` : 'not configured';
   $('go').disabled = !(names && videoFile);
 }
 
@@ -247,13 +233,10 @@ $('pull').onclick = async () => {
   try {
     rosterCache = await pullRoster(ROSTER_SHEET);
     store.set('roster', rosterCache);            // cached so a later run works offline
-    const kept = currentRoster().length, out = skippedRoster().length;
-    log(`roster: ${rosterCache.all.length} rows — ${kept} to match against`
-        + (out ? `, ${out} filtered out (${skipList().join(', ')})` : ''));
+    log(`roster: ${rosterCache.all.length} names`);
     ok = true;
   } catch (e) { log('✗ ' + e.message); }
   $('pull').textContent = was; $('pull').disabled = false;
-  refreshSkipBox();
   if (ok) {
     store.set('datestr', $('datestr').value);   // the only other thing setup ever saved
     flash($('pull'), `${rosterCache.all.length} rows ✓`);
@@ -305,48 +288,11 @@ async function pullRoster(link) {
   // and the count on the badge stayed where it was.
   return { all };
 }
-// Which alliances are filtered out, lowercased. Null means "never chosen", and only then does
-// the default apply — the old version fell back to the default whenever the box was empty, so
-// clearing the filter silently re-applied the very thing you had just cleared, and the roster
-// count never moved.
-let skipSel = null;
-function skipList() {
-  return skipSel === null ? DEFAULT_SKIP.slice() : skipSel.slice();
-}
-// Every alliance in the roster that is not one of the four, in the order they appear. These
-// are the only things worth offering to filter: nobody wants to exclude 698W.
-function otherAlliances() {
-  const seen = new Map();
-  for (const r of (rosterCache && rosterCache.all) || []) {
-    const a = (r.alliance || '').trim();
-    const k = a.toLowerCase();
-    if (!a || MAIN_ALLIANCES.some(m => m.toLowerCase() === k)) continue;
-    seen.set(k, (seen.get(k) || { name: a, n: 0 }));
-    seen.get(k).n++;
-  }
-  return [...seen.entries()].map(([k, v]) => ({ key: k, name: v.name, n: v.n }));
-}
-// Redrawn after a pull. The options are whatever the sheet actually holds outside the four
-// alliances, so nobody need know how "z1.Transferred" is spelled or that 698E exists at all.
-function refreshSkipBox() {
-  const sel = $('skip'), note = $('skipNote');
-  if (!sel) return;
-  const opts = otherAlliances();
-  const on = skipList();
-  sel.innerHTML = opts.map(o =>
-    `<option value="${esc(o.key)}"${on.includes(o.key) ? ' selected' : ''}>`
-    + `${esc(o.name)} \u2014 ${o.n}</option>`).join('');
-  sel.size = Math.max(2, Math.min(6, opts.length || 2));
-  sel.disabled = !opts.length;
-  note.textContent = !rosterCache ? 'Pull the roster to see which alliances it holds.'
-    : !opts.length ? 'Every row is in one of the four alliances \u2014 nothing to filter.'
-                   : 'Pick any number of them, or none.';
-}
-$('skip').onchange = () => {
-  skipSel = [...$('skip').selectedOptions].map(o => o.value);
-  store.set('skipSel', skipSel);
-  refreshRosterList(); refreshState();
-};
+// Nothing is filtered out any more. Every player in the sheet is a candidate, including the
+// ones parked in z3.? or z1.Transferred: they are on the roster, and a row in the recording
+// that matches one of them is better recognised than left as a stranger. The alliance column
+// is still read, because the results table shows it.
+const skippedRoster = () => [];
 
 /* ---------------- matching ---------------- */
 let rosterCache = null;            // { all }
@@ -360,19 +306,9 @@ function currentRoster() {
   const all = rosterCache && rosterCache.all;
   // Nothing to fall back on now the hand-pasted box has gone: until the sheet is pulled there
   // is simply nothing to match against, and the badge says as much.
-  if (!all || !all.length) return [];
-  const skip = skipList();
-  return all.filter(r => !skip.includes((r.alliance || '').toLowerCase()));
+  return (all && all.length) ? all : [];
 }
 const fullRoster = currentRoster;
-// The filtered-out players, kept rather than discarded: if one still turns up in the video we
-// want to recognise them and leave the row out deliberately, not have them sitting in the
-// review list as an unknown every month.
-const skippedRoster = () => {
-  const all = (rosterCache && rosterCache.all) || [];
-  const skip = skipList();
-  return all.filter(r => skip.includes((r.alliance || '').toLowerCase()));
-};
 // Generated from Unicode's own character names: every codepoint whose name says which
 // Latin letter or digit it is, and that NFKD does not already resolve. That covers the
 // enclosed, squared, struck-through and small-capital forms players decorate names with —
@@ -1648,7 +1584,7 @@ function render(roster) {
   $('verdict').innerHTML =
     `<div class="${need || gap ? 'warnbox' : 'okbox'}">${rows.length} players &middot; `
     + `${rows.length - need - dropped} matched to the roster`
-    + (dropped ? ` &middot; ${dropped} excluded (${esc(skipList().join(', '))})` : '')
+    + (dropped ? ` &middot; ${dropped} excluded` : '')
     + (need ? ` &middot; <strong>${need} to confirm below</strong>` : '')
     + `</div>`
     + (gap ? `<div class="warnbox">The game showed ranks up to ${top}, but `
