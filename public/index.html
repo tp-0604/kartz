@@ -184,7 +184,7 @@ const $ = id => document.getElementById(id);
 // Shown on the page. Several people run this from their own phones and a browser can sit on
 // an open tab for days, so "it is still happening" and "it is fixed" are easy to say about
 // different builds. Bump it with any change worth telling apart from the one before.
-const BUILD = '2026-08-28d';
+const BUILD = '2026-09-01b';
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
@@ -912,16 +912,38 @@ async function extractFrames(file, budget, onProg) {
   const box = movingRegion(accum);      // always: it removes the pinned own-rank card
   lastCropBox = box;
 
-  // pick timestamps at equal increments of accumulated motion
-  const picks = [times[0]];
+  // Most of the budget goes at equal increments of accumulated motion, which spreads frames
+  // along the scroll rather than along the clock and stops a slow drag eating the allowance.
+  //
+  // The blind spot is a bad one: a stretch where nothing moves accumulates no motion and takes
+  // exactly one pick. That stretch is the top of the list, held steady before the scrolling
+  // starts, so the ranks people care about most were the ones read once — and a single reading
+  // has nothing to outvote it when it goes wrong. It did: with three full seconds of sharp
+  // footage available, ranks 1 to 3 came back with their scores written into the name field
+  // and no second reading to disagree.
+  //
+  // A quarter of the budget is therefore spread evenly through the recording regardless of
+  // motion. This reallocates the same number of frames rather than adding any, so the token
+  // cost of a run does not move: where the list is scrolling these land among the motion picks
+  // and collapse into them, and where it is still they are the only thing sampling it twice.
+  const MOTION_SHARE = 0.75;
+  const nMotion = Math.max(2, Math.round((budget - 1) * MOTION_SHARE));
+  const chosen = new Set([times[0]]);
   if (total > 1e-6) {
-    const gap = total / (budget - 1);
+    const gap = total / nMotion;
     let want = gap;
     for (let i = 1; i < times.length; i++)
-      if (motion[i] >= want && picks.length < budget - 1) { picks.push(times[i]); want = motion[i] + gap; }
+      if (motion[i] >= want && chosen.size < nMotion) { chosen.add(times[i]); want = motion[i] + gap; }
   }
-  const last = times[times.length - 1];
-  if (picks[picks.length - 1] !== last) picks.push(last);
+  const nTime = Math.max(0, budget - chosen.size - 1);
+  for (let k = 0; k < nTime; k++) {
+    const want = times[0] + (times[times.length-1] - times[0]) * (k + 0.5) / nTime;
+    let best = times[0], d = Infinity;
+    for (const t of times) { const e = Math.abs(t - want); if (e < d) { d = e; best = t; } }
+    chosen.add(best);
+  }
+  chosen.add(times[times.length - 1]);
+  const picks = [...chosen].sort((a, b) => a - b);
 
   const frames = [];
   for (let i = 0; i < picks.length; i++) {
@@ -1125,6 +1147,9 @@ ${once}
 // its own estimated cost. A run simply takes as many minutes as it needs, rather than failing
 // partway through and throwing away the batches already paid for.
 const TPM = 240000;                    // the published limit is 250,000
+// What a single run is allowed to spend, leaving the rest of the minute's allowance as margin
+// for a roster that keeps growing and for the estimate being an estimate.
+const TPM_TARGET = 225000;
 // Roster names in exotic scripts tokenise badly: the prompt measures 13,320 characters and
 // 5,657 tokens, which is 2.35 to the token rather than the usual 4. Estimating at 4 put the
 // spend a third under what it really was, which is the wrong direction to be wrong in here.
@@ -1444,7 +1469,20 @@ $('go').onclick = async () => {
     aliases = store.get('aliases') || {};
 
     log('decoding video…'); setProg(0);
-    const frames = await extractFrames(videoFile, +$('sens').value,
+    // How many sample points the minute's allowance actually affords, rather than a fixed
+    // number that was right when it was written. The roster is sent with every request and it
+    // grows: it went from 858 names to 883 in a day, and each name inflates the prompt on all
+    // six requests. A run measured at 243,000 tokens against a limit of 250,000 — inside it,
+    // but with no room for the roster to grow into, and nothing would have warned anyone.
+    //
+    // So the images are whatever is left after the prompts are paid for, and the frame count
+    // follows from that. As the roster grows the sampling thins slightly instead of the run
+    // failing.
+    const promptTok = Math.ceil(buildPrompt(false).length / CHARS_PER_TOKEN);
+    const perReq = promptTok + IMG_TOKENS;              // prompt, plus the reference sheet
+    const imgBudget = Math.floor((TPM_TARGET - REQ_CAP * perReq) / IMG_TOKENS);
+    const want = Math.max(24, Math.min(+$('sens').value, Math.floor(imgBudget / STRIPS)));
+    const frames = await extractFrames(videoFile, want,
       (p, n) => { setProg(p * 0.5); log(`sampling video — ${n} frames kept`); });
     if (!frames.length) throw new Error('no frames captured');
     $('strip').innerHTML = frames.slice(0, 24)

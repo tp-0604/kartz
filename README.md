@@ -202,15 +202,23 @@ of the copied rows, rather than deleted — so they do not come back every month
 
 ## Settings
 
-There are none left to set. Frames were a slider and the reference picture a checkbox, and
-neither was a real choice. Both are fixed now: 64 sample points, sliced three ways, sent as
-six requests — about 228,000 tokens, which is a whole run inside one minute's allowance.
+There are none left to set, and the frame count is no longer a number someone chose. The
+allowance that binds is **tokens**, not requests: an image costs a flat ~1,100 whatever its
+dimensions, so the picture count is the whole budget. The roster is sent with every request
+and it grows — 858 names to 883 in a day — and each name inflates six prompts at once. A run
+sized by hand measured 243,000 against a limit of 250,000: inside it, but with no room to grow
+into and nothing to warn anyone.
 
-The allowance that binds is **tokens**, not requests. An image costs a flat ~1,100 whatever
-its dimensions, so the picture count is the entire budget. 96 frames came to 317,000 against
-a limit of 250,000 a minute and was throttled; 72 came to 246,000, which fits only by spacing
-the requests a dozen seconds apart, and that made every run take a minute. 64 goes in one
-burst and finishes in about 16 seconds.
+So the images are whatever is left once the prompts are paid for, and the sample points follow
+from that. At 883 names it works out to 53 frames and about 201,000 tokens, leaving 48,000
+spare; as the roster grows the sampling thins slightly rather than the run failing.
+
+Three quarters of those points are spaced by accumulated motion, which follows the scroll
+rather than the clock. The rest are spread evenly by time, because motion pacing has a blind
+spot exactly where it hurts: a stretch where nothing moves accumulates nothing and takes a
+single frame, and that stretch is the top of the list, held steady before scrolling begins.
+Read once, ranks 1 to 3 came back with their scores written into the name field and nothing to
+outvote them.
 
 Six requests, not four. Fewer would save the roster prompt that rides along with each one, but
 47 images to a request instead of 31 dropped the match rate from 91 of 129 to 67. A long batch
@@ -232,4 +240,4 @@ A 43-second recording of a 153-player list:
 | matched to the roster | **141** (92%) |
 | needing a decision | 10, and all ten are genuinely new players |
 | wrong matches | none |
-| time | 16 seconds, 6 requests, 228K of the 250K-per-minute allowance |
+| time | 13 seconds, 6 requests, 201K of the 250K-per-minute allowance |
