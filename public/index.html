@@ -69,6 +69,27 @@ tr.new{background:var(--warnbg)}
   padding:0 4px;width:auto;line-height:1;opacity:.5}
 .pencil:hover{opacity:1;color:var(--accent)}
 button.ghost.tickok{color:var(--ok)}
+#queue{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.qrow{display:flex;gap:10px;align-items:center;padding:8px 11px;border:1px solid var(--line);
+  border-radius:8px;background:var(--panel);font-size:13px}
+.qrow .qname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qrow select{width:auto;min-width:96px;padding:5px 8px}
+.qrow .qstat{color:var(--muted);font-size:12px;min-width:104px;text-align:right}
+.qrow.qdone{border-color:var(--ok)}
+.qrow.qdone .qstat{color:var(--ok)}
+.qrow.qfail{border-color:var(--bad)}
+.qrow.qfail .qstat{color:var(--bad)}
+.tabs{display:flex;gap:4px;margin:10px 0 12px;flex-wrap:wrap}
+.tab{background:transparent;color:var(--muted);border:1px solid transparent;width:auto;
+  padding:7px 13px;font-weight:500;border-radius:8px}
+.tab:hover{color:var(--ink)}
+.tab.on{background:var(--panel);border-color:var(--line);color:var(--ink);font-weight:600}
+.viewbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.viewbar>*{width:auto}
+.viewbar select,.viewbar input{min-width:150px}
+.edited{color:var(--warn);font-size:11px;margin-left:5px}
+#histTbl td[contenteditable]{outline:none;border-bottom:1px dashed var(--line)}
+#histTbl td[contenteditable]:focus{background:var(--okbg);border-bottom-color:var(--accent)}
 /* Selects inherit width:100% from the base control rule, which made these stretch across a
    column sized for the header rather than for "698S". Sized to their content instead, with a
    floor so the four codes line up, and a ceiling so the one row carrying "z1.Transferred"
@@ -116,10 +137,14 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
 <section>
   <h2>2 &middot; Recording</h2>
   <div class="drop" id="drop">
-    <strong>Choose or drop the screen recording</strong><br>
-    <span id="fileName">on a phone this opens your camera roll</span>
+    <strong>Choose or drop the screen recordings</strong><br>
+    <span id="fileName">one per alliance &mdash; on a phone this opens your camera roll</span>
   </div>
-  <input id="file" type="file" accept="video/*" class="hide">
+  <input id="file" type="file" accept="video/*" multiple class="hide">
+  <!-- Four recordings is the actual monthly job, and doing them one at a time meant sitting
+       through four rounds of pick, extract, choose alliance, save. The queue below is the same
+       work with the waiting removed. -->
+  <div id="queue" class="hide"></div>
   <div class="row" style="margin-top:12px">
     <div>
       <label for="datestr">Date</label>
@@ -146,13 +171,32 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
 
 <section id="hist">
   <h2>Kartz history</h2>
-  <p class="note">Every board saved here, from every alliance. A run is a date and an alliance
-    together, so saving the same one twice replaces it rather than counting it twice.</p>
-  <div class="row" style="margin-top:10px">
-    <button class="ghost" id="histLoad">Load history</button>
-    <input id="histFind" spellcheck="false" placeholder="find a player…">
+  <!-- Four views rather than a tab per alliance per month. A tab fixes its hierarchy the day
+       it is made, so a question that cuts the other way — one player across every alliance —
+       means opening eighteen of them. -->
+  <div class="tabs" id="histTabs">
+    <button class="tab on" data-view="boards">Boards</button>
+    <button class="tab" data-view="board">Board</button>
+    <button class="tab" data-view="month">Month</button>
+    <button class="tab" data-view="player">Player</button>
+  </div>
+
+  <div class="viewbar" id="barBoards">
+    <button class="ghost" id="histLoad">Refresh</button>
     <button class="ghost" id="histCsv">Download all</button>
   </div>
+  <div class="viewbar hide" id="barBoard">
+    <select id="boardPick"></select>
+    <button class="ghost" id="boardDel">Delete this board</button>
+  </div>
+  <div class="viewbar hide" id="barMonth">
+    <input id="monthPick" type="month">
+    <select id="monthAlli"></select>
+  </div>
+  <div class="viewbar hide" id="barPlayer">
+    <input id="playerFind" spellcheck="false" placeholder="roster name…">
+  </div>
+
   <div id="histNote" class="note" style="margin-top:8px"></div>
   <div class="tablewrap" style="margin-top:8px"><table id="histTbl"></table></div>
 </section>
@@ -184,7 +228,7 @@ const $ = id => document.getElementById(id);
 // Shown on the page. Several people run this from their own phones and a browser can sit on
 // an open tab for days, so "it is still happening" and "it is fixed" are easy to say about
 // different builds. Bump it with any change worth telling apart from the one before.
-const BUILD = '2026-09-01b';
+const BUILD = '2026-09-01c';
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
@@ -693,17 +737,92 @@ function flash(btn, text, ms = 1600) {
 const setProg = p => { $('prog').style.width = (p * 100) + '%'; };
 
 $('drop').onclick = () => $('file').click();
-$('file').onchange = e => pickFile(e.target.files[0]);
+$('file').onchange = e => pickFiles(e.target.files);
 ['dragover','dragenter'].forEach(ev => $('drop').addEventListener(ev, e => {
   e.preventDefault(); $('drop').classList.add('on'); }));
 ['dragleave','drop'].forEach(ev => $('drop').addEventListener(ev, e => {
   e.preventDefault(); $('drop').classList.remove('on'); }));
-$('drop').addEventListener('drop', e => pickFile(e.dataTransfer.files[0]));
+$('drop').addEventListener('drop', e => pickFiles(e.dataTransfer.files));
 function pickFile(f) {
   if (!f) return;
   videoFile = f;
   $('fileName').textContent = f.name + '  ·  ' + (f.size / 1e6).toFixed(0) + ' MB';
   refreshState();
+}
+
+// The queue. Four recordings is what a month actually is, and doing them one at a time meant
+// four rounds of pick, wait, choose the alliance, save — with the waiting in the middle, so
+// nobody could walk away from it. Here the alliances are all chosen up front and the run goes
+// through them unattended.
+let queue = [];
+function pickFiles(list) {
+  const files = [...(list || [])].filter(f => f && f.size);
+  if (!files.length) return;
+  queue = files.map(f => ({ file: f, alliance: '', status: 'waiting', rows: 0 }));
+  pickFile(files[0]);
+  $('fileName').textContent = files.length === 1
+    ? files[0].name + '  ·  ' + (files[0].size / 1e6).toFixed(0) + ' MB'
+    : `${files.length} recordings  ·  `
+      + (files.reduce((n, f) => n + f.size, 0) / 1e6).toFixed(0) + ' MB';
+  drawQueue();
+  refreshState();
+}
+function drawQueue() {
+  const box = $('queue');
+  box.classList.toggle('hide', queue.length < 2);
+  if (queue.length < 2) { box.innerHTML = ''; return; }
+  box.innerHTML = queue.map((q, i) => `
+    <div class="qrow ${q.status === 'saved' ? 'qdone' : q.status === 'failed' ? 'qfail' : ''}">
+      <span class="qname">${esc(q.file.name)}</span>
+      <select data-i="${i}" ${q.status === 'saved' ? 'disabled' : ''}>
+        <option value="">alliance…</option>
+        ${MAIN_ALLIANCES.map(a => `<option value="${a}"${a === q.alliance ? ' selected' : ''}>`
+          + `${a}</option>`).join('')}
+      </select>
+      <span class="qstat">${esc(
+        q.status === 'waiting' ? 'waiting'
+        : q.status === 'saved' ? `${q.rows} rows saved`
+        : q.status === 'failed' ? 'failed'
+        : q.status)}</span>
+    </div>`).join('');
+  box.querySelectorAll('select').forEach(sel => sel.onchange = () => {
+    queue[+sel.dataset.i].alliance = sel.value;
+    refreshState();
+  });
+}
+
+// Run the queue: extract, resolve, save, move on. Each board is saved before the next is
+// decoded, so a failure halfway leaves the earlier ones in the database rather than losing
+// the sitting.
+async function runQueue() {
+  const missing = queue.filter(q => !q.alliance);
+  if (missing.length) {
+    log(`choose an alliance for ${missing.length} more recording`
+        + `${missing.length > 1 ? 's' : ''} first`);
+    return;
+  }
+  $('go').disabled = true;
+  for (const q of queue) {
+    if (q.status === 'saved') continue;
+    q.status = 'reading…'; drawQueue();
+    try {
+      videoFile = q.file;
+      allianceAll = q.alliance;
+      await extractAndResolve();
+      q.status = 'saving…'; drawQueue();
+      await saveRun();
+      q.rows = rows.filter(r => !r.dropped && !r.skipped && r.rank > 0).length;
+      q.status = 'saved';
+    } catch (e) {
+      q.status = 'failed';
+      log(`✗ ${q.file.name}: ${e.message}`);
+    }
+    drawQueue();
+  }
+  const ok = queue.filter(q => q.status === 'saved').length;
+  log(`queue finished — ${ok} of ${queue.length} boards saved`);
+  await loadBoards();
+  $('go').disabled = false;
 }
 
 const once = (el, ev) => new Promise(res => el.addEventListener(ev, res, { once: true }));
@@ -1459,9 +1578,11 @@ const mode = arr => {
 
 /* ---------------- run ---------------- */
 let rows = [], index = [], skipIndex = [], aliases = {};
-$('go').onclick = async () => {
-  $('go').disabled = true; $('out').classList.add('hide');
-  try {
+// The body of a run, with no button attached to it. Pulled out so the queue can drive it four
+// times over without duplicating any of it, and so a failure on one recording throws rather
+// than being swallowed by the handler's own catch.
+async function extractAndResolve() {
+  {
     const roster = currentRoster();
     if (!roster.length) throw new Error('No roster loaded — paste the sheet link and press Pull roster.');
     index = buildIndex(roster);
@@ -1595,6 +1716,16 @@ $('go').onclick = async () => {
     render(roster);
     log(`done — ${sightings.length} readings → ${rows.length} players`);
     setProg(1);
+  }
+}
+
+$('go').onclick = async () => {
+  $('go').disabled = true; $('out').classList.add('hide');
+  try {
+    // Several recordings queued means the whole sitting runs unattended; one means the
+    // ordinary single pass, and the alliance is chosen afterwards as it always was.
+    if (queue.length > 1) { await runQueue(); return; }
+    await extractAndResolve();
   } catch (e) {
     const m = e.message;
     log(/\b429\b/.test(m) && /quota|per day/i.test(m)
@@ -1936,7 +2067,24 @@ const OUT_HEADERS = ['Date', 'Rank', 'Game Name', 'Kartz Points'];
 // Both names are stored. The roster name is what history is keyed on, because the in-game one
 // changes whenever a player feels like it — Neaira became "Neaira 🔥" between two months, and
 // keyed on that they would be two different people by the end of a year.
-let histRows = [];
+// ---------------------------------------------------------------------------------------
+// The four views
+//
+// Boards is the index; Board is one recording, and the only place rows can be corrected;
+// Month is the shape the workbook already uses, scoring days across the top; Player is the
+// one a tab cannot answer, because it cuts across every alliance and every month.
+let boardList = [], view = 'boards';
+
+const api = async (path, opts) => {
+  const res = await fetch(API_BASE + path, opts);
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((j.error && j.error.message) || res.status);
+  return j;
+};
+const note = t => { $('histNote').textContent = t; };
+const tbl = html => { $('histTbl').innerHTML = html; };
+const th = cols => '<thead><tr>' + cols.map(c => `<th>${c}</th>`).join('') + '</tr></thead>';
+
 async function saveRun() {
   // A saved board belongs to one alliance, which is the whole reason that column has a single
   // control at its head rather than one per row.
@@ -1952,71 +2100,212 @@ async function saveRun() {
     alliance: allianceAll,
     rows: keep.map(r => ({
       place:  r.rank,
-      // Two names, doing different jobs. The roster name is the identity history is keyed on,
-      // and null is the honest answer for somebody not on the roster yet. The drawn name is
-      // what the video actually showed, kept because that is the part that changes: Neaira
-      // became "Neaira 🔥" between two months, and storing only the canonical form would throw
-      // away the one piece of evidence that a rename happened at all.
+      // Three names' worth of information in two columns. The roster name is the identity, and
+      // null is the honest answer for somebody not on the roster yet. The drawn name is what
+      // the video showed, kept because it is the part that changes. The alliance is the
+      // player's own, from the roster — not the board's, which is stored once on the board.
       search: r.match ? r.match.search : null,
       ingame: r.name || outName(r),
+      alliance: r.match ? (r.match.alliance || null) : null,
       points: r.points,
     })),
   };
   $('save').disabled = true;
   try {
-    const res = await fetch(API_BASE + '/runs', { method: 'POST',
+    const j = await api('/runs', { method: 'POST',
       headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
-    const j = await res.json();
-    if (!res.ok) throw new Error((j.error && j.error.message) || res.status);
-    log(`saved ${j.saved} rows for ${payload.alliance} on ${payload.date}`);
+    log(`saved ${j.saved} rows for ${payload.alliance} on ${payload.date}`
+        + (j.kept ? ` — ${j.kept} hand-corrected row(s) kept` : ''));
     flash($('save'), `Saved ${j.saved} ✓`);
-    if (histRows.length) loadHistory();      // keep an open history view in step
+    if (boardList.length) loadBoards();
   } catch (e) { log('✗ could not save: ' + e.message); }
   $('save').disabled = false;
 }
 $('save').onclick = saveRun;
 
-async function loadHistory() {
-  $('histNote').textContent = 'loading…';
+/* ---- view 1: every board saved ---- */
+async function loadBoards() {
+  note('loading…');
   try {
-    const res = await fetch(API_BASE + '/all');
-    const j = await res.json();
-    if (!res.ok) throw new Error((j.error && j.error.message) || res.status);
-    histRows = j.rows || [];
-    drawHistory();
-  } catch (e) { $('histNote').textContent = '✗ ' + e.message; }
+    const j = await api('/boards');
+    boardList = j.boards || [];
+    const sel = $('boardPick');
+    sel.innerHTML = boardList.map(b =>
+      `<option value="${esc(b.id)}">${esc(b.date)} · ${esc(b.alliance)}`
+      + `${b.label ? ' · ' + esc(b.label) : ''} (${b.players})</option>`).join('');
+    const sa = $('monthAlli');
+    const alls = [...new Set(boardList.map(b => b.alliance))].sort();
+    sa.innerHTML = '<option value="">every alliance</option>'
+      + alls.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+    if (!$('monthPick').value && boardList.length)
+      $('monthPick').value = boardList[0].date.slice(0, 7);
+    drawBoards();
+  } catch (e) { note('✗ ' + e.message); }
 }
-function drawHistory() {
-  const q = fold($('histFind').value.trim());
-  const shown = q ? histRows.filter(r => fold(r.search || '').includes(q)
-                                      || fold(r.ingame || '').includes(q)) : histRows;
-  const runs = new Set(histRows.map(r => r.date + '|' + r.alliance));
-  const players = new Set(histRows.map(r => r.search || r.ingame));
-  $('histNote').textContent = histRows.length
-    ? `${histRows.length} rows · ${runs.size} boards · ${players.size} players`
-      + (q ? ` · showing ${shown.length}` : '')
-    : 'Nothing saved yet.';
-  $('histTbl').innerHTML =
-    '<thead><tr><th>Date</th><th>Alliance</th><th>Rank</th><th>Player</th>'
-    + '<th>Name in video</th><th>Kartz Points</th></tr></thead><tbody>'
-    + shown.slice(0, 500).map(r => `<tr>
-        <td>${esc(r.date)}</td><td>${esc(r.alliance)}</td><td>${r.place}</td>
-        <td>${esc(r.search || '')}</td><td>${esc(r.ingame)}</td><td>${r.points}</td>
-      </tr>`).join('') + '</tbody>';
+function drawBoards() {
+  note(boardList.length
+    ? `${boardList.length} board${boardList.length > 1 ? 's' : ''} · `
+      + `${boardList.reduce((n, b) => n + b.players, 0)} rows`
+    : 'Nothing saved yet. Extract a recording, pick its alliance, and press Save to history.');
+  tbl(th(['Date', 'Event', 'Board', 'Label', 'Players', 'Top score', ''])
+    + '<tbody>' + boardList.map(b => `<tr>
+        <td>${esc(b.date)}</td><td>${esc(b.event)}</td><td>${esc(b.alliance)}</td>
+        <td>${esc(b.label || '—')}</td><td>${b.players}</td><td>${b.best ?? ''}</td>
+        <td><button class="ghost openboard" data-id="${esc(b.id)}"
+              style="width:auto;padding:4px 10px">open</button></td>
+      </tr>`).join('') + '</tbody>');
+  $('histTbl').querySelectorAll('.openboard').forEach(btn => btn.onclick = () => {
+    $('boardPick').value = btn.dataset.id;
+    setView('board');
+  });
 }
-$('histLoad').onclick = loadHistory;
-$('histFind').oninput = () => { if (histRows.length) drawHistory(); };
-$('histCsv').onclick = () => {
-  if (!histRows.length) { $('histNote').textContent = 'Load the history first.'; return; }
-  const csv = 'Date,Alliance,Rank,Player,Name in video,Kartz Points\n'
-    + histRows.map(r => [r.date, r.alliance, r.place, r.search || '', r.ingame, r.points]
-        .map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-  const a = Object.assign(document.createElement('a'), {
-    href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
-    download: 'kartz-history.csv' });
-  a.click(); URL.revokeObjectURL(a.href);
-  flash($('histCsv'), 'Downloaded ✓');
+
+/* ---- view 2: one board, and the only place a row can be corrected ---- */
+async function loadBoard() {
+  const id = $('boardPick').value;
+  if (!id) { note('No board selected.'); tbl(''); return; }
+  note('loading…');
+  try {
+    const j = await api('/board?id=' + encodeURIComponent(id));
+    const b = j.board;
+    note(`${b.date} · ${b.alliance}${b.label ? ' · ' + b.label : ''} · ${j.rows.length} rows`
+         + ' — click a name, alliance or score to correct it');
+    tbl(th(['Rank', 'Player', 'Name in video', 'Alliance', 'Kartz Points', ''])
+      + '<tbody>' + j.rows.map(r => `<tr data-place="${r.place}">
+          <td>${r.place}</td>
+          <td contenteditable data-f="search">${esc(r.search || '')}</td>
+          <td contenteditable data-f="ingame">${esc(r.ingame)}</td>
+          <td contenteditable data-f="alliance">${esc(r.alliance || '')}</td>
+          <td contenteditable data-f="points">${r.points}</td>
+          <td>${r.edited ? '<span class="edited">edited</span>' : ''}</td>
+        </tr>`).join('') + '</tbody>');
+    // Committing on blur rather than on every keystroke: a cell being typed into is not yet
+    // an answer, and a request per character would be both wasteful and wrong.
+    $('histTbl').querySelectorAll('td[contenteditable]').forEach(td => {
+      const before = td.textContent;
+      td.onblur = async () => {
+        const now = td.textContent.trim();
+        if (now === before.trim()) return;
+        const place = +td.closest('tr').dataset.place;
+        try {
+          await api('/score', { method: 'PATCH',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ board: id, place, [td.dataset.f]: now }) });
+          loadBoard();
+        } catch (e) { note('✗ ' + e.message); td.textContent = before; }
+      };
+    });
+  } catch (e) { note('✗ ' + e.message); }
+}
+$('boardDel').onclick = async () => {
+  const id = $('boardPick').value;
+  const b = boardList.find(x => x.id === id);
+  if (!b) return;
+  if (!confirm(`Delete the ${b.alliance} board from ${b.date}, and its ${b.players} rows?`
+               + '\n\nThis cannot be undone.')) return;
+  try {
+    const j = await api('/board?id=' + encodeURIComponent(id), { method: 'DELETE' });
+    note(`deleted ${j.rows} rows`);
+    await loadBoards();
+    setView('boards');
+  } catch (e) { note('✗ ' + e.message); }
 };
+
+/* ---- view 3: one month, scoring days across the top ---- */
+async function loadMonth() {
+  const month = $('monthPick').value, alliance = $('monthAlli').value;
+  if (!month) { note('Pick a month.'); tbl(''); return; }
+  note('loading…');
+  try {
+    const j = await api(`/month?month=${encodeURIComponent(month)}`
+                        + (alliance ? `&alliance=${encodeURIComponent(alliance)}` : ''));
+    const days = [...new Set((j.rows || []).map(r => r.date))].sort();
+    if (!days.length) { note(`Nothing saved for ${month}.`); tbl(''); return; }
+    const label = {}; for (const r of j.rows) label[r.date] = r.label || r.date.slice(8);
+    // One row per player, one column per scoring day. Growth is a subtraction done here rather
+    // than a column anybody has to maintain.
+    const players = new Map();
+    for (const r of j.rows) {
+      const key = r.search || r.ingame;
+      if (!players.has(key)) players.set(key, { name: key, ingame: r.ingame, by: {} });
+      players.get(key).by[r.date] = r.points;
+    }
+    const list = [...players.values()].sort((a, b) =>
+      (b.by[days[days.length-1]] ?? -1) - (a.by[days[days.length-1]] ?? -1));
+    note(`${month}${alliance ? ' · ' + alliance : ''} · ${list.length} players · `
+         + `${days.length} scoring day${days.length > 1 ? 's' : ''}`);
+    tbl(th(['Player', ...days.map(d => esc(label[d])), 'Growth'])
+      + '<tbody>' + list.map(p => {
+          const first = p.by[days[0]], last = p.by[days[days.length-1]];
+          const growth = (first !== undefined && last !== undefined && days.length > 1)
+            ? (last - first) : null;
+          return `<tr><td>${esc(p.name)}</td>`
+            + days.map(d => `<td>${p.by[d] ?? ''}</td>`).join('')
+            + `<td>${growth === null ? '' : (growth >= 0 ? '+' : '') + growth}</td></tr>`;
+        }).join('') + '</tbody>');
+  } catch (e) { note('✗ ' + e.message); }
+}
+
+/* ---- view 4: one player, every alliance, every month ---- */
+async function loadPlayer() {
+  const who = $('playerFind').value.trim();
+  if (!who) { note('Type a roster name.'); tbl(''); return; }
+  note('loading…');
+  try {
+    const j = await api('/player?search=' + encodeURIComponent(who));
+    const h = j.history || [];
+    if (!h.length) { note(`Nothing saved for "${who}".`); tbl(''); return; }
+    const names = [...new Set(h.map(r => r.ingame))];
+    note(`${who} · ${h.length} board${h.length > 1 ? 's' : ''}`
+         + (names.length > 1 ? ` · seen as ${names.map(n => '"' + n + '"').join(', ')}` : ''));
+    tbl(th(['Date', 'Board', 'Label', 'Rank', 'Name in video', 'Points', 'Change'])
+      + '<tbody>' + h.map((r, i) => {
+          const prev = i > 0 ? h[i-1].points : null;
+          const d = prev === null ? '' : (r.points - prev >= 0 ? '+' : '') + (r.points - prev);
+          return `<tr><td>${esc(r.date)}</td><td>${esc(r.board)}</td>
+            <td>${esc(r.label || '—')}</td><td>${r.place}</td>
+            <td>${esc(r.ingame)}</td><td>${r.points}</td><td>${d}</td></tr>`;
+        }).join('') + '</tbody>');
+  } catch (e) { note('✗ ' + e.message); }
+}
+
+/* ---- switching between them ---- */
+function setView(v) {
+  view = v;
+  $('histTabs').querySelectorAll('.tab').forEach(t =>
+    t.classList.toggle('on', t.dataset.view === v));
+  ['boards','board','month','player'].forEach(k =>
+    $('bar' + k[0].toUpperCase() + k.slice(1)).classList.toggle('hide', k !== v));
+  ({ boards: drawBoards, board: loadBoard, month: loadMonth, player: loadPlayer })[v]();
+}
+$('histTabs').querySelectorAll('.tab').forEach(t => t.onclick = () => {
+  if (t.dataset.view !== 'boards' && !boardList.length) { loadBoards(); }
+  setView(t.dataset.view);
+});
+$('histLoad').onclick = loadBoards;
+$('boardPick').onchange = loadBoard;
+$('monthPick').onchange = loadMonth;
+$('monthAlli').onchange = loadMonth;
+$('playerFind').onchange = loadPlayer;
+
+$('histCsv').onclick = async () => {
+  try {
+    const j = await api('/all');
+    const rows = j.rows || [];
+    if (!rows.length) { note('Nothing saved yet.'); return; }
+    const head = ['Date','Event','Board','Label','Rank','Player','Name in video','Alliance','Points'];
+    const csv = head.join(',') + '\n' + rows.map(r =>
+      [r.date, r.event, r.board, r.label || '', r.place, r.search || '', r.ingame,
+       r.alliance || '', r.points]
+      .map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = Object.assign(document.createElement('a'), {
+      href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+      download: 'kartz-history.csv' });
+    a.click(); URL.revokeObjectURL(a.href);
+    flash($('histCsv'), 'Downloaded ✓');
+  } catch (e) { note('✗ ' + e.message); }
+};
+loadBoards();
 
 $('copy').onclick = async () => {
   const tsv = outRows().map(r => r.join('\t')).join('\n');

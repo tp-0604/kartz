@@ -72,26 +72,44 @@ async function runWorkersAI(env, model, body) {
 // the same day replaces it rather than doubling every score, which is the obvious way for two
 // officers to corrupt a shared table without noticing.
 const MAX_ROWS = 500;                       // a Kartz board is ~150; this is a sanity bound
+const boardId = (event, date, alliance) => `${event}|${date}|${alliance}`;
 
 async function handleData(seg, request, env, reply) {
   if (!env.DB) return reply({ error: { code: 500,
     message: 'This Worker has no DB binding. Create the database with "wrangler d1 create '
            + 'kartz-db", put the id in wrangler.toml, and deploy again.' } }, 500);
   const url = new URL(request.url);
+  const q = url.searchParams;
+  const method = request.method;
 
-  // Every run recorded, newest first — the index of what the database holds.
-  if (seg === 'runs' && request.method === 'GET') {
+  // ---- the index: every board saved, newest first --------------------------------------
+  if (seg === 'boards' && method === 'GET') {
     const { results } = await env.DB.prepare(
-      `SELECT date, alliance, COUNT(*) AS players, MAX(points) AS best
-         FROM scores GROUP BY run_id ORDER BY date DESC, alliance ASC`).all();
-    return reply({ runs: results }, 200);
+      `SELECT b.id, b.event, b.date, b.alliance, b.label, b.saved_at,
+              COUNT(s.place) AS players, MAX(s.points) AS best
+         FROM boards b LEFT JOIN scores s ON s.board_id = b.id
+        GROUP BY b.id ORDER BY b.date DESC, b.alliance ASC`).all();
+    return reply({ boards: results }, 200);
   }
 
-  // Save one alliance's board for one day.
-  if (seg === 'runs' && request.method === 'POST') {
+  // ---- one board's rows, in the order the game had them ---------------------------------
+  if (seg === 'board' && method === 'GET') {
+    const id = q.get('id') || '';
+    const board = await env.DB.prepare('SELECT * FROM boards WHERE id = ?').bind(id).first();
+    if (!board) return reply({ error: { code: 404, message: 'no such board' } }, 404);
+    const { results } = await env.DB.prepare(
+      `SELECT place, search, ingame, alliance, points, edited FROM scores
+        WHERE board_id = ? ORDER BY place`).bind(id).all();
+    return reply({ board, rows: results }, 200);
+  }
+
+  // ---- save a board, replacing any board with the same event, date and alliance ---------
+  if (seg === 'runs' && method === 'POST') {
     const body = await request.json().catch(() => null);
+    const event = String(body && body.event || 'kartz').trim() || 'kartz';
     const date = String(body && body.date || '').trim();
     const alliance = String(body && body.alliance || '').trim();
+    const label = body && body.label ? String(body.label).trim() : null;
     const rows = Array.isArray(body && body.rows) ? body.rows : null;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
       return reply({ error: { code: 400, message: 'date must be YYYY-MM-DD.' } }, 400);
@@ -101,53 +119,147 @@ async function handleData(seg, request, env, reply) {
     if (rows.length > MAX_ROWS)
       return reply({ error: { code: 400, message: `too many rows (${rows.length}).` } }, 400);
 
-    const runId = date + '|' + alliance;
+    const id = boardId(event, date, alliance);
+    // Corrections made by hand survive a re-save. Re-extracting the same recording to pick up
+    // a better reading elsewhere should not silently undo the name somebody fixed by typing it.
+    const { results: kept } = await env.DB.prepare(
+      'SELECT place, search, ingame, alliance, points FROM scores WHERE board_id = ? AND edited = 1')
+      .bind(id).all();
+    const byPlace = new Map((kept || []).map(r => [r.place, r]));
+
     const ins = env.DB.prepare(
-      `INSERT INTO scores (run_id, date, alliance, place, search, ingame, points)
+      `INSERT INTO scores (board_id, place, search, ingame, alliance, points, edited)
        VALUES (?, ?, ?, ?, ?, ?, ?)`);
-    const stmts = [env.DB.prepare('DELETE FROM scores WHERE run_id = ?').bind(runId)];
+    const stmts = [
+      env.DB.prepare('DELETE FROM scores WHERE board_id = ?').bind(id),
+      env.DB.prepare(
+        `INSERT INTO boards (id, event, date, alliance, label, saved_at) VALUES (?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET label = COALESCE(excluded.label, boards.label),
+                                       saved_at = excluded.saved_at`)
+        .bind(id, event, date, alliance, label, new Date().toISOString()),
+    ];
     const seen = new Set();
     for (const r of rows) {
       const place = Number(r.place ?? r.rank);
       const points = Number(r.points);
       const ingame = String(r.ingame ?? r.name ?? '').trim();
       if (!Number.isFinite(place) || place <= 0 || !ingame) continue;
-      if (seen.has(place)) continue;        // the primary key would reject the whole batch
+      if (seen.has(place)) continue;          // the primary key would reject the whole batch
       seen.add(place);
-      stmts.push(ins.bind(runId, date, alliance, place,
-                          r.search ? String(r.search).trim() : null,
-                          ingame, Number.isFinite(points) ? points : 0));
+      const fixed = byPlace.get(place);
+      stmts.push(fixed
+        ? ins.bind(id, place, fixed.search, fixed.ingame, fixed.alliance, fixed.points, 1)
+        : ins.bind(id, place, r.search ? String(r.search).trim() : null, ingame,
+                   r.alliance ? String(r.alliance).trim() : null,
+                   Number.isFinite(points) ? points : 0, 0));
     }
     await env.DB.batch(stmts);
-    return reply({ saved: stmts.length - 1, run: runId, replaced: true }, 200);
+    return reply({ saved: stmts.length - 2, board: id, kept: byPlace.size }, 200);
   }
 
-  // One run's rows, in the order the game had them.
-  if (seg === 'scores' && request.method === 'GET') {
-    const date = url.searchParams.get('date') || '';
-    const alliance = url.searchParams.get('alliance') || '';
+  // ---- relabel a board: its date, alliance, event or label, without touching the scores --
+  if (seg === 'board' && method === 'PATCH') {
+    const body = await request.json().catch(() => null);
+    const id = String(body && body.id || '');
+    const board = await env.DB.prepare('SELECT * FROM boards WHERE id = ?').bind(id).first();
+    if (!board) return reply({ error: { code: 404, message: 'no such board' } }, 404);
+    const event = String(body.event ?? board.event).trim();
+    const date = String(body.date ?? board.date).trim();
+    const alliance = String(body.alliance ?? board.alliance).trim();
+    const label = body.label === undefined ? board.label
+                : (String(body.label).trim() || null);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+      return reply({ error: { code: 400, message: 'date must be YYYY-MM-DD.' } }, 400);
+    const next = boardId(event, date, alliance);
+    if (next !== id) {
+      const clash = await env.DB.prepare('SELECT id FROM boards WHERE id = ?').bind(next).first();
+      if (clash) return reply({ error: { code: 409,
+        message: `a board already exists for ${alliance} on ${date}.` } }, 409);
+    }
+    await env.DB.batch([
+      env.DB.prepare('UPDATE boards SET id=?, event=?, date=?, alliance=?, label=? WHERE id=?')
+        .bind(next, event, date, alliance, label, id),
+      env.DB.prepare('UPDATE scores SET board_id=? WHERE board_id=?').bind(next, id),
+    ]);
+    return reply({ board: next, renamed: next !== id }, 200);
+  }
+
+  // ---- throw a board away, scores and all -----------------------------------------------
+  if (seg === 'board' && method === 'DELETE') {
+    const id = q.get('id') || '';
+    const board = await env.DB.prepare('SELECT * FROM boards WHERE id = ?').bind(id).first();
+    if (!board) return reply({ error: { code: 404, message: 'no such board' } }, 404);
+    const n = await env.DB.prepare('SELECT COUNT(*) n FROM scores WHERE board_id = ?')
+                          .bind(id).first();
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM scores WHERE board_id = ?').bind(id),
+      env.DB.prepare('DELETE FROM boards WHERE id = ?').bind(id),
+    ]);
+    return reply({ deleted: id, rows: (n && n.n) || 0 }, 200);
+  }
+
+  // ---- correct one row, and mark that a person did it ------------------------------------
+  if (seg === 'score' && method === 'PATCH') {
+    const body = await request.json().catch(() => null);
+    const id = String(body && body.board || '');
+    const place = Number(body && body.place);
+    if (!id || !Number.isFinite(place))
+      return reply({ error: { code: 400, message: 'board and place are required.' } }, 400);
+    const row = await env.DB.prepare('SELECT * FROM scores WHERE board_id=? AND place=?')
+                            .bind(id, place).first();
+    if (!row) return reply({ error: { code: 404, message: 'no such row' } }, 404);
+    const search = body.search === undefined ? row.search
+                 : (String(body.search).trim() || null);
+    const ingame = body.ingame === undefined ? row.ingame : String(body.ingame).trim();
+    const alliance = body.alliance === undefined ? row.alliance
+                   : (String(body.alliance).trim() || null);
+    const points = body.points === undefined ? row.points : Number(body.points);
+    if (!ingame) return reply({ error: { code: 400, message: 'a name is required.' } }, 400);
+    if (!Number.isFinite(points))
+      return reply({ error: { code: 400, message: 'points must be a number.' } }, 400);
+    await env.DB.prepare(
+      `UPDATE scores SET search=?, ingame=?, alliance=?, points=?, edited=1
+        WHERE board_id=? AND place=?`)
+      .bind(search, ingame, alliance, points, id, place).run();
+    return reply({ updated: { place, search, ingame, alliance, points } }, 200);
+  }
+
+  // ---- one alliance, one month, scoring days across the top ------------------------------
+  if (seg === 'month' && method === 'GET') {
+    const month = q.get('month') || '';
+    const alliance = q.get('alliance') || '';
+    const event = q.get('event') || 'kartz';
+    if (!/^\d{4}-\d{2}$/.test(month))
+      return reply({ error: { code: 400, message: 'month must be YYYY-MM.' } }, 400);
+    const where = ['b.event = ?', "b.date LIKE ?"], bind = [event, month + '%'];
+    if (alliance) { where.push('b.alliance = ?'); bind.push(alliance); }
     const { results } = await env.DB.prepare(
-      `SELECT place, search, ingame, points FROM scores
-        WHERE run_id = ? ORDER BY place`).bind(date + '|' + alliance).all();
-    return reply({ rows: results }, 200);
+      `SELECT b.id, b.date, b.label, b.alliance AS board_alliance,
+              s.place, s.search, s.ingame, s.alliance, s.points
+         FROM boards b JOIN scores s ON s.board_id = b.id
+        WHERE ${where.join(' AND ')}
+        ORDER BY b.date ASC, s.place ASC`).bind(...bind).all();
+    return reply({ month, alliance, rows: results }, 200);
   }
 
-  // Everything one player has ever scored, oldest first. Looked up by the roster name rather
-  // than the drawn one: the drawn name changes whenever they feel like it.
-  if (seg === 'player' && request.method === 'GET') {
-    const who = url.searchParams.get('search') || '';
+  // ---- everything one player has ever scored --------------------------------------------
+  if (seg === 'player' && method === 'GET') {
+    const who = q.get('search') || '';
     if (!who) return reply({ error: { code: 400, message: 'search is required.' } }, 400);
     const { results } = await env.DB.prepare(
-      `SELECT date, alliance, place, ingame, points FROM scores
-        WHERE search = ? ORDER BY date ASC, alliance ASC`).bind(who).all();
+      `SELECT b.date, b.alliance AS board, b.label, s.place, s.ingame, s.alliance, s.points
+         FROM scores s JOIN boards b ON b.id = s.board_id
+        WHERE s.search = ? ORDER BY b.date ASC`).bind(who).all();
     return reply({ history: results }, 200);
   }
 
-  // Everything, for the spreadsheet view and for getting the data back out again.
-  if (seg === 'all' && request.method === 'GET') {
+  // ---- everything, for the table view and for getting the data back out -------------------
+  if (seg === 'all' && method === 'GET') {
     const { results } = await env.DB.prepare(
-      `SELECT date, alliance, place, search, ingame, points FROM scores
-        ORDER BY date DESC, alliance ASC, place ASC`).all();
+      `SELECT b.date, b.event, b.alliance AS board, b.label, s.place, s.search, s.ingame,
+              s.alliance, s.points, s.edited
+         FROM scores s JOIN boards b ON b.id = s.board_id
+        ORDER BY b.date DESC, b.alliance ASC, s.place ASC`).all();
     return reply({ rows: results }, 200);
   }
 
@@ -213,7 +325,7 @@ async function handleCsv(request, env) {
 function corsHeaders(origin) {
   return {
     'access-control-allow-origin': origin,
-    'access-control-allow-methods': 'POST, OPTIONS',
+    'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
     'access-control-allow-headers': 'content-type, x-kartz-pass',
     'access-control-max-age': '86400',
     'vary': 'Origin',
@@ -287,7 +399,7 @@ export default {
     // and be forwarded to Google.
     const seg = decodeURIComponent(
       new URL(request.url).pathname.replace(/^\/+/, '').replace(/^api\/+/, '')).split('/')[0];
-    if (['runs', 'scores', 'player', 'all'].includes(seg)) {
+    if (['runs', 'boards', 'board', 'score', 'month', 'player', 'all'].includes(seg)) {
       try {
         const out = await handleData(seg, request, env, reply);
         if (out) return out;
