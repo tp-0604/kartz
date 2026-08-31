@@ -144,12 +144,26 @@ details summary{cursor:pointer;font-size:13px;color:var(--muted)}
   <div class="strip" id="strip"></div>
 </section>
 
+<section id="hist">
+  <h2>Kartz history</h2>
+  <p class="note">Every board saved here, from every alliance. A run is a date and an alliance
+    together, so saving the same one twice replaces it rather than counting it twice.</p>
+  <div class="row" style="margin-top:10px">
+    <button class="ghost" id="histLoad">Load history</button>
+    <input id="histFind" spellcheck="false" placeholder="find a player…">
+    <button class="ghost" id="histCsv">Download all</button>
+  </div>
+  <div id="histNote" class="note" style="margin-top:8px"></div>
+  <div class="tablewrap" style="margin-top:8px"><table id="histTbl"></table></div>
+</section>
+
 <section id="out" class="hide">
   <h2>3 &middot; Results</h2>
   <div id="verdict"></div>
   <div class="tablewrap"><table id="tbl"></table></div>
   <div class="row" style="margin-top:12px">
-    <button id="copy">Copy for sheet</button>
+    <button id="save">Save to history</button>
+    <button class="ghost" id="copy">Copy for sheet</button>
     <button class="ghost" id="csv">Download CSV</button>
     <button class="ghost" id="learn">Remember my fixes</button>
   </div>
@@ -170,7 +184,7 @@ const $ = id => document.getElementById(id);
 // Shown on the page. Several people run this from their own phones and a browser can sit on
 // an open tab for days, so "it is still happening" and "it is fixed" are easy to say about
 // different builds. Bump it with any change worth telling apart from the one before.
-const BUILD = '2026-08-28c';
+const BUILD = '2026-08-28d';
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
@@ -1873,6 +1887,99 @@ function outName(r) {
 const outRows = () => rows.filter(r => !r.dropped && !r.skipped)
   .map(r => [$('datestr').value || '', r.rank, outName(r), r.points]);
 const OUT_HEADERS = ['Date', 'Rank', 'Game Name', 'Kartz Points'];
+// ---------------------------------------------------------------------------------------
+// History
+//
+// The rows go somewhere that outlives the run. A board is stored as a date and an alliance
+// together, so a second upload of the same one replaces it: two officers doing 698S on the
+// same evening is the obvious way to double every score in a shared table without anyone
+// noticing until the totals look wrong.
+//
+// Both names are stored. The roster name is what history is keyed on, because the in-game one
+// changes whenever a player feels like it — Neaira became "Neaira 🔥" between two months, and
+// keyed on that they would be two different people by the end of a year.
+let histRows = [];
+async function saveRun() {
+  // A saved board belongs to one alliance, which is the whole reason that column has a single
+  // control at its head rather than one per row.
+  if (!allianceAll) {
+    log('pick the alliance at the top of the Alliance column first — a saved board belongs '
+        + 'to one alliance');
+    return;
+  }
+  const keep = rows.filter(r => !r.dropped && !r.skipped && r.rank > 0);
+  if (!keep.length) { log('nothing to save'); return; }
+  const payload = {
+    date: $('datestr').value,
+    alliance: allianceAll,
+    rows: keep.map(r => ({
+      place:  r.rank,
+      // Two names, doing different jobs. The roster name is the identity history is keyed on,
+      // and null is the honest answer for somebody not on the roster yet. The drawn name is
+      // what the video actually showed, kept because that is the part that changes: Neaira
+      // became "Neaira 🔥" between two months, and storing only the canonical form would throw
+      // away the one piece of evidence that a rename happened at all.
+      search: r.match ? r.match.search : null,
+      ingame: r.name || outName(r),
+      points: r.points,
+    })),
+  };
+  $('save').disabled = true;
+  try {
+    const res = await fetch(API_BASE + '/runs', { method: 'POST',
+      headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload) });
+    const j = await res.json();
+    if (!res.ok) throw new Error((j.error && j.error.message) || res.status);
+    log(`saved ${j.saved} rows for ${payload.alliance} on ${payload.date}`);
+    flash($('save'), `Saved ${j.saved} ✓`);
+    if (histRows.length) loadHistory();      // keep an open history view in step
+  } catch (e) { log('✗ could not save: ' + e.message); }
+  $('save').disabled = false;
+}
+$('save').onclick = saveRun;
+
+async function loadHistory() {
+  $('histNote').textContent = 'loading…';
+  try {
+    const res = await fetch(API_BASE + '/all');
+    const j = await res.json();
+    if (!res.ok) throw new Error((j.error && j.error.message) || res.status);
+    histRows = j.rows || [];
+    drawHistory();
+  } catch (e) { $('histNote').textContent = '✗ ' + e.message; }
+}
+function drawHistory() {
+  const q = fold($('histFind').value.trim());
+  const shown = q ? histRows.filter(r => fold(r.search || '').includes(q)
+                                      || fold(r.ingame || '').includes(q)) : histRows;
+  const runs = new Set(histRows.map(r => r.date + '|' + r.alliance));
+  const players = new Set(histRows.map(r => r.search || r.ingame));
+  $('histNote').textContent = histRows.length
+    ? `${histRows.length} rows · ${runs.size} boards · ${players.size} players`
+      + (q ? ` · showing ${shown.length}` : '')
+    : 'Nothing saved yet.';
+  $('histTbl').innerHTML =
+    '<thead><tr><th>Date</th><th>Alliance</th><th>Rank</th><th>Player</th>'
+    + '<th>Name in video</th><th>Kartz Points</th></tr></thead><tbody>'
+    + shown.slice(0, 500).map(r => `<tr>
+        <td>${esc(r.date)}</td><td>${esc(r.alliance)}</td><td>${r.place}</td>
+        <td>${esc(r.search || '')}</td><td>${esc(r.ingame)}</td><td>${r.points}</td>
+      </tr>`).join('') + '</tbody>';
+}
+$('histLoad').onclick = loadHistory;
+$('histFind').oninput = () => { if (histRows.length) drawHistory(); };
+$('histCsv').onclick = () => {
+  if (!histRows.length) { $('histNote').textContent = 'Load the history first.'; return; }
+  const csv = 'Date,Alliance,Rank,Player,Name in video,Kartz Points\n'
+    + histRows.map(r => [r.date, r.alliance, r.place, r.search || '', r.ingame, r.points]
+        .map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+    download: 'kartz-history.csv' });
+  a.click(); URL.revokeObjectURL(a.href);
+  flash($('histCsv'), 'Downloaded ✓');
+};
+
 $('copy').onclick = async () => {
   const tsv = outRows().map(r => r.join('\t')).join('\n');
   try {

@@ -60,6 +60,100 @@ async function runWorkersAI(env, model, body) {
   return { candidates: [{ content: { parts: [{ text: typeof reply === 'string' ? reply : JSON.stringify(reply) }] } }] };
 }
 
+// ---------------------------------------------------------------------------------------
+// Kartz history.
+//
+// The scores used to exist only as a block pasted into a spreadsheet tab, one tab per month,
+// and the shape of those tabs drifted five times in two years. Here they are rows: each one
+// carries its own date and alliance, so nothing ever needs reshaping and a question like
+// "how has this player gone since June" is a query rather than an afternoon.
+//
+// A run is identified by its date and alliance together. Uploading the same alliance twice on
+// the same day replaces it rather than doubling every score, which is the obvious way for two
+// officers to corrupt a shared table without noticing.
+const MAX_ROWS = 500;                       // a Kartz board is ~150; this is a sanity bound
+
+async function handleData(seg, request, env, reply) {
+  if (!env.DB) return reply({ error: { code: 500,
+    message: 'This Worker has no DB binding. Create the database with "wrangler d1 create '
+           + 'kartz-db", put the id in wrangler.toml, and deploy again.' } }, 500);
+  const url = new URL(request.url);
+
+  // Every run recorded, newest first — the index of what the database holds.
+  if (seg === 'runs' && request.method === 'GET') {
+    const { results } = await env.DB.prepare(
+      `SELECT date, alliance, COUNT(*) AS players, MAX(points) AS best
+         FROM scores GROUP BY run_id ORDER BY date DESC, alliance ASC`).all();
+    return reply({ runs: results }, 200);
+  }
+
+  // Save one alliance's board for one day.
+  if (seg === 'runs' && request.method === 'POST') {
+    const body = await request.json().catch(() => null);
+    const date = String(body && body.date || '').trim();
+    const alliance = String(body && body.alliance || '').trim();
+    const rows = Array.isArray(body && body.rows) ? body.rows : null;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date))
+      return reply({ error: { code: 400, message: 'date must be YYYY-MM-DD.' } }, 400);
+    if (!alliance) return reply({ error: { code: 400, message: 'alliance is required.' } }, 400);
+    if (!rows || !rows.length)
+      return reply({ error: { code: 400, message: 'rows is required.' } }, 400);
+    if (rows.length > MAX_ROWS)
+      return reply({ error: { code: 400, message: `too many rows (${rows.length}).` } }, 400);
+
+    const runId = date + '|' + alliance;
+    const ins = env.DB.prepare(
+      `INSERT INTO scores (run_id, date, alliance, place, search, ingame, points)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`);
+    const stmts = [env.DB.prepare('DELETE FROM scores WHERE run_id = ?').bind(runId)];
+    const seen = new Set();
+    for (const r of rows) {
+      const place = Number(r.place ?? r.rank);
+      const points = Number(r.points);
+      const ingame = String(r.ingame ?? r.name ?? '').trim();
+      if (!Number.isFinite(place) || place <= 0 || !ingame) continue;
+      if (seen.has(place)) continue;        // the primary key would reject the whole batch
+      seen.add(place);
+      stmts.push(ins.bind(runId, date, alliance, place,
+                          r.search ? String(r.search).trim() : null,
+                          ingame, Number.isFinite(points) ? points : 0));
+    }
+    await env.DB.batch(stmts);
+    return reply({ saved: stmts.length - 1, run: runId, replaced: true }, 200);
+  }
+
+  // One run's rows, in the order the game had them.
+  if (seg === 'scores' && request.method === 'GET') {
+    const date = url.searchParams.get('date') || '';
+    const alliance = url.searchParams.get('alliance') || '';
+    const { results } = await env.DB.prepare(
+      `SELECT place, search, ingame, points FROM scores
+        WHERE run_id = ? ORDER BY place`).bind(date + '|' + alliance).all();
+    return reply({ rows: results }, 200);
+  }
+
+  // Everything one player has ever scored, oldest first. Looked up by the roster name rather
+  // than the drawn one: the drawn name changes whenever they feel like it.
+  if (seg === 'player' && request.method === 'GET') {
+    const who = url.searchParams.get('search') || '';
+    if (!who) return reply({ error: { code: 400, message: 'search is required.' } }, 400);
+    const { results } = await env.DB.prepare(
+      `SELECT date, alliance, place, ingame, points FROM scores
+        WHERE search = ? ORDER BY date ASC, alliance ASC`).bind(who).all();
+    return reply({ history: results }, 200);
+  }
+
+  // Everything, for the spreadsheet view and for getting the data back out again.
+  if (seg === 'all' && request.method === 'GET') {
+    const { results } = await env.DB.prepare(
+      `SELECT date, alliance, place, search, ingame, points FROM scores
+        ORDER BY date DESC, alliance ASC, place ASC`).all();
+    return reply({ rows: results }, 200);
+  }
+
+  return null;                              // not a data route; fall through to the model
+}
+
 function corsHeaders(origin) {
   return {
     'access-control-allow-origin': origin,
@@ -93,7 +187,13 @@ export default {
     // own (it is trivially forged), so the phrase is the real gate; this just means a
     // deployment with no phrase set is still not usable by strangers.
     const hasPass = !!env.SHARED_PASS && request.headers.get('x-kartz-pass') === env.SHARED_PASS;
-    const allowed = knownOrigin || hasPass;
+    // A same-origin GET carries no Origin header at all — browsers only send one for POST and
+    // the other unsafe methods. That was invisible while every call was a POST to a model; the
+    // history routes read with GET and were refused as though they came from a stranger.
+    // Sec-Fetch-Site is set by the browser and cannot be written by script, so it says what
+    // Origin cannot here.
+    const sameSite = request.headers.get('Sec-Fetch-Site') === 'same-origin';
+    const allowed = knownOrigin || sameSite || hasPass;
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { status: allowed ? 204 : 403,
@@ -105,6 +205,21 @@ export default {
     const reply = (body, status) => new Response(JSON.stringify(body),
       { status, headers: { ...cors, 'content-type': 'application/json' } });
 
+    // The data routes come first: "runs" and "player" would otherwise pass for model names
+    // and be forwarded to Google.
+    const seg = decodeURIComponent(
+      new URL(request.url).pathname.replace(/^\/+/, '').replace(/^api\/+/, '')).split('/')[0];
+    if (['runs', 'scores', 'player', 'all'].includes(seg)) {
+      try {
+        const out = await handleData(seg, request, env, reply);
+        if (out) return out;
+      } catch (e) {
+        return reply({ error: { code: 500, message: String(e && e.message || e) } }, 500);
+      }
+    }
+
+
+    // Everything past this point is a model call, which is always a POST.
     if (request.method !== 'POST') return reply({ error: 'POST only' }, 405);
 
     // No separate phrase check here. The gate above already decided: a request either came

@@ -3,3 +3,5 @@ _roster.tsv
 *.mov
 .DS_Store
 _sheet.txt
+.wrangler/
+node_modules/

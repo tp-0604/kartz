@@ -12,3 +12,14 @@ binding = "ASSETS"
 # Lets the Worker call Cloudflare's own models as env.AI, with no token in the browser.
 [ai]
 binding = "AI"
+
+# Kartz history. One SQLite database on the Worker, so the scores live somewhere that can be
+# queried rather than only in a spreadsheet tab per month.
+#
+# database_id is filled in by Cloudflare when the database is created:
+#   npx wrangler d1 create kartz-db
+# and the id it prints goes below. Local development uses its own copy and ignores the id.
+[[d1_databases]]
+binding = "DB"
+database_name = "kartz-db"
+database_id = "PLACEHOLDER-run-wrangler-d1-create"
