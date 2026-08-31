@@ -154,6 +154,62 @@ async function handleData(seg, request, env, reply) {
   return null;                              // not a data route; fall through to the model
 }
 
+// A read-only CSV of the scores, for a spreadsheet to pull.
+//
+// What it cannot do matters more than what it can: GET only, one table, no writes, no model
+// access, and a row cap. Whoever holds the token that opens it can read Kartz scores and
+// nothing else — they cannot spend the Gemini key, which is the thing on this Worker actually
+// worth protecting.
+const CSV_MAX = 5000;
+
+function csvCell(v) {
+  const t = v === null || v === undefined ? '' : String(v);
+  return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
+}
+
+async function handleCsv(request, env) {
+  // HEAD as well as GET: it costs nothing to answer, and a 405 to a HEAD is the sort of thing
+  // that makes a fetcher decide the URL is broken before it ever tries to read it.
+  if (request.method !== 'GET' && request.method !== 'HEAD')
+    return new Response('GET only', { status: 405 });
+  if (!env.DB)
+    return new Response('no database', { status: 500 });
+
+  const q = new URL(request.url).searchParams;
+  const where = [], bind = [];
+  // Filters are all optional, and each one is a column so the same URL keeps working when the
+  // schema grows an event and a board of its own.
+  const eq = (param, col) => {
+    const v = q.get(param);
+    if (v) { where.push(col + ' = ?'); bind.push(v); }
+  };
+  eq('alliance', 'alliance');
+  eq('player', 'search');
+  eq('date', 'date');
+  const month = q.get('month');                 // 2026-09, the tab most people want
+  if (month) { where.push("date LIKE ?"); bind.push(month + '%'); }
+
+  const limit = Math.min(CSV_MAX, Math.max(1, Number(q.get('limit')) || CSV_MAX));
+  const sql = `SELECT date, alliance, place, search, ingame, points FROM scores`
+            + (where.length ? ' WHERE ' + where.join(' AND ') : '')
+            + ` ORDER BY date DESC, alliance ASC, place ASC LIMIT ${limit}`;
+  const { results } = await env.DB.prepare(sql).bind(...bind).all();
+
+  const head = ['Date', 'Alliance', 'Rank', 'Player', 'Name in video', 'Kartz Points'];
+  const body = (results || []).map(r =>
+    [r.date, r.alliance, r.place, r.search || '', r.ingame, r.points].map(csvCell).join(','));
+  return new Response([head.join(','), ...body].join('\n'), {
+    status: 200,
+    headers: {
+      'content-type': 'text/csv; charset=utf-8',
+      // Sheets caches aggressively on its own; a short life here keeps a re-pull honest
+      // without hammering the database every time somebody opens the workbook.
+      'cache-control': 'public, max-age=60',
+      'access-control-allow-origin': '*',
+    },
+  });
+}
+
 function corsHeaders(origin) {
   return {
     'access-control-allow-origin': origin,
@@ -174,6 +230,28 @@ export default {
     if (!url.pathname.replace(/^\/+/, '').startsWith('api')) {
       if (env.ASSETS) return env.ASSETS.fetch(request);
       return new Response('No ASSETS binding: add [assets] to wrangler.toml.', { status: 500 });
+    }
+
+    // The CSV route runs ahead of the origin check, because the thing that reads it cannot
+    // satisfy one: Apps Script fetches from Google's servers with no Origin, no cookies and
+    // nothing to identify itself. It carries a token instead — its own, not SHARED_PASS.
+    //
+    // Two secrets rather than one, because they are not the same permission. SHARED_PASS opens
+    // the whole API: the model, and writes to the database. A token that only ever unlocks a
+    // read of one table can be pasted into a spreadsheet script, shared with whoever maintains
+    // the workbook, and rotated without anyone re-authorising anything. Handing out the key
+    // that spends Gemini credit, to read some game scores, would be the wrong trade.
+    if (url.pathname.replace(/^\/+/, '').replace(/^api\/+/, '').split('/')[0] === 'csv') {
+      const token = request.headers.get('x-kartz-token')
+                 || new URL(request.url).searchParams.get('token') || '';
+      const browser = !!request.headers.get('Origin') || !!request.headers.get('Sec-Fetch-Site');
+      const ok = (env.SHEET_TOKEN && token === env.SHEET_TOKEN)
+              || (browser && (!request.headers.get('Origin')
+                   || request.headers.get('Origin') === new URL(request.url).origin
+                   || ALLOWED_ORIGINS.includes(request.headers.get('Origin'))));
+      if (!ok) return new Response('a token is required for this route', { status: 403 });
+      try { return await handleCsv(request, env); }
+      catch (e) { return new Response('error: ' + String(e && e.message || e), { status: 500 }); }
     }
 
     const origin = request.headers.get('Origin') || '';
