@@ -44,6 +44,14 @@ button.ghost:not(:disabled):active{background:var(--line)}
 /* what a finished action looks like, for the second or so it says so */
 button.done, button.ghost.done{background:var(--ok);border-color:var(--ok);color:#fff;
   filter:none;transform:none}
+/* A refusal has to be as loud as a success. Saying "pick an alliance first" in the log at the
+   top of the page, while the button sits at the bottom, is indistinguishable from the button
+   being broken — which is exactly how it was reported. */
+button.nope, button.ghost.nope{background:var(--warn);border-color:var(--warn);color:#fff;
+  filter:none;transform:none}
+@keyframes lookhere{0%,100%{box-shadow:0 0 0 0 transparent}
+  30%{box-shadow:0 0 0 3px color-mix(in srgb,var(--warn) 45%,transparent)}}
+.lookhere{animation:lookhere 1.1s ease 2}
 button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line);font-weight:500}
 .row{display:flex;gap:10px;flex-wrap:wrap}
 .row>*{flex:1;min-width:150px}
@@ -297,7 +305,7 @@ const $ = id => document.getElementById(id);
 // Shown on the page. Several people run this from their own phones and a browser can sit on
 // an open tab for days, so "it is still happening" and "it is fixed" are easy to say about
 // different builds. Bump it with any change worth telling apart from the one before.
-const BUILD = '2026-09-01d';
+const BUILD = '2026-09-01e';
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
@@ -791,17 +799,26 @@ if ($('build')) $('build').textContent =
 // the page, which is nowhere near a button at the foot of it: pressing Copy for sheet worked
 // perfectly and looked exactly like nothing happening. The label answers for a moment and
 // then goes back to what it was.
-function flash(btn, text, ms = 1600) {
+function flash(btn, text, ms = 1600, cls = 'done') {
   if (!btn || btn.dataset.flashing) return;
   const label = btn.textContent;
   btn.dataset.flashing = '1';
   btn.textContent = text;
-  btn.classList.add('done');
+  btn.classList.add(cls);
   setTimeout(() => {
     btn.textContent = label;
-    btn.classList.remove('done');
+    btn.classList.remove(cls);
     delete btn.dataset.flashing;
   }, ms);
+}
+// Point at the thing that needs attention, rather than describing it somewhere else.
+function lookAt(el) {
+  if (!el) return;
+  el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  el.classList.remove('lookhere');
+  void el.offsetWidth;                       // restart the animation if it is already running
+  el.classList.add('lookhere');
+  setTimeout(() => el.classList.remove('lookhere'), 2400);
 }
 const setProg = p => { $('prog').style.width = (p * 100) + '%'; };
 
@@ -1782,8 +1799,24 @@ async function extractAndResolve() {
       r.rank = r.seenRank > 0 ? r.seenRank : ++n;
       if (r.rank > n) n = r.rank;
     }
+    // Offer the alliance most of the board belongs to, rather than leaving it unset and
+    // refusing to save later. It is a proposal, not a decision: it appears in the dropdown at
+    // the head of the column where it can be seen and changed, and a queued run has already
+    // chosen its own, which this must not overwrite.
+    if (!allianceAll) {
+      const tally = {};
+      for (const r of rows) if (r.match && r.match.alliance)
+        tally[r.match.alliance] = (tally[r.match.alliance] || 0) + 1;
+      const top = Object.entries(tally).sort((a, b) => b[1] - a[1])[0];
+      if (top && MAIN_ALLIANCES.includes(top[0])) {
+        allianceAll = top[0];
+        for (const r of rows) r.alliancePick = allianceAll;
+      }
+    }
     render(roster);
-    log(`done — ${sightings.length} readings → ${rows.length} players`);
+    log(`done — ${sightings.length} readings → ${rows.length} players`
+        + (allianceAll ? ` · alliance set to ${allianceAll}, change it above the table if wrong`
+                       : ''));
     setProg(1);
   }
 }
@@ -2160,6 +2193,8 @@ async function saveRun() {
   if (!allianceAll) {
     log('pick the alliance at the top of the Alliance column first — a saved board belongs '
         + 'to one alliance');
+    flash($('save'), 'Pick an alliance first', 2200, 'nope');
+    lookAt($('alliall'));
     return;
   }
   const keep = rows.filter(r => !r.dropped && !r.skipped && r.rank > 0);
