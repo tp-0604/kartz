@@ -82,6 +82,50 @@ async function handleData(seg, request, env, reply) {
   const q = url.searchParams;
   const method = request.method;
 
+  // ---- roster overrides -----------------------------------------------------------------
+  // What this stores is a diff, not a roster. The sheet stays the place new players arrive,
+  // and these rows say what the app disagrees with — so "Pull / Update Roster" stops being a
+  // thing that quietly undoes an afternoon of corrections.
+  if (seg === 'roster' && method === 'GET') {
+    const { results } = await env.DB.prepare(
+      'SELECT search, ingame, alliance, added, removed, edited_at FROM roster_edits'
+      + ' ORDER BY search COLLATE NOCASE').all();
+    return reply({ edits: results || [] }, 200);
+  }
+
+  if (seg === 'roster' && (method === 'PUT' || method === 'POST')) {
+    const body = await request.json().catch(() => null);
+    const search = body && body.search ? String(body.search).trim() : '';
+    if (!search) return reply({ error: { code: 400, message: 'a roster name is required' } }, 400);
+    // undefined means "not mentioned, leave it"; empty string means "clear this override and
+    // go back to whatever the sheet says". They are different answers and the API keeps them
+    // apart, because otherwise reverting one field would be impossible to express.
+    const opt = v => v === undefined ? null : (String(v).trim() || null);
+    await env.DB.prepare(
+      `INSERT INTO roster_edits (search, ingame, alliance, added, removed, edited_at)
+            VALUES (?,?,?,?,?,?)
+       ON CONFLICT(search) DO UPDATE SET
+            ingame   = COALESCE(excluded.ingame,   roster_edits.ingame),
+            alliance = COALESCE(excluded.alliance, roster_edits.alliance),
+            added    = excluded.added,
+            removed  = excluded.removed,
+            edited_at = excluded.edited_at`)
+      .bind(search, opt(body.ingame), opt(body.alliance),
+            body.added ? 1 : 0, body.removed ? 1 : 0, new Date().toISOString()).run();
+    const row = await env.DB.prepare('SELECT * FROM roster_edits WHERE search = ?')
+      .bind(search).first();
+    return reply({ edit: row }, 200);
+  }
+
+  // Dropping the override is how a row goes back to the sheet's version. Deleting the player
+  // is a different thing entirely and is the removed flag above.
+  if (seg === 'roster' && method === 'DELETE') {
+    const search = q.get('search') || '';
+    if (!search) return reply({ error: { code: 400, message: 'a roster name is required' } }, 400);
+    const r = await env.DB.prepare('DELETE FROM roster_edits WHERE search = ?').bind(search).run();
+    return reply({ reverted: search, changes: (r.meta && r.meta.changes) || 0 }, 200);
+  }
+
   // ---- the index: every board saved, newest first --------------------------------------
   if (seg === 'boards' && method === 'GET') {
     const { results } = await env.DB.prepare(
@@ -279,6 +323,76 @@ function csvCell(v) {
   return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
 }
 
+// The same tab the app pulls from, exported as CSV. Link-readable, so no credential is
+// involved — this is the Worker reading exactly what a browser would.
+const ROSTER_SHEET_CSV =
+  'https://docs.google.com/spreadsheets/d/1aXTc9v4jHtB5Ma598R3Qfij-vsMlDhXho9bP_m2M5kE'
+  + '/export?format=csv&gid=767166123';
+
+// Minimal RFC4180 reader — roster names legitimately contain commas and newlines.
+function readCsv(text) {
+  const rows = [[]]; let cell = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else cell += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') { rows[rows.length - 1].push(cell); cell = ''; }
+    else if (c === '\n') { rows[rows.length - 1].push(cell); cell = ''; rows.push([]); }
+    else if (c !== '\r') cell += c;
+  }
+  rows[rows.length - 1].push(cell);
+  return rows.filter(r => r.some(v => v.trim() !== ''));
+}
+
+// The roster the app actually uses: the sheet, with this database's corrections applied.
+//
+// This exists so the workbook can show what the app believes without anybody having to trust
+// that the two agree. It is a mirror and must stay one — point a sheet formula at this and
+// write the result into the tab the app pulls from, and the two feed each other in a circle.
+async function rosterCsv(env) {
+  const r = await fetch(ROSTER_SHEET_CSV, { cf: { cacheTtl: 120 } });
+  if (!r.ok) return new Response('could not read the roster sheet (' + r.status + ')', { status: 502 });
+  const rows = readCsv(await r.text());
+  const sheet = rows
+    .map(c => ({ search: (c[0] || '').trim(),
+                 ingame: (c[1] || c[0] || '').trim(),
+                 alliance: (c[2] || '').trim() }))
+    .filter(x => x.search && !/^search\s*name/i.test(x.search));
+
+  const { results } = await env.DB.prepare(
+    'SELECT search, ingame, alliance, added, removed FROM roster_edits').all();
+  const edits = new Map((results || []).map(e => [e.search, e]));
+
+  const out = [];
+  for (const row of sheet) {
+    const e = edits.get(row.search);
+    if (e && e.removed) continue;
+    out.push({ ...row,
+               ingame:   (e && e.ingame)   || row.ingame,
+               alliance: (e && e.alliance) || row.alliance,
+               source:   e ? 'edited' : 'sheet' });
+    if (e) edits.delete(row.search);
+  }
+  // Whatever is left was created in the app and has no counterpart in the sheet.
+  for (const e of edits.values())
+    if (e.added && !e.removed)
+      out.push({ search: e.search, ingame: e.ingame || e.search,
+                 alliance: e.alliance || '', source: 'added' });
+
+  out.sort((a, b) => a.search.localeCompare(b.search, undefined, { sensitivity: 'base' }));
+  const head = ['Player', 'Name in video', 'Alliance', 'Source'];
+  const body = out.map(x => [x.search, x.ingame, x.alliance, x.source].map(csvCell).join(','));
+  return new Response([head.join(','), ...body].join('\n'), {
+    status: 200,
+    headers: { 'content-type': 'text/csv; charset=utf-8',
+               'cache-control': 'public, max-age=60',
+               'access-control-allow-origin': '*' },
+  });
+}
+
 async function handleCsv(request, env) {
   // HEAD as well as GET: it costs nothing to answer, and a 405 to a HEAD is the sort of thing
   // that makes a fetcher decide the URL is broken before it ever tries to read it.
@@ -288,6 +402,9 @@ async function handleCsv(request, env) {
     return new Response('no database', { status: 500 });
 
   const q = new URL(request.url).searchParams;
+  // Same route, same token, different table: the workbook asks for ?kind=roster to see the
+  // roster the app is actually using rather than the scores.
+  if (q.get('kind') === 'roster') return await rosterCsv(env);
   const where = [], bind = [];
   // Filters are all optional, and each one is a column so the same URL keeps working when the
   // schema grows an event and a board of its own.
@@ -295,21 +412,33 @@ async function handleCsv(request, env) {
     const v = q.get(param);
     if (v) { where.push(col + ' = ?'); bind.push(v); }
   };
-  eq('alliance', 'alliance');
-  eq('player', 'search');
-  eq('date', 'date');
+  // b.alliance, not s.alliance: this column has always meant "which board was filmed", and
+  // the sheet's per-alliance tabs are asking for that one. The player's own alliance rides
+  // along as its own column below.
+  eq('alliance', 'b.alliance');
+  eq('player', 's.search');
+  eq('date', 'b.date');
+  eq('label', 'b.label');                       // Day 1 / Day 4 / Final
   const month = q.get('month');                 // 2026-09, the tab most people want
-  if (month) { where.push("date LIKE ?"); bind.push(month + '%'); }
+  if (month) { where.push("b.date LIKE ?"); bind.push(month + '%'); }
 
   const limit = Math.min(CSV_MAX, Math.max(1, Number(q.get('limit')) || CSV_MAX));
-  const sql = `SELECT date, alliance, place, search, ingame, points FROM scores`
+  // The two-table split left this reading a `scores.date` that no longer exists, so every
+  // pull from the workbook has been answering 500. The board carries the date now.
+  const sql = `SELECT b.date AS date, b.alliance AS board_alliance, b.label AS label,
+                      s.place, s.search, s.ingame, s.alliance AS player_alliance, s.points
+                 FROM scores s JOIN boards b ON b.id = s.board_id`
             + (where.length ? ' WHERE ' + where.join(' AND ') : '')
-            + ` ORDER BY date DESC, alliance ASC, place ASC LIMIT ${limit}`;
+            + ` ORDER BY b.date DESC, b.alliance ASC, s.place ASC LIMIT ${limit}`;
   const { results } = await env.DB.prepare(sql).bind(...bind).all();
 
-  const head = ['Date', 'Alliance', 'Rank', 'Player', 'Name in video', 'Kartz Points'];
+  // Day and the player's own alliance are appended rather than inserted: a workbook that
+  // already reads the first six columns keeps reading the same six.
+  const head = ['Date', 'Alliance', 'Rank', 'Player', 'Name in video', 'Kartz Points',
+                'Day', 'Player alliance'];
   const body = (results || []).map(r =>
-    [r.date, r.alliance, r.place, r.search || '', r.ingame, r.points].map(csvCell).join(','));
+    [r.date, r.board_alliance, r.place, r.search || '', r.ingame, r.points,
+     r.label || '', r.player_alliance || ''].map(csvCell).join(','));
   return new Response([head.join(','), ...body].join('\n'), {
     status: 200,
     headers: {
@@ -325,7 +454,7 @@ async function handleCsv(request, env) {
 function corsHeaders(origin) {
   return {
     'access-control-allow-origin': origin,
-    'access-control-allow-methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+    'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     'access-control-allow-headers': 'content-type, x-kartz-pass',
     'access-control-max-age': '86400',
     'vary': 'Origin',
@@ -399,7 +528,7 @@ export default {
     // and be forwarded to Google.
     const seg = decodeURIComponent(
       new URL(request.url).pathname.replace(/^\/+/, '').replace(/^api\/+/, '')).split('/')[0];
-    if (['runs', 'boards', 'board', 'score', 'month', 'player', 'all'].includes(seg)) {
+    if (['runs', 'boards', 'board', 'score', 'month', 'player', 'all', 'roster'].includes(seg)) {
       try {
         const out = await handleData(seg, request, env, reply);
         if (out) return out;

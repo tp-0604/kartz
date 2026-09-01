@@ -288,6 +288,28 @@ td select{width:auto;padding:6px 8px;font-size:12.5px;min-width:150px;min-height
 #histTbl td[contenteditable]{outline:none;border-bottom:1px dashed var(--line)}
 #histTbl td[contenteditable]:focus{background:var(--accbg);border-bottom-color:var(--accent)}
 
+/* The drill: year, then month, then which of the three recordings. A row of chips rather
+   than a dropdown, because the whole set is four or five items wide and a list you can see
+   beats a list you have to open — and on a phone it wraps instead of covering the screen. */
+#drill{display:flex;flex-direction:column;gap:9px;margin:0 0 14px;background:var(--panel2);
+  border:1px solid var(--line);border-radius:var(--rad);padding:12px 13px}
+.drillrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.drilllab{font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;
+  color:var(--muted);width:46px;flex:none}
+.chiprow{display:flex;gap:8px;flex-wrap:wrap;flex:1;min-width:0}
+.chipbtn{width:auto;flex:none;min-height:40px;padding:10px 15px;font-size:13.5px;
+  font-weight:600;border-radius:10px;background:var(--panel);color:var(--muted);
+  border:1px solid var(--line)}
+.chipbtn:hover:not(.on){color:var(--ink);border-color:var(--accent)}
+.chipbtn.on{background:var(--accent);border-color:transparent;color:var(--accink)}
+/* A day with no recording yet is still worth showing — its absence is the information. */
+.chipbtn.empty{opacity:.45}
+.chipbtn .n{font:500 11px/1 var(--mono);opacity:.65;margin-left:7px}
+@media (max-width:560px){
+  .drilllab{width:100%}
+  .chipbtn{flex:1 1 auto}
+}
+
 .boardlist{display:flex;flex-direction:column;gap:8px}
 .boardcard{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
   padding:10px 13px;border:1px solid var(--line);border-left:3px solid var(--aX);
@@ -392,6 +414,19 @@ details[open] summary{margin-bottom:6px}
         <label for="datestr">Date</label>
         <input id="datestr" type="date">
       </div>
+      <!-- Which of the month's three recordings this is. The database has always had a column
+           for it and nothing ever filled it in, so every board saved so far is unlabelled and
+           the month views had no way to line the three up. Chosen here rather than worked out
+           from the date order, because a missed or re-shot day would silently shift every
+           label after it. -->
+      <div>
+        <label for="dayslot">Scoring day</label>
+        <select id="dayslot">
+          <option value="Day 1">Day 1</option>
+          <option value="Day 4">Day 4</option>
+          <option value="Final">Final</option>
+        </select>
+      </div>
       <!-- Settled rather than offered. Both of these were controls, and neither was a real
            choice: the reference picture earns its place on every run, and the frame count has
            one sensible answer — as many as the request allowance permits. 64 frames is about
@@ -442,16 +477,33 @@ details[open] summary{margin-bottom:6px}
          it is made, so a question that cuts the other way — one player across every alliance —
          means opening eighteen of them. These sit a level below the two tabs above, because
          they choose what to look at rather than what to do. -->
+    <!-- The roster comes first because it is the thing everyone recognises: a list of who is
+         in the alliance. Scores are what the app collects; the roster is what the app is
+         about, and landing on a wall of numbers made you find your bearings every time. -->
     <div class="tabs" id="histTabs">
-      <button class="tab on" data-view="boards">Boards</button>
-      <button class="tab" data-view="board">Board</button>
-      <button class="tab" data-view="month">Month</button>
+      <button class="tab on" data-view="roster">Roster</button>
+      <button class="tab" data-view="boards">Boards</button>
       <button class="tab" data-view="player">Player</button>
     </div>
 
-    <div class="viewbar" id="barBoards">
+    <div class="viewbar" id="barRoster">
+      <input id="rosterFind" spellcheck="false" placeholder="find a player…">
+      <select id="rosterAlli"></select>
+      <button class="ghost" id="rosterPull">Pull from sheet</button>
+      <button class="ghost" id="rosterAdd">Add player</button>
+    </div>
+
+    <div class="viewbar hide" id="barBoards">
       <button class="ghost" id="histLoad">Refresh</button>
       <button class="ghost" id="histCsv">Download all</button>
+    </div>
+    <!-- Year, then month, then which of the three recordings. Three rows rather than three
+         dropdowns: the whole set is four or five things wide, and a list you can see is faster
+         than a list you have to open. -->
+    <div id="drill" class="hide">
+      <div class="drillrow"><span class="drilllab">Year</span><div class="chiprow" id="pickYear"></div></div>
+      <div class="drillrow"><span class="drilllab">Month</span><div class="chiprow" id="pickMonth"></div></div>
+      <div class="drillrow"><span class="drilllab">Day</span><div class="chiprow" id="pickDay"></div></div>
     </div>
     <div class="viewbar hide" id="barBoard">
       <select id="boardPick"></select>
@@ -479,7 +531,7 @@ const $ = id => document.getElementById(id);
 // Shown on the page. Several people run this from their own phones and a browser can sit on
 // an open tab for days, so "it is still happening" and "it is fixed" are easy to say about
 // different builds. Bump it with any change worth telling apart from the one before.
-const BUILD = '2026-09-02a';
+const BUILD = '2026-09-02b';
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
@@ -612,6 +664,10 @@ let rosterCache = null;            // { all }
 // mixes alliances, and restricting one 148-player recording to 698W dropped 27 players who
 // were plainly correct, taking the match rate from 95% to 76%.
 function currentRoster() {
+  // The sheet with this database's corrections applied. Doing it here rather than only in the
+  // roster table is the whole point: a name fixed on Monday is a name matched on Tuesday.
+  if (typeof rosterEdits !== 'undefined' && rosterEdits.size && rosterCache && rosterCache.all)
+    return mergedRoster().map(r => ({ search: r.search, ingame: r.ingame, alliance: r.alliance }));
   const all = rosterCache && rosterCache.all;
   // Nothing to fall back on now the hand-pasted box has gone: until the sheet is pulled there
   // is simply nothing to match against, and the badge says as much.
@@ -2376,6 +2432,7 @@ async function saveRun() {
   const payload = {
     date: $('datestr').value,
     alliance: allianceAll,
+    label: ($('dayslot') || {}).value || null,
     rows: keep.map(r => ({
       place:  r.rank,
       // Three names' worth of information in two columns. The roster name is the identity, and
@@ -2489,7 +2546,8 @@ async function loadBoards() {
       + alls.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
     if (!$('monthPick').value && boardList.length)
       $('monthPick').value = boardList[0].date.slice(0, 7);
-    drawBoards();
+    allRows = null;                       // the combined matrix is stale the moment this changes
+    if (view === 'boards') { drawDrill(); drawDay(); }
   } catch (e) { note('✗ ' + e.message); }
 }
 function drawBoards() {
@@ -2738,18 +2796,385 @@ async function loadPlayer() {
 }
 
 /* ---- switching between them ---- */
+/* ---- the roster ------------------------------------------------------------------------
+   The sheet is still where players arrive and it is still what everyone maintains. What lives
+   here is a set of differences: which name the video actually draws, which alliance somebody
+   really belongs to. Storing the difference rather than a copy is what lets "Pull from sheet" stay safe
+   to press — it brings in new players without undoing a single correction.
+   -------------------------------------------------------------------------------------- */
+let rosterEdits = new Map();
+
+async function loadRosterEdits() {
+  try {
+    const j = await api('/roster');
+    rosterEdits = new Map((j.edits || []).map(e => [e.search, e]));
+  } catch (e) { rosterEdits = new Map(); }
+}
+
+// The roster as the app actually uses it. The Worker performs the same merge for the workbook
+// mirror, so what the sheet shows and what the matcher matches against cannot drift apart.
+function mergedRoster() {
+  const base = (rosterCache && rosterCache.all) || [];
+  const seen = new Set(), out = [];
+  for (const r of base) {
+    const e = rosterEdits.get(r.search);
+    seen.add(r.search);
+    if (e && e.removed) continue;
+    out.push({ search: r.search,
+               ingame:   (e && e.ingame)   || r.ingame,
+               alliance: (e && e.alliance) || r.alliance,
+               fromSheet: { ingame: r.ingame, alliance: r.alliance },
+               src: e ? 'edited' : 'sheet' });
+  }
+  for (const [k, e] of rosterEdits)
+    if (e.added && !e.removed && !seen.has(k))
+      out.push({ search: k, ingame: e.ingame || k, alliance: e.alliance || '',
+                 fromSheet: null, src: 'added' });
+  return out.sort((a, b) =>
+    a.search.localeCompare(b.search, undefined, { sensitivity: 'base' }));
+}
+
+async function putRosterEdit(search, patch) {
+  const cur = rosterEdits.get(search) || {};
+  const body = { search,
+                 ingame:   patch.ingame   !== undefined ? patch.ingame   : cur.ingame,
+                 alliance: patch.alliance !== undefined ? patch.alliance : cur.alliance,
+                 added:    patch.added    !== undefined ? patch.added    : (cur.added || 0),
+                 removed:  patch.removed  !== undefined ? patch.removed  : (cur.removed || 0) };
+  const j = await api('/roster', { method: 'PUT',
+    headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  if (j.edit) rosterEdits.set(search, j.edit);
+  rebuildIndexes();
+}
+async function revertRosterEdit(search) {
+  await api('/roster?search=' + encodeURIComponent(search), { method: 'DELETE' });
+  rosterEdits.delete(search);
+  rebuildIndexes();
+}
+// A correction is only worth making if the next run benefits from it, so the match indexes are
+// rebuilt the moment one lands rather than at the next pull.
+function rebuildIndexes() {
+  try { index = buildIndex(currentRoster()); skipIndex = buildIndex(skippedRoster()); }
+  catch (e) {}
+}
+
+function drawRoster() {
+  const all = mergedRoster();
+  if (!all.length) {
+    note('');
+    tbl('');
+    $('histNote').innerHTML = '<div class="stat" style="text-align:center;padding:26px">'
+      + '<b style="font-size:15px;font-weight:600">No roster yet</b>'
+      + '<span>press Pull from sheet</span></div>';
+    return;
+  }
+  // Rebuilt only when the set of alliances actually changes, so the filter does not reset
+  // itself out from under you on every keystroke.
+  const alliances = [...new Set(all.map(r => r.alliance).filter(Boolean))].sort();
+  const sig = alliances.join('|');
+  if ($('rosterAlli').dataset.sig !== sig) {
+    const keep = $('rosterAlli').value;
+    $('rosterAlli').dataset.sig = sig;
+    $('rosterAlli').innerHTML = '<option value="">every alliance</option>'
+      + alliances.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+    $('rosterAlli').value = keep;
+  }
+  const find = ($('rosterFind').value || '').trim().toLowerCase();
+  const alli = $('rosterAlli').value || '';
+  const list = all.filter(r =>
+    (!alli || r.alliance === alli)
+    && (!find || r.search.toLowerCase().includes(find) || r.ingame.toLowerCase().includes(find)));
+
+  const edited = all.filter(r => r.src === 'edited').length;
+  const added  = all.filter(r => r.src === 'added').length;
+  const hidden = [...rosterEdits.values()].filter(e => e.removed).length;
+  $('histNote').innerHTML = stats([
+    [all.length, 'players'],
+    [new Set(all.map(r => r.alliance).filter(Boolean)).size, 'alliances'],
+    [edited, 'corrected'],
+    [added, 'added here'],
+    [hidden, 'hidden'],
+  ]) + (list.length === all.length ? ''
+      : `<div class="note">${list.length} of ${all.length} shown</div>`);
+
+  const opts = sel => ['', ...MAIN_ALLIANCES,
+    ...[...new Set(all.map(r => r.alliance).filter(a => a && !MAIN_ALLIANCES.includes(a)))].sort()]
+    .map(a => `<option value="${esc(a)}"${a === sel ? ' selected' : ''}>`
+            + `${esc(a) || '—'}</option>`).join('');
+
+  tbl(th(['Player', 'Name in video', 'Alliance', '', ''])
+    + '<tbody>' + list.map(r => {
+      const i = MAIN_ALLIANCES.indexOf(r.alliance);
+      return `<tr data-search="${esc(r.search)}">
+        <td style="font-weight:600">${esc(r.search)}</td>
+        <td contenteditable data-f="ingame" class="${r.src === 'sheet' ? 'asdrawn' : 'named'}"
+            >${esc(r.ingame)}</td>
+        <td class="${r.alliance ? 'c' + (i < 0 ? 'X' : i) : ''}">
+          <select class="allipick" data-f="alliance">${opts(r.alliance)}</select></td>
+        <td>${r.src === 'sheet' ? ''
+             : `<span class="tag ${r.src === 'added' ? 'tag-new' : 'tag-edit'}">${r.src}</span>`}</td>
+        <td style="text-align:right">${r.src === 'sheet' ? ''
+             : '<button class="ghost sm rowrevert">Revert</button>'}
+          <button class="ghost sm rowhide">Hide</button></td>
+      </tr>`;
+    }).join('') + '</tbody>');
+
+  // Commit on blur, not on every keystroke: a cell being typed into is not an answer yet.
+  $('histTbl').querySelectorAll('td[contenteditable]').forEach(td => {
+    const was = td.textContent;
+    td.onblur = async () => {
+      const now = td.textContent.trim();
+      if (now === was.trim()) return;
+      const search = td.closest('tr').dataset.search;
+      try { await putRosterEdit(search, { ingame: now }); note(`✓ ${search} updated`); }
+      catch (e) { note('✗ ' + e.message); }
+      drawRoster();
+    };
+  });
+  $('histTbl').querySelectorAll('select[data-f="alliance"]').forEach(sel => {
+    sel.onchange = async () => {
+      const search = sel.closest('tr').dataset.search;
+      try { await putRosterEdit(search, { alliance: sel.value }); note(`✓ ${search} → ${sel.value || '—'}`); }
+      catch (e) { note('✗ ' + e.message); }
+      drawRoster();
+    };
+  });
+  $('histTbl').querySelectorAll('.rowrevert').forEach(b => b.onclick = async () => {
+    const search = b.closest('tr').dataset.search;
+    try { await revertRosterEdit(search); note(`✓ ${search} back to the sheet`); }
+    catch (e) { note('✗ ' + e.message); }
+    drawRoster();
+  });
+  $('histTbl').querySelectorAll('.rowhide').forEach(b => b.onclick = async () => {
+    const search = b.closest('tr').dataset.search;
+    try { await putRosterEdit(search, { removed: 1 }); note(`✓ ${search} hidden`); }
+    catch (e) { note('✗ ' + e.message); }
+    drawRoster();
+  });
+}
+
+/* ---- boards: year, then month, then which of the three recordings ----------------------- */
+const DAYS = ['Day 1', 'Day 4', 'Final'];
+let drill = { year: null, month: null, day: null };
+let allRows = null;                    // every score, for the combined matrix
+
+const monthName = m => new Date(m + '-01T00:00:00')
+  .toLocaleString(undefined, { month: 'long' });
+
+function drawDrill() {
+  const years = [...new Set(boardList.map(b => b.date.slice(0, 4)))].sort().reverse();
+  if (!years.length) { $('drill').classList.add('hide'); return; }
+  $('drill').classList.remove('hide');
+  if (!years.includes(drill.year)) drill.year = years[0];
+
+  const chip = (val, text, on, count) =>
+    `<button class="chipbtn${on ? ' on' : ''}${count === 0 ? ' empty' : ''}" `
+    + `data-v="${esc(val)}">${esc(text)}`
+    + (count === undefined ? '' : `<span class="n">${count}</span>`) + '</button>';
+
+  $('pickYear').innerHTML = years.map(y =>
+    chip(y, y, y === drill.year, boardList.filter(b => b.date.startsWith(y)).length)).join('');
+
+  const months = [...new Set(boardList.filter(b => b.date.startsWith(drill.year))
+    .map(b => b.date.slice(0, 7)))].sort().reverse();
+  if (!months.includes(drill.month)) drill.month = months[0] || null;
+  $('pickMonth').innerHTML = months.map(m =>
+    chip(m, monthName(m), m === drill.month,
+         boardList.filter(b => b.date.startsWith(m)).length)).join('');
+
+  const inMonth = boardList.filter(b => b.date.startsWith(drill.month || ' '));
+  const unlabelled = inMonth.filter(b => !b.label).length;
+  const days = [...DAYS.map(d => [d, inMonth.filter(b => b.label === d).length]),
+                ...(unlabelled ? [['Unlabelled', unlabelled]] : []),
+                ['Combined', inMonth.length]];
+  // Landing on an empty Day 1 and being told there is nothing there is a poor greeting, so
+  // an unvisited month opens on the first day that actually has recordings. A day you picked
+  // yourself is kept even when the next month has nothing under it.
+  if (!days.some(([d]) => d === drill.day)) {
+    const first = days.find(([d, n]) => n > 0 && d !== 'Combined');
+    drill.day = (first || days[days.length - 1])[0];
+  }
+  $('pickDay').innerHTML = days.map(([d, n]) => chip(d, d, d === drill.day, n)).join('');
+
+  $('drill').querySelectorAll('.chipbtn').forEach(b => b.onclick = () => {
+    const row = b.parentNode.id;
+    if (row === 'pickYear')  { drill.year  = b.dataset.v; drill.month = null; }
+    if (row === 'pickMonth') { drill.month = b.dataset.v; }
+    if (row === 'pickDay')   { drill.day   = b.dataset.v; }
+    drawDrill(); drawDay();
+  });
+}
+
+// The boards of one scoring day, and everyone on them in one ranked table. Four separate
+// boards is how the recordings arrive; one list is the question people actually ask.
+function drawDay() {
+  if (!drill.month) { tbl(''); return; }
+  if (drill.day === 'Combined') return drawCombined();
+
+  const want = drill.day === 'Unlabelled' ? null : drill.day;
+  const boards = boardList.filter(b => b.date.startsWith(drill.month)
+                                    && (b.label || null) === want);
+  if (!boards.length) {
+    $('histNote').innerHTML = '<div class="stat" style="text-align:center;padding:26px">'
+      + `<b style="font-size:15px;font-weight:600">No ${esc(drill.day)} board yet</b>`
+      + `<span>for ${esc(monthName(drill.month))}</span></div>`;
+    tbl('');
+    return;
+  }
+
+  $('histNote').innerHTML = stats([
+    [boards.length, boards.length === 1 ? 'board' : 'boards'],
+    [boards.reduce((a, b) => a + b.players, 0), 'players'],
+    [Math.max(...boards.map(b => b.best || 0)).toLocaleString(), 'top score'],
+    [esc(boards.map(b => b.date).sort()[0]), 'filmed', true],
+  ]) + '<div class="boardlist">' + boards.map(b => `
+      <div class="boardcard" data-id="${esc(b.id)}">
+        <div class="bmeta">${allianceChip(b.alliance)}
+          <span class="bdate">${esc(b.date)}</span>
+          ${b.label ? '' : '<span class="tag tag-edit">no day set</span>'}
+          <span class="bsub">${b.players} players · top ${(b.best ?? 0).toLocaleString()}</span>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          ${b.label ? '' : `<select class="allipick setday" data-id="${esc(b.id)}">
+              <option value="">set day…</option>
+              ${DAYS.map(d => `<option value="${d}">${d}</option>`).join('')}</select>`}
+          <button class="ghost openboard">Open</button>
+        </div>
+      </div>`).join('') + '</div>';
+
+  $('histNote').querySelectorAll('.openboard').forEach(btn => btn.onclick = e => {
+    e.stopPropagation();
+    $('boardPick').value = btn.closest('.boardcard').dataset.id;
+    setView('board');
+  });
+  // The three boards saved before this existed have no day on them, and this is the one place
+  // that can say so — assigning it here is the same relabel the API has always offered.
+  $('histNote').querySelectorAll('.setday').forEach(sel => sel.onclick = e => e.stopPropagation());
+  $('histNote').querySelectorAll('.setday').forEach(sel => sel.onchange = async () => {
+    if (!sel.value) return;
+    try {
+      // The relabel route takes the board id in the body, not the query — it is the same
+      // request shape that can move a board's date or alliance, and those have to arrive
+      // together or a half-applied rename is possible.
+      await api('/board', { method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: sel.dataset.id, label: sel.value }) });
+      note(`✓ set to ${sel.value}`);
+      await loadBoards();
+      drawDrill(); drawDay();
+    } catch (e) { note('✗ ' + e.message); }
+  });
+  tbl('');
+}
+
+/* ---- combined: one row per player, one column per scoring day -------------------------- */
+async function drawCombined() {
+  if (!allRows) {
+    note('loading…');
+    try { allRows = (await api('/all')).rows || []; }
+    catch (e) { note('✗ ' + e.message); allRows = null; return; }
+  }
+  const rowsIn = allRows.filter(r => (r.date || '').startsWith(drill.month));
+  if (!rowsIn.length) { note('Nothing saved for ' + monthName(drill.month) + '.'); tbl(''); return; }
+
+  // Keyed on the roster name, because that is the identity: the drawn name is the part that
+  // changes, and keying on it would split one player across three columns.
+  const byPlayer = new Map();
+  for (const r of rowsIn) {
+    const key = r.search || r.ingame;
+    if (!byPlayer.has(key))
+      byPlayer.set(key, { name: key, named: !!r.search,
+                          alliance: r.alliance || null, board: r.board, days: {} });
+    const p = byPlayer.get(key);
+    if (!p.alliance && r.alliance) p.alliance = r.alliance;
+    const slot = r.label || 'Unlabelled';
+    // Two recordings of the same day for one player: keep the higher, which is the one the
+    // game would have counted.
+    if (!(slot in p.days) || r.points > p.days[slot]) p.days[slot] = r.points;
+  }
+
+  // Unlabelled stays a column of its own for as long as anything is unlabelled. Dropping it
+  // the moment one board got a real day made the other two disappear out of the matrix — the
+  // scores were still there, the view had simply stopped having anywhere to put them.
+  const present = DAYS.filter(d => rowsIn.some(r => r.label === d));
+  const cols = rowsIn.some(r => !r.label) ? [...present, 'Unlabelled'] : present;
+  if (!cols.length) cols.push('Unlabelled');
+  const list = [...byPlayer.values()].map(p => {
+    const vals = cols.map(d => p.days[d]);
+    const seen = vals.filter(v => typeof v === 'number');
+    return { ...p, vals,
+             total: seen.reduce((a, b) => a + b, 0),
+             best: seen.length ? Math.max(...seen) : 0,
+             move: seen.length > 1 ? seen[seen.length - 1] - seen[0] : null };
+  });
+
+  $('histNote').innerHTML = stats([
+    [list.length, 'players'],
+    [cols.length, cols.length === 1 ? 'day' : 'days'],
+    [new Set(list.map(p => p.alliance).filter(Boolean)).size, 'alliances'],
+    [list.reduce((a, p) => a + p.total, 0).toLocaleString(), 'points'],
+    [esc(monthName(drill.month) + ' ' + drill.year), 'month', true],
+  ]);
+
+  const columns = [
+    { h: '#' },
+    { h: 'Player', get: p => p.name },
+    { h: 'Alliance', get: p => p.alliance || '' },
+    ...cols.map(d => ({ h: d, get: p => p.days[d] ?? -Infinity })),
+    { h: 'Total', get: p => p.total },
+    { h: 'Move', get: p => p.move ?? -Infinity },
+  ];
+  if (!sortState.combined) sortState.combined = { i: columns.length - 2, desc: true };
+  const head = sortable('combined', columns, list);
+  const max = Math.max(1, ...list.map(p => p.best));
+
+  tbl(head + '<tbody>' + list.map((p, n) => {
+    const i = MAIN_ALLIANCES.indexOf(p.alliance);
+    return `<tr>
+      <td class="rank">${n + 1}</td>
+      <td style="font-weight:600" class="${p.named ? '' : 'asdrawn'}">${esc(p.name)}
+        ${p.named ? '' : '<span class="tag tag-new">not on roster</span>'}</td>
+      <td class="${p.alliance ? 'c' + (i < 0 ? 'X' : i) : ''}"
+          style="font-weight:600">${esc(p.alliance || '')}</td>
+      ${cols.map(d => typeof p.days[d] === 'number'
+          ? scoreCell(p.days[d], max)
+          : '<td class="num"><span class="flat">—</span></td>').join('')}
+      <td class="num" style="font-weight:700">${p.total.toLocaleString()}</td>
+      <td>${p.move === null ? '<span class="flat">—</span>' : delta(p.move)}</td>
+    </tr>`;
+  }).join('') + '</tbody>');
+  wireSort('combined', drawCombined);
+}
+
 function setView(v) {
   view = v;
   $('histTabs').querySelectorAll('.tab').forEach(t =>
     t.classList.toggle('on', t.dataset.view === v));
-  ['boards','board','month','player'].forEach(k =>
-    $('bar' + k[0].toUpperCase() + k.slice(1)).classList.toggle('hide', k !== v));
-  ({ boards: drawBoards, board: loadBoard, month: loadMonth, player: loadPlayer })[v]();
+  ['roster','boards','board','month','player'].forEach(k => {
+    const bar = $('bar' + k[0].toUpperCase() + k.slice(1));
+    if (bar) bar.classList.toggle('hide', k !== v);
+  });
+  // The drill belongs to the boards view and to the single board you reach from it, so it
+  // stays put while you look at one — going back is a chip, not a browser button.
+  $('drill').classList.toggle('hide', v !== 'boards' && v !== 'board');
+  ({ roster: drawRoster,
+     boards: () => { drawDrill(); drawDay(); },
+     board: loadBoard, month: loadMonth, player: loadPlayer })[v]();
 }
 $('histTabs').querySelectorAll('.tab').forEach(t => t.onclick = async () => {
-  if (t.dataset.view !== 'boards' && !boardList.length) await loadBoards();
+  if (t.dataset.view !== 'roster' && !boardList.length) await loadBoards();
   setView(t.dataset.view);
 });
+$('rosterFind').oninput = drawRoster;
+$('rosterAlli').onchange = drawRoster;
+$('rosterPull').onclick = () => $('pull').click();
+$('rosterAdd').onclick = async () => {
+  const name = prompt('Roster name for the new player:');
+  if (!name || !name.trim()) return;
+  try { await putRosterEdit(name.trim(), { added: 1 }); note('✓ ' + name.trim() + ' added'); }
+  catch (e) { note('✗ ' + e.message); }
+  drawRoster();
+};
 $('histLoad').onclick = loadBoards;
 $('boardPick').onchange = loadBoard;
 $('monthPick').onchange = loadMonth;
@@ -2773,7 +3198,14 @@ $('histCsv').onclick = async () => {
     flash($('histCsv'), 'Downloaded ✓');
   } catch (e) { note('✗ ' + e.message); }
 };
-loadBoards();
+// The roster first, and the boards behind it so the year and month chips are ready the
+// moment anyone reaches for them.
+(async () => {
+  await loadRosterEdits();
+  setView('roster');
+  await loadBoards();
+  if (view === 'roster') drawRoster();
+})();
 
 $('copy').onclick = async () => {
   const tsv = outRows().map(r => r.join('\t')).join('\n');
