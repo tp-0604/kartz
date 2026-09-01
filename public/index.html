@@ -3,139 +3,281 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Kartz Extractor</title>
+<title>Kartz</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
 <style>
+/* ---------------------------------------------------------------------------------------
+   Console rails + density, Soft button sizes.
+
+   Two ideas do all the work here. Colour is an identity, never decoration: an alliance owns
+   a hue and wears it as a rail down the left edge of anything that belongs to it, so a 698S
+   player sitting inside a 698W board is visible without reading a word. And the four scales
+   — alliance, name resolution, score movement, run state — never share a hue, so a green
+   chip cannot mean both "698N" and "saved".
+
+   The density is the console's: 7px rows, so a 153-row board is a page and a half rather
+   than five. The controls are not: 48px tall with 12px between them, because the extract
+   half of this is done one-handed on a phone in front of the game.
+   --------------------------------------------------------------------------------------- */
 :root{
-  --bg:#f4f5f8; --panel:#fff; --ink:#15181f; --muted:#666e7d; --line:#dfe3ea;
-  --accent:#3b5bdb; --ok:#2b8a3e; --warn:#c26a00; --bad:#c92a2a;
-  --okbg:#e9f7ed; --warnbg:#fff4e2; --badbg:#fdecec;
-  /* One hue per alliance, close enough to the accent to belong to the same page and far
-     enough apart to be told apart at chip size. Assigned by position in MAIN_ALLIANCES, so
-     an alliance keeps its colour across every view. */
-  --a0:#4c6ef5; --a1:#0ca678; --a2:#e8890c; --a3:#e64980; --aX:#868e96;
+  --bg:#edeff3; --panel:#fff; --panel2:#f4f6f9; --ink:#161a20; --muted:#5d6678;
+  --line:#dbe0e7; --accent:#2a7f78; --accink:#fff; --accbg:#e2efee;
+  --ok:#2d7a52; --warn:#8e610f; --bad:#a33c37;
+  --okbg:#e4f0e9; --warnbg:#f5eedc; --badbg:#f7e9e7;
+  /* One hue per alliance, by position in MAIN_ALLIANCES — 698W, 698S, 698N, 698C — so an
+     alliance keeps its colour in every view. Held at roughly equal lightness and well below
+     the accent's chroma: they are labels, and labels should not shout over the controls. */
+  --a0:#6a58a3; --a1:#2f6f96; --a2:#3a6f4a; --a3:#946129; --aX:#767e8c;
+  --shade:rgba(15,22,35,.13);
+  --sans:Barlow,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --rad:10px; --rad2:8px; --btnrad:12px;
 }
 @media (prefers-color-scheme:dark){:root{
-  --bg:#12141a; --panel:#1a1d25; --ink:#e8eaef; --muted:#98a0b0; --line:#2b303c;
-  --accent:#748ffc; --ok:#69db7c; --warn:#ffc078; --bad:#ff8787;
-  --okbg:#17301e; --warnbg:#33270f; --badbg:#361a1a;
-  --a0:#91a7ff; --a1:#38d9a9; --a2:#ffc078; --a3:#faa2c1; --aX:#909aa8;
+  --bg:#0f1216; --panel:#181c23; --panel2:#212630; --ink:#e3e7ee; --muted:#8d97a7;
+  --line:#29303a; --accent:#4fa8a0; --accink:#06211f; --accbg:#16302e;
+  --ok:#5cc48b; --warn:#d6a75d; --bad:#e08079;
+  --okbg:#14271c; --warnbg:#2a2416; --badbg:#2d1d1c;
+  --a0:#9b8ee0; --a1:#5aa9c9; --a2:#6fbf83; --a3:#d7a05a; --aX:#8d97a7;
+  --shade:rgba(0,0,0,.5);
 }}
+
 *{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);
-  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  padding:16px;padding-bottom:64px}
-.wrap{max-width:960px;margin:0 auto}
+  font:15.5px/1.5 var(--sans);-webkit-font-smoothing:antialiased;
+  padding:0 0 72px}
+.wrap{max-width:1000px;margin:0 auto;padding:18px 16px 0}
+
+/* ---------------------------------------------------------------------------------------
+   The shell. Two tabs, one bar, and it follows you down a long board so switching back is
+   never a scroll to the top.
+   --------------------------------------------------------------------------------------- */
+.top{position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--panel) 92%,transparent);
+  backdrop-filter:saturate(160%) blur(12px);border-bottom:1px solid var(--line)}
+.topin{max-width:1000px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;
+  gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:9px;font:700 17px/1 var(--sans);
+  letter-spacing:-.01em;flex:none}
+.brand u{width:10px;height:16px;border-radius:2px;background:var(--accent);
+  text-decoration:none;display:block}
+.build{margin-left:auto;font:500 11px/1 var(--mono);color:var(--muted);white-space:nowrap}
+
+.mtabs{display:flex;gap:4px;background:var(--panel2);border:1px solid var(--line);
+  border-radius:14px;padding:4px}
+.mtab{width:auto;flex:none;background:transparent;color:var(--muted);border:0;
+  font:600 14.5px/1 var(--sans);padding:12px 20px;min-height:44px;border-radius:10px;
+  cursor:pointer;transition:background .15s,color .15s,transform .07s ease}
+.mtab:hover{color:var(--ink)}
+.mtab.on{background:var(--accent);color:var(--accink)}
+.mtab:active{transform:scale(.96)}
+@media (max-width:560px){
+  .topin{gap:10px}
+  .mtabs{order:3;width:100%;padding:4px}
+  .mtab{flex:1}
+  .build{margin-left:auto}
+  /* A section's action wraps onto its own line at this width, and margin-left:auto then
+     strands it against the right edge with a hole beside it. Full width instead — which is
+     also the easier thing to hit. */
+  .shead>button,.shead>button.sm{margin-left:0;width:100%}
+}
+
+.pane{padding-top:16px}
+.lede{color:var(--muted);font-size:13.5px;margin:0 0 14px;max-width:70ch;line-height:1.55}
+
+/* ---------------------------------------------------------------------------------------
+   Panels
+   --------------------------------------------------------------------------------------- */
+section{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
+  padding:15px 16px;margin-bottom:12px}
+.shead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
 h1{font-size:19px;margin:0 0 2px}
-.sub{color:var(--muted);font-size:13px;margin:0 0 18px}
-section{background:var(--panel);border:1px solid var(--line);border-radius:12px;
-  padding:14px 16px;margin-bottom:12px}
-h2{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);
-  margin:0 0 10px;font-weight:600}
-label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
-input,select,textarea,button{font:inherit;color:var(--ink);background:var(--panel);
-  border:1px solid var(--line);border-radius:8px;padding:9px 11px;width:100%}
-textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;resize:vertical}
-button{background:var(--accent);color:#fff;border:0;font-weight:600;cursor:pointer}
-button:disabled{opacity:.45;cursor:default}
-button{transition:transform .06s ease, filter .12s ease, background .12s ease}
-button:not(:disabled):active{transform:translateY(1px)}
-button:not(.ghost):not(:disabled):active{filter:brightness(.88)}
-button.ghost:not(:disabled):active{background:var(--line)}
+h2{font:600 11.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;
+  color:var(--muted);margin:0;flex:none}
+.shead>.pill{flex:none}
+.shead>button{margin-left:auto}
+label{display:block;font:600 11.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;
+  color:var(--muted);margin:0 0 7px}
+.note{font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.5}
+/* A utility, so it has to beat whatever the thing it is hiding sets for itself: .viewbar
+   and .pane declare display, and #queue declares it from an id. Without !important the
+   four view bars all showed at once, because a later single-class rule outranks this. */
+.hide{display:none !important}
+
+/* ---------------------------------------------------------------------------------------
+   Controls. Big, spaced, and they answer when you press them.
+   --------------------------------------------------------------------------------------- */
+input,select,textarea,button{font-family:var(--sans);color:var(--ink);background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--btnrad);width:100%}
+input,select,textarea{font-size:15px;font-weight:500;padding:13px;min-height:48px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;
+  border-color:var(--accent)}
+textarea{font-family:var(--mono);font-size:12px;resize:vertical;line-height:1.5}
+input[type=date]{font-variant-numeric:tabular-nums}
+
+button{background:var(--accent);color:var(--accink);border-color:transparent;
+  font-size:15px;font-weight:700;letter-spacing:.005em;padding:14px 20px;min-height:48px;
+  cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  transition:transform .07s ease,filter .12s ease,background .15s ease,border-color .15s ease,
+             color .15s ease}
+button:not(:disabled):active{transform:scale(.955);filter:brightness(.93)}
+button:disabled{opacity:.42;cursor:default}
+button:focus-visible,.mtab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.ghost{background:var(--panel);color:var(--accent);border-color:var(--line);font-weight:600}
+button.ghost:hover:not(:disabled){border-color:var(--accent)}
+button.ghost:not(:disabled):active{background:var(--panel2)}
 /* what a finished action looks like, for the second or so it says so */
-button.done, button.ghost.done{background:var(--ok);border-color:var(--ok);color:#fff;
+button.done,button.ghost.done{background:var(--ok);border-color:var(--ok);color:#fff;
   filter:none;transform:none}
-/* A refusal has to be as loud as a success. Saying "pick an alliance first" in the log at the
-   top of the page, while the button sits at the bottom, is indistinguishable from the button
-   being broken — which is exactly how it was reported. */
-button.nope, button.ghost.nope{background:var(--warn);border-color:var(--warn);color:#fff;
+/* A refusal has to be as loud as a success, and it has to happen where the finger is. */
+button.nope,button.ghost.nope{background:var(--warn);border-color:var(--warn);color:#fff;
   filter:none;transform:none}
+button.ghost.tickok{color:var(--ok);border-color:var(--ok)}
 @keyframes lookhere{0%,100%{box-shadow:0 0 0 0 transparent}
   30%{box-shadow:0 0 0 3px color-mix(in srgb,var(--warn) 45%,transparent)}}
 .lookhere{animation:lookhere 1.1s ease 2}
-button.ghost{background:transparent;color:var(--accent);border:1px solid var(--line);font-weight:500}
-.row{display:flex;gap:10px;flex-wrap:wrap}
-.row>*{flex:1;min-width:150px}
-.drop{border:2px dashed var(--line);border-radius:12px;padding:26px 16px;text-align:center;
-  color:var(--muted);cursor:pointer}
-.drop.on{border-color:var(--accent);color:var(--accent)}
-.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:10px}
-.bar>i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s}
-.log{font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--muted);
-  white-space:pre-wrap;margin-top:8px}
-.strip{display:flex;gap:5px;overflow-x:auto;margin-top:10px;padding-bottom:4px}
-.strip img{height:88px;border-radius:5px;border:1px solid var(--line);flex:none}
-.tablewrap{overflow-x:auto}
-table{border-collapse:collapse;width:100%;font-size:13px;min-width:600px}
-th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;
-  color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
-td{padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
-tr.ok td:nth-child(3){color:var(--ok)}
-tr.new{background:var(--warnbg)}
-.pill{font-size:11px;padding:2px 7px;border-radius:20px;font-weight:600;white-space:nowrap}
-.p-ok{background:var(--okbg);color:var(--ok)}
-.p-new{background:var(--warnbg);color:var(--warn)}
-.p-bad{background:var(--badbg);color:var(--bad)}
-.pickbox{padding:5px 8px;font-size:13px;min-width:170px}
-.named{color:var(--ok)}
-.asdrawn{color:var(--ink)}
-.pencil{background:none;border:0;color:var(--muted);cursor:pointer;font-size:13px;
-  padding:0 4px;width:auto;line-height:1;opacity:.5}
+
+/* a group of buttons: 12px apart, and never touching the thing above them */
+.btnrow{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px}
+.btnrow>button{flex:1 1 190px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.row>*{flex:1;min-width:160px}
+#go{margin-top:14px}
+
+/* smaller buttons, where the row they sit in is the point and the button is not */
+button.sm,.viewbar button{width:auto;min-height:42px;padding:11px 16px;font-size:14px}
+.boardcard button{min-height:34px;font-size:13px;font-weight:600}
+.pencil{background:none;border:0;color:var(--muted);cursor:pointer;font-size:14px;
+  padding:0 5px;width:auto;min-height:0;line-height:1;opacity:.5;border-radius:5px}
 .pencil:hover{opacity:1;color:var(--accent)}
-button.ghost.tickok{color:var(--ok)}
-#queue{display:flex;flex-direction:column;gap:6px;margin-top:10px}
-.qrow{display:flex;gap:10px;align-items:center;padding:8px 11px;border:1px solid var(--line);
-  border-radius:8px;background:var(--panel);font-size:13px}
-.qrow .qname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.qrow select{width:auto;min-width:96px;padding:5px 8px}
-.qrow .qstat{color:var(--muted);font-size:12px;min-width:104px;text-align:right}
-.qrow.qdone{border-color:var(--ok)}
-.qrow.qdone .qstat{color:var(--ok)}
-.qrow.qfail{border-color:var(--bad)}
-.qrow.qfail .qstat{color:var(--bad)}
+
 /* ---------------------------------------------------------------------------------------
-   The history platform.
-
-   A spreadsheet shows every cell with equal weight and leaves the reading to you. The point
-   of building this instead is that the page can say what matters before you look for it: how
-   much is here, which rows a person has already touched, whether a score went up or down,
-   what a player's line looks like. The styles below exist to encode those, not to decorate.
+   Recording
    --------------------------------------------------------------------------------------- */
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));gap:8px;margin:2px 0 14px}
-.stat{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
-.stat b{display:block;font-size:21px;font-weight:650;letter-spacing:-.02em;line-height:1.2;
-  font-variant-numeric:tabular-nums}
-.stat span{display:block;font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;
-  color:var(--muted);margin-top:2px}
-.stat.wide b{font-size:15px;font-weight:600;letter-spacing:0}
+.drop{border:2px dashed var(--line);border-radius:var(--rad);padding:30px 16px;
+  text-align:center;color:var(--muted);cursor:pointer;background:var(--panel2);
+  transition:border-color .15s,color .15s,background .15s}
+.drop strong{display:block;color:var(--ink);font-size:15.5px;margin-bottom:5px}
+.drop:hover,.drop.on{border-color:var(--accent);color:var(--accent);background:var(--accbg)}
+.bar{height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:12px}
+.bar>i{display:block;height:100%;width:0;background:var(--accent);border-radius:4px;
+  transition:width .15s}
+.log{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:pre-wrap;
+  margin-top:10px;line-height:1.6}
+.strip{display:flex;gap:6px;overflow-x:auto;margin-top:12px;padding-bottom:4px}
+.strip img{height:88px;border-radius:6px;border:1px solid var(--line);flex:none}
 
-.chip{display:inline-flex;align-items:center;gap:5px;padding:2px 9px 2px 7px;border-radius:20px;
-  font-size:11.5px;font-weight:600;white-space:nowrap;background:color-mix(in srgb,currentColor 12%,transparent)}
-.chip::before{content:'';width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
-.c0{color:var(--a0)} .c1{color:var(--a1)} .c2{color:var(--a2)} .c3{color:var(--a3)}
-.cX{color:var(--aX)}
-/* The alliance cell on a board stays editable, so it cannot be a pill — but it can still carry
-   the alliance's colour, which is what makes a 698S player inside a 698W board visible. */
+/* The queue wears the run state as a rail: waiting, working, saved, failed. */
+#queue{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.qrow{display:flex;gap:11px;align-items:center;padding:9px 12px;border:1px solid var(--line);
+  border-left:3px solid var(--muted);border-radius:var(--rad2);background:var(--panel2);
+  font-size:13.5px}
+.qrow .qname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.qrow select{width:auto;min-width:104px;min-height:38px;padding:8px 10px;font-size:13px}
+.qrow .qstat{color:var(--muted);font-size:12.5px;font-weight:600;min-width:104px;text-align:right}
+.qrow.qdone{border-left-color:var(--ok)}
+.qrow.qdone .qstat{color:var(--ok)}
+.qrow.qfail{border-left-color:var(--bad)}
+.qrow.qfail .qstat{color:var(--bad)}
+
+/* ---------------------------------------------------------------------------------------
+   Tables — the console half. Dense, tabular, and every row carrying its alliance.
+   --------------------------------------------------------------------------------------- */
+.tablewrap{overflow-x:auto;margin-top:10px}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:600px}
+th{text-align:left;font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;
+  color:var(--muted);padding:9px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+tr.ok td:nth-child(3){color:var(--ok)}
+/* Resolution state as a rail, not a wash. A full warm row for every unmatched name made a
+   board of new players unreadable; a 3px edge says the same thing and stays out of the way. */
+#tbl tbody tr.ok>td:first-child{box-shadow:inset 3px 0 0 var(--ok)}
+#tbl tbody tr.new>td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+#tbl tbody tr.new{background:color-mix(in srgb,var(--warn) 6%,transparent)}
+#tbl tr.drop{opacity:.4}
+#tbl tr.drop>td:first-child{box-shadow:inset 3px 0 0 var(--muted)}
+.named{color:var(--ok);font-weight:600}
+.asdrawn{color:var(--ink)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.rank{color:var(--muted);font-variant-numeric:tabular-nums;font-family:var(--mono);
+  font-size:12px;width:44px}
+.allipick{width:auto;min-width:92px;max-width:150px;padding:7px 9px;min-height:36px;
+  font-size:13px;font-weight:600}
+.pickbox{padding:6px 9px;font-size:13px;min-width:170px;min-height:34px}
+td select{width:auto;padding:6px 8px;font-size:12.5px;min-width:150px;min-height:34px}
+.rowdrop{width:auto;min-height:0}
+
+/* ---------------------------------------------------------------------------------------
+   The database half
+   --------------------------------------------------------------------------------------- */
+.tabs{display:flex;gap:7px;margin:0 0 14px;flex-wrap:wrap}
+/* A level below the two that matter, so it reads as a filter on this tab rather than a
+   rival to it: pills on the panel, not a second segmented bar. */
+.tab{width:auto;flex:none;background:var(--panel2);color:var(--muted);
+  border:1px solid var(--line);padding:9px 15px;min-height:40px;font-size:13.5px;
+  font-weight:600;border-radius:20px}
+.tab:hover{color:var(--ink)}
+.tab.on{background:var(--accbg);border-color:transparent;color:var(--accent)}
+.viewbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:4px}
+.viewbar>*{width:auto;flex:none}
+.viewbar select,.viewbar input{min-width:170px;min-height:42px;padding:11px 12px;font-size:14px}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(116px,1fr));gap:9px;
+  margin:2px 0 16px}
+.stat{background:var(--panel2);border:1px solid var(--line);border-radius:var(--rad2);
+  padding:11px 13px}
+.stat b{display:block;font:700 22px/1.15 var(--mono);letter-spacing:-.03em;
+  font-variant-numeric:tabular-nums;color:var(--ink)}
+.stat span{display:block;font:600 10px/1 var(--mono);text-transform:uppercase;
+  letter-spacing:.1em;color:var(--muted);margin-top:5px}
+.stat.wide b{font-size:15px;letter-spacing:0}
+
+/* The chip is a rail at chip size — same idea, same colour, wherever an alliance is named. */
+.chip{display:inline-flex;align-items:center;gap:7px;padding:4px 10px 4px 7px;
+  border-radius:6px;font:600 12px/1 var(--sans);white-space:nowrap;color:var(--ac,var(--aX));
+  background:color-mix(in srgb,currentColor 11%,transparent)}
+.chip::before{content:'';width:3px;height:13px;border-radius:2px;background:currentColor;
+  flex:none}
+.c0{--ac:var(--a0);color:var(--a0)} .c1{--ac:var(--a1);color:var(--a1)}
+.c2{--ac:var(--a2);color:var(--a2)} .c3{--ac:var(--a3);color:var(--a3)}
+.cX{--ac:var(--aX);color:var(--aX)}
+/* The alliance cell on a board stays editable, so it cannot be a pill — but it can still
+   carry the alliance's colour, which is what makes a 698S player inside a 698W board visible. */
 #histTbl td.c0,#histTbl td.c1,#histTbl td.c2,#histTbl td.c3,#histTbl td.cX{background:none}
+/* …and the row it sits in gets the rail, read off that same cell. */
+#histTbl tbody tr:has(td.c0)>td:first-child{box-shadow:inset 3px 0 0 var(--a0)}
+#histTbl tbody tr:has(td.c1)>td:first-child{box-shadow:inset 3px 0 0 var(--a1)}
+#histTbl tbody tr:has(td.c2)>td:first-child{box-shadow:inset 3px 0 0 var(--a2)}
+#histTbl tbody tr:has(td.c3)>td:first-child{box-shadow:inset 3px 0 0 var(--a3)}
+#histTbl tbody tr:has(td.cX)>td:first-child{box-shadow:inset 3px 0 0 var(--aX)}
 
 /* A score is easier to compare against its neighbours than to read in isolation, so the cell
    carries a bar of its own size behind the number. */
 .barcell{position:relative}
-.barcell i{position:absolute;left:0;top:50%;transform:translateY(-50%);height:16px;
-  background:color-mix(in srgb,var(--accent) 13%,transparent);border-radius:3px;z-index:0}
-.barcell span{position:relative;z-index:1;font-variant-numeric:tabular-nums;padding-left:4px}
+.barcell i{position:absolute;left:0;top:50%;transform:translateY(-50%);height:17px;
+  background:color-mix(in srgb,var(--accent) 14%,transparent);border-radius:3px;z-index:0}
+.barcell span{position:relative;z-index:1;font-variant-numeric:tabular-nums;padding-left:5px;
+  font-family:var(--mono);font-size:12.5px}
 
-.delta{font-variant-numeric:tabular-nums;font-size:12px}
+.delta{font-variant-numeric:tabular-nums;font-size:12px;font-family:var(--mono);font-weight:500}
 .up{color:var(--ok)} .down{color:var(--bad)} .flat{color:var(--muted)}
 
 .spark{display:block}
-.spark path{fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linejoin:round;stroke-linecap:round}
-.spark .fill{fill:color-mix(in srgb,var(--accent) 12%,transparent);stroke:none}
+.spark path{fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linejoin:round;
+  stroke-linecap:round}
+.spark .fill{fill:color-mix(in srgb,var(--accent) 13%,transparent);stroke:none}
 .spark circle{fill:var(--accent)}
 
-.tag{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:5px;font-weight:600;
+.tag{display:inline-block;font:600 10.5px/1.5 var(--sans);padding:2px 7px;border-radius:5px;
   letter-spacing:.02em}
 .tag-edit{color:var(--warn);background:var(--warnbg)}
 .tag-new{color:var(--muted);background:var(--line)}
+.edited{color:var(--warn);font-size:11px;margin-left:5px}
 
 #histTbl th.sortable{cursor:pointer;user-select:none}
 #histTbl th.sortable:hover{color:var(--ink)}
@@ -143,160 +285,192 @@ button.ghost.tickok{color:var(--ok)}
 #histTbl tbody tr:hover{background:color-mix(in srgb,var(--accent) 5%,transparent)}
 #histTbl td.num{text-align:right;font-variant-numeric:tabular-nums}
 #histTbl td.rank{color:var(--muted);font-variant-numeric:tabular-nums;width:44px}
+#histTbl td[contenteditable]{outline:none;border-bottom:1px dashed var(--line)}
+#histTbl td[contenteditable]:focus{background:var(--accbg);border-bottom-color:var(--accent)}
 
+.boardlist{display:flex;flex-direction:column;gap:8px}
 .boardcard{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
-  padding:11px 13px;border:1px solid var(--line);border-radius:10px;background:var(--bg);
-  cursor:pointer}
-.boardcard:hover{border-color:var(--accent)}
-.boardcard .bmeta{display:flex;gap:9px;align-items:center;flex-wrap:wrap;min-width:0}
-.boardcard .bdate{font-weight:600;font-variant-numeric:tabular-nums}
-.boardcard .bsub{color:var(--muted);font-size:12px}
-.boardlist{display:flex;flex-direction:column;gap:7px}
-.monthhead{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);
-  font-weight:600;margin:12px 0 5px}
+  padding:10px 13px;border:1px solid var(--line);border-left:3px solid var(--aX);
+  border-radius:var(--rad2);background:var(--panel2);cursor:pointer;
+  transition:border-color .15s,background .15s,transform .07s ease}
+.boardcard:has(.c0){border-left-color:var(--a0)}
+.boardcard:has(.c1){border-left-color:var(--a1)}
+.boardcard:has(.c2){border-left-color:var(--a2)}
+.boardcard:has(.c3){border-left-color:var(--a3)}
+.boardcard:hover{background:var(--panel);border-color:var(--accent)}
+.boardcard:active{transform:scale(.995)}
+.boardcard .bmeta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;min-width:0}
+.boardcard .bdate{font-weight:700;font-variant-numeric:tabular-nums;font-size:14px}
+.boardcard .bsub{color:var(--muted);font-size:12.5px}
+.monthhead{font:600 10.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;
+  color:var(--muted);margin:16px 0 7px}
 .monthhead:first-child{margin-top:0}
 
-.tabs{display:flex;gap:4px;margin:10px 0 12px;flex-wrap:wrap}
-.tab{background:transparent;color:var(--muted);border:1px solid transparent;width:auto;
-  padding:7px 13px;font-weight:500;border-radius:8px}
-.tab:hover{color:var(--ink)}
-.tab.on{background:var(--panel);border-color:var(--line);color:var(--ink);font-weight:600}
-.viewbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.viewbar>*{width:auto}
-.viewbar select,.viewbar input{min-width:150px}
-.edited{color:var(--warn);font-size:11px;margin-left:5px}
-#histTbl td[contenteditable]{outline:none;border-bottom:1px dashed var(--line)}
-#histTbl td[contenteditable]:focus{background:var(--okbg);border-bottom-color:var(--accent)}
-/* Selects inherit width:100% from the base control rule, which made these stretch across a
-   column sized for the header rather than for "698S". Sized to their content instead, with a
-   floor so the four codes line up, and a ceiling so the one row carrying "z1.Transferred"
-   widens a little rather than setting the width for all of them. */
-.allipick{width:auto;min-width:88px;max-width:150px;padding:7px 9px}
-#tbl tr.drop{opacity:.4}
-.menu{position:fixed;z-index:50;background:var(--panel);border:1px solid var(--line);
-  border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.16);max-height:210px;overflow-y:auto;
-  min-width:200px;padding:4px 0}
-.menu div{padding:6px 11px;font-size:13px;cursor:pointer;display:flex;
+/* ---------------------------------------------------------------------------------------
+   Odds and ends
+   --------------------------------------------------------------------------------------- */
+.pill{font:600 11px/1 var(--mono);padding:5px 9px;border-radius:20px;white-space:nowrap;
+  letter-spacing:.03em}
+.p-ok{background:var(--okbg);color:var(--ok)}
+.p-new{background:var(--warnbg);color:var(--warn)}
+.p-bad{background:var(--badbg);color:var(--bad)}
+
+.menu{position:fixed;z-index:60;background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--rad2);box-shadow:0 10px 30px var(--shade);max-height:230px;
+  overflow-y:auto;min-width:210px;padding:5px 0}
+.menu div{padding:8px 12px;font-size:13.5px;cursor:pointer;display:flex;
   justify-content:space-between;gap:12px;white-space:nowrap}
-.menu div:hover,.menu div.on{background:var(--accent);color:#fff}
+.menu div:hover,.menu div.on{background:var(--accent);color:var(--accink)}
 .menu div span{opacity:.55;font-size:11px}
 .menu .none{color:var(--muted);cursor:default}
-.menu .newopt{font-weight:600}
-.menu hr{border:0;border-top:1px solid var(--line);margin:4px 0}
-td select{padding:4px 6px;font-size:12px;min-width:150px}
-.note{font-size:12px;color:var(--muted);margin-top:8px}
-.warnbox{background:var(--warnbg);color:var(--warn);border-radius:8px;padding:9px 12px;
-  font-size:13px;margin-top:10px}
-.okbox{background:var(--okbg);color:var(--ok);border-radius:8px;padding:9px 12px;
-  font-size:13px;margin-top:10px}
-details summary{cursor:pointer;font-size:13px;color:var(--muted)}
-.hide{display:none}
+.menu .newopt{font-weight:700}
+.menu hr{border:0;border-top:1px solid var(--line);margin:5px 0}
+
+.warnbox{background:var(--warnbg);color:var(--warn);border-radius:var(--rad2);padding:11px 13px;
+  font-size:13px;margin-top:10px;font-weight:500}
+.okbox{background:var(--okbg);color:var(--ok);border-radius:var(--rad2);padding:11px 13px;
+  font-size:13px;margin-top:10px;font-weight:500}
+
+details{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
+  padding:13px 16px;margin-bottom:12px}
+details summary{cursor:pointer;font-size:13.5px;font-weight:600;color:var(--muted)}
+details summary:hover{color:var(--ink)}
+details[open] summary{margin-bottom:6px}
+
+@media (prefers-reduced-motion:reduce){
+  *{transition-duration:.01ms !important;animation-duration:.01ms !important}
+}
 </style>
 </head>
 <body>
-<div class="wrap">
-<h1>Kartz Extractor</h1>
-<p class="sub">Screen recording &rarr; paste-ready rows. Runs in the browser on any device. Your video never leaves the phone; only a handful of cropped frames go to the model.
-  <span id="build" class="note" style="white-space:nowrap"></span></p>
+<!-- The two halves of this are two different jobs done in two different places: extracting is
+     done one-handed on a phone in front of the game, managing the history is done sitting
+     down. They were stacked down one page, which meant scrolling past a drop zone to read a
+     board. Two tabs, and each half gets the whole screen. -->
+<header class="top"><div class="topin">
+  <div class="brand"><u></u>Kartz</div>
+  <nav class="mtabs" id="mtabs">
+    <button class="mtab on" type="button" data-pane="Extract">Extract</button>
+    <button class="mtab" type="button" data-pane="Db">Database</button>
+  </nav>
+  <span class="build" id="build"></span>
+</div></header>
 
-<section>
-  <h2>1 &middot; Setup <span id="setupState" class="pill p-new">not configured</span></h2>
+<div class="wrap">
+
+<!-- ============================== EXTRACT ============================== -->
+<div class="pane" id="paneExtract">
+  <p class="lede">Screen recording &rarr; rows in the database. Runs in the browser on any
+    device: your video never leaves the phone, only a handful of cropped frames go to the model.</p>
+
   <!-- The roster tab is fixed in the code rather than typed in on every device: everyone pulls
        the same sheet, and a link box only invites a mistyped one. Hand-pasting went with it —
        it existed for when there was no sheet to pull from, and there always is one now. So the
-       whole of setup is one list and one button. -->
-  <div class="row">
-    <button class="ghost" id="pull">Pull / Update Alliance Roster</button>
-  </div>
-  <p class="note" id="keyNote"></p>
-</section>
-
-<section>
-  <h2>2 &middot; Recording</h2>
-  <div class="drop" id="drop">
-    <strong>Choose or drop the screen recordings</strong><br>
-    <span id="fileName">one per alliance &mdash; on a phone this opens your camera roll</span>
-  </div>
-  <input id="file" type="file" accept="video/*" multiple class="hide">
-  <!-- Four recordings is the actual monthly job, and doing them one at a time meant sitting
-       through four rounds of pick, extract, choose alliance, save. The queue below is the same
-       work with the waiting removed. -->
-  <div id="queue" class="hide"></div>
-  <div class="row" style="margin-top:12px">
-    <div>
-      <label for="datestr">Date</label>
-      <input id="datestr" type="date">
+       whole of setup is one line. -->
+  <section>
+    <div class="shead">
+      <h2>Roster</h2>
+      <span id="setupState" class="pill p-new">not configured</span>
+      <button class="ghost sm" id="pull">Pull / Update Alliance Roster</button>
     </div>
-    <!-- Settled rather than offered. Both of these were controls, and neither was a real
-         choice: the reference picture earns its place on every run, and the frame count has
-         one sensible answer — as many as the request allowance permits. 96 sample points come
-         to 288 images, which the batch sizing still fits into twelve requests, so turning it
-         down saves nothing and costs coverage. -->
-    <!-- 64. The binding allowance is tokens, not requests: an image costs a flat ~1100 whatever
-         its size, so the frame count is the whole budget. 96 frames came to 317,000 against a
-         limit of 250,000 a minute and was throttled; 72 came to 246,000, which fits only by
-         dribbling the requests out a dozen seconds apart and made every run take a minute. 64
-         is about 223,000 and goes in one burst, which is what makes the run quick again. -->
-    <input id="sens" type="hidden" value="64">
-    <input id="sheetimg" type="checkbox" checked class="hide">
-  </div>
-  <button id="go" style="margin-top:12px" disabled>Extract</button>
-  <div class="bar"><i id="prog"></i></div>
-  <div class="log" id="log"></div>
-  <div class="strip" id="strip"></div>
-</section>
+    <p class="note" id="keyNote"></p>
+  </section>
 
-<section id="hist">
-  <h2>Kartz history</h2>
-  <!-- Four views rather than a tab per alliance per month. A tab fixes its hierarchy the day
-       it is made, so a question that cuts the other way — one player across every alliance —
-       means opening eighteen of them. -->
-  <div class="tabs" id="histTabs">
-    <button class="tab on" data-view="boards">Boards</button>
-    <button class="tab" data-view="board">Board</button>
-    <button class="tab" data-view="month">Month</button>
-    <button class="tab" data-view="player">Player</button>
-  </div>
+  <section>
+    <div class="shead"><h2>Recordings</h2></div>
+    <div class="drop" id="drop">
+      <strong>Choose or drop the screen recordings</strong>
+      <span id="fileName">one per alliance &mdash; on a phone this opens your camera roll</span>
+    </div>
+    <input id="file" type="file" accept="video/*" multiple class="hide">
+    <!-- Four recordings is the actual monthly job, and doing them one at a time meant sitting
+         through four rounds of pick, extract, choose alliance, save. The queue below is the same
+         work with the waiting removed. -->
+    <div id="queue" class="hide"></div>
+    <div class="row" style="margin-top:14px">
+      <div>
+        <label for="datestr">Date</label>
+        <input id="datestr" type="date">
+      </div>
+      <!-- Settled rather than offered. Both of these were controls, and neither was a real
+           choice: the reference picture earns its place on every run, and the frame count has
+           one sensible answer — as many as the request allowance permits. 64 frames is about
+           223,000 tokens against a limit of 250,000 a minute, so the run goes in one burst. -->
+      <input id="sens" type="hidden" value="64">
+      <input id="sheetimg" type="checkbox" checked class="hide">
+    </div>
+    <button id="go" disabled>Extract</button>
+    <div class="bar"><i id="prog"></i></div>
+    <div class="log" id="log"></div>
+    <div class="strip" id="strip"></div>
+  </section>
 
-  <div class="viewbar" id="barBoards">
-    <button class="ghost" id="histLoad">Refresh</button>
-    <button class="ghost" id="histCsv">Download all</button>
-  </div>
-  <div class="viewbar hide" id="barBoard">
-    <select id="boardPick"></select>
-    <button class="ghost" id="boardDel">Delete this board</button>
-  </div>
-  <div class="viewbar hide" id="barMonth">
-    <input id="monthPick" type="month">
-    <select id="monthAlli"></select>
-  </div>
-  <div class="viewbar hide" id="barPlayer">
-    <input id="playerFind" spellcheck="false" placeholder="roster name…">
-  </div>
+  <section id="out" class="hide">
+    <div class="shead"><h2>Results</h2></div>
+    <div id="verdict"></div>
+    <div class="tablewrap"><table id="tbl"></table></div>
+    <div class="btnrow">
+      <button id="save">Save to history</button>
+      <button class="ghost" id="copy">Copy for sheet</button>
+      <button class="ghost" id="csv">Download CSV</button>
+      <button class="ghost" id="learn">Remember my fixes</button>
+    </div>
+    <p class="note">Anything you resolve by hand, then save with <em>Remember my fixes</em>, is
+      matched automatically from the next run onward.</p>
+  </section>
 
-  <div id="histNote" class="note" style="margin-top:8px"></div>
-  <div class="tablewrap" style="margin-top:8px"><table id="histTbl"></table></div>
-</section>
-
-<section id="out" class="hide">
-  <h2>3 &middot; Results</h2>
-  <div id="verdict"></div>
-  <div class="tablewrap"><table id="tbl"></table></div>
-  <div class="row" style="margin-top:12px">
-    <button id="save">Save to history</button>
-    <button class="ghost" id="copy">Copy for sheet</button>
-    <button class="ghost" id="csv">Download CSV</button>
-    <button class="ghost" id="learn">Remember my fixes</button>
-  </div>
-  <p class="note">Anything you resolve by hand, then save with <em>Remember my fixes</em>, is matched automatically from the next run onward.</p>
-</section>
-
-<details style="margin-top:14px">
-  <summary>How it works &amp; costs</summary>
-  <p class="note">The browser decodes the video with a plain <code>&lt;video&gt;</code> element and samples frames onto a canvas, keeping only frames where the list actually moved &mdash; typically 15&ndash;30 frames from a 50-second recording, about 400&nbsp;KB total instead of a 250&nbsp;MB upload. Those frames go to a vision model that reads rank, name and points, and also writes each stylised name out in plain letters. That plain form is fuzzy-matched against your roster, so <code>&#x1D4DF;&#x1D4F8;&#x1D4F6;</code>-style tags resolve without anyone retyping them. Roughly a fifth of a cent per recording on Gemini Flash, and inside the free tier in normal use.</p>
-</details>
+  <details>
+    <summary>How it works &amp; costs</summary>
+    <p class="note">The browser decodes the video with a plain <code>&lt;video&gt;</code> element
+      and samples frames onto a canvas, keeping only frames where the list actually moved &mdash;
+      typically 15&ndash;30 frames from a 50-second recording, about 400&nbsp;KB total instead of
+      a 250&nbsp;MB upload. Those frames go to a vision model that reads rank, name and points,
+      and also writes each stylised name out in plain letters. That plain form is fuzzy-matched
+      against your roster, so <code>&#x1D4DF;&#x1D4F8;&#x1D4F6;</code>-style tags resolve without
+      anyone retyping them. Roughly a fifth of a cent per recording on Gemini Flash, and inside
+      the free tier in normal use.</p>
+  </details>
 </div>
 
+<!-- ============================== DATABASE ============================== -->
+<div class="pane hide" id="paneDb">
+  <p class="lede">Every board ever extracted, kept on the Worker's database. Nothing here is
+    pasted anywhere &mdash; a board is saved once and read back from any device.</p>
+
+  <section id="hist">
+    <!-- Four views rather than a tab per alliance per month. A tab fixes its hierarchy the day
+         it is made, so a question that cuts the other way — one player across every alliance —
+         means opening eighteen of them. These sit a level below the two tabs above, because
+         they choose what to look at rather than what to do. -->
+    <div class="tabs" id="histTabs">
+      <button class="tab on" data-view="boards">Boards</button>
+      <button class="tab" data-view="board">Board</button>
+      <button class="tab" data-view="month">Month</button>
+      <button class="tab" data-view="player">Player</button>
+    </div>
+
+    <div class="viewbar" id="barBoards">
+      <button class="ghost" id="histLoad">Refresh</button>
+      <button class="ghost" id="histCsv">Download all</button>
+    </div>
+    <div class="viewbar hide" id="barBoard">
+      <select id="boardPick"></select>
+      <button class="ghost" id="boardDel">Delete this board</button>
+    </div>
+    <div class="viewbar hide" id="barMonth">
+      <input id="monthPick" type="month">
+      <select id="monthAlli"></select>
+    </div>
+    <div class="viewbar hide" id="barPlayer">
+      <input id="playerFind" spellcheck="false" placeholder="roster name&hellip;">
+    </div>
+
+    <div id="histNote" class="note"></div>
+    <div class="tablewrap"><table id="histTbl"></table></div>
+  </section>
+</div>
+
+</div>
 <script>
 const $ = id => document.getElementById(id);
 // One configuration. The model call goes to /api on this same deployment, where the Worker
@@ -305,7 +479,7 @@ const $ = id => document.getElementById(id);
 // Shown on the page. Several people run this from their own phones and a browser can sit on
 // an open tab for days, so "it is still happening" and "it is fixed" are easy to say about
 // different builds. Bump it with any change worth telling apart from the one before.
-const BUILD = '2026-09-01e';
+const BUILD = '2026-09-02a';
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
@@ -794,7 +968,7 @@ function resolve(name, plain, ix, aliases) {
 let videoFile = null;
 const log = m => { $('log').textContent = m; };
 if ($('build')) $('build').textContent =
-  ` · build ${BUILD}`;
+  `build ${BUILD}`;
 // Say it on the button. Each of these actions reports what it did in the log at the top of
 // the page, which is nowhere near a button at the foot of it: pressing Copy for sheet worked
 // perfectly and looked exactly like nothing happening. The label answers for a moment and
@@ -2636,6 +2810,42 @@ $('learn').onclick = () => {
 
 
 loadSetup();
+</script>
+<script>
+/* The tab shell. Deliberately the only thing in its own script: everything above this point
+   is the extraction and the database, and none of it knows or needs to know that the page is
+   now in two halves. All this does is decide which half is on screen.
+
+   Which half you were last on is remembered, because the two are used in sessions: a night of
+   extracting four recordings, or an afternoon of reading boards. Landing on the wrong one
+   every time would be a tax on both. */
+(function () {
+  const PANES = { Extract: document.getElementById('paneExtract'),
+                  Db:      document.getElementById('paneDb') };
+  const HASH  = { Extract: '#extract', Db: '#database' };
+  const tabs  = Array.from(document.querySelectorAll('.mtab'));
+
+  function show(name, fromClick) {
+    if (!PANES[name]) name = 'Extract';
+    tabs.forEach(t => t.classList.toggle('on', t.dataset.pane === name));
+    Object.keys(PANES).forEach(k => PANES[k].classList.toggle('hide', k !== name));
+    try { localStorage.setItem('kartzPane', name); } catch (e) {}
+    if (fromClick) {
+      // replaceState rather than a hash assignment: this is which half you are looking at,
+      // not a place in history, and the back button should still leave the page.
+      try { history.replaceState(null, '', HASH[name]); } catch (e) {}
+      window.scrollTo({ top: 0, behavior: 'instant' });
+    }
+  }
+
+  tabs.forEach(t => t.onclick = () => show(t.dataset.pane, true));
+
+  // A link into one half wins over what you were last looking at.
+  let start = location.hash === '#database' ? 'Db'
+            : location.hash === '#extract'  ? 'Extract' : null;
+  if (!start) { try { start = localStorage.getItem('kartzPane'); } catch (e) {} }
+  show(start || 'Extract', false);
+})();
 </script>
 </body>
 </html>
