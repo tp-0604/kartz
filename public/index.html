@@ -544,7 +544,7 @@ const $ = id => document.getElementById(id);
 // Shown on the page. Several people run this from their own phones and a browser can sit on
 // an open tab for days, so "it is still happening" and "it is fixed" are easy to say about
 // different builds. Bump it with any change worth telling apart from the one before.
-const BUILD = '2026-09-02c';
+const BUILD = '2026-09-02d';
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
@@ -667,7 +667,12 @@ async function pullRoster(link) {
     .filter(c => (c[0] || '').trim() && !looksHeader(c));
   // A column earns its place by having a heading or any value under it: the export carries
   // trailing empties and a stray note cell, and neither is a column anybody wants offered.
-  const width = Math.max(header.length, ...body.map(c => c.length), 0);
+  // A to I. Everything past that on this tab is the tab talking to itself: column J repeats
+  // the search name, and the last cell is the note telling people not to edit it by hand.
+  // Neither is a column anybody wants offered, and both are artefacts rather than data.
+  const ROSTER_LAST_COL = 9;
+  const width = Math.min(ROSTER_LAST_COL,
+                         Math.max(header.length, ...body.map(c => c.length), 0));
   const keep = [];
   for (let i = 0; i < width; i++)
     if ((header[i] || '').trim() || body.some(c => (c[i] || '').trim())) keep.push(i);
@@ -2866,6 +2871,9 @@ function mergedRoster() {
     out.push({ search: r.search,
                ingame:   (e && e.ingame)   || r.ingame,
                alliance: (e && e.alliance) || r.alliance,
+               // The rest of the sheet's row travels with it. Rebuilding the row from the
+               // three fields this app matches on is what left CP and the march types blank.
+               cells: r.cells,
                fromSheet: { ingame: r.ingame, alliance: r.alliance },
                src: e ? 'edited' : 'sheet' });
   }
