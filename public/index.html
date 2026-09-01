@@ -288,6 +288,14 @@ td select{width:auto;padding:6px 8px;font-size:12.5px;min-width:150px;min-height
 #histTbl td[contenteditable]{outline:none;border-bottom:1px dashed var(--line)}
 #histTbl td[contenteditable]:focus{background:var(--accbg);border-bottom-color:var(--accent)}
 
+#colpick{display:flex;flex-wrap:wrap;gap:11px 18px;align-items:center;background:var(--panel2);
+  border:1px solid var(--line);border-radius:var(--rad);padding:13px 15px;margin:0 0 12px}
+.colopt{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:500;
+  cursor:pointer;white-space:nowrap;min-height:34px}
+.colopt input{width:auto;min-height:0;padding:0;margin:0;accent-color:var(--accent);
+  width:17px;height:17px;flex:none}
+#colpick button{margin-left:auto}
+
 /* The drill: year, then month, then which of the three recordings. A row of chips rather
    than a dropdown, because the whole set is four or five items wide and a list you can see
    beats a list you have to open — and on a phone it wraps instead of covering the screen. */
@@ -489,9 +497,14 @@ details[open] summary{margin-bottom:6px}
     <div class="viewbar" id="barRoster">
       <input id="rosterFind" spellcheck="false" placeholder="find a player…">
       <select id="rosterAlli"></select>
+      <button class="ghost" id="rosterCols">Columns</button>
       <button class="ghost" id="rosterPull">Pull from sheet</button>
       <button class="ghost" id="rosterAdd">Add player</button>
     </div>
+    <!-- Which of the sheet's columns to show. A roster tab is a dozen columns wide and only a
+         few of them are the question on any given day, so this is a filter on the view and
+         nothing else — hiding a column never hides a player. -->
+    <div id="colpick" class="hide"></div>
 
     <div class="viewbar hide" id="barBoards">
       <button class="ghost" id="histLoad">Refresh</button>
@@ -531,7 +544,7 @@ const $ = id => document.getElementById(id);
 // Shown on the page. Several people run this from their own phones and a browser can sit on
 // an open tab for days, so "it is still happening" and "it is fixed" are easy to say about
 // different builds. Bump it with any change worth telling apart from the one before.
-const BUILD = '2026-09-02b';
+const BUILD = '2026-09-02c';
 const MODEL = 'gemini-3.5-flash-lite';
 const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 const API_BASE = '/api';
@@ -601,6 +614,10 @@ $('pull').onclick = async () => {
   if (ok) {
     store.set('datestr', $('datestr').value);   // the only other thing setup ever saved
     flash($('pull'), `${rosterCache.all.length} rows ✓`);
+    // A pull can change the columns as well as the names, and the roster table was left
+    // showing whatever the previous pull found — new columns arrived in the cache and never
+    // on screen. Redraw when it is the thing being looked at.
+    if (typeof view !== 'undefined' && view === 'roster') drawRoster();
   }
   refreshState();
 };
@@ -640,14 +657,40 @@ async function pullRoster(link) {
   const text = await r.text();
   if (/^\s*<(!doctype|html)/i.test(text)) throw new Error('Google returned a sign-in page — the sheet is not link-readable.');
   const rows = parseCsv(text);
-  const all = rows.map(c => ({ search: (c[0]||'').trim(), ingame: (c[1]||c[0]||'').trim(),
-                               alliance: (c[2]||'').trim() }))
-                  .filter(r => r.search && !/^search\s*name/i.test(r.search));
+  // Every column the tab has, not the three this app happens to match on. The roster is a
+  // document people maintain — CP, march types, notes — and showing three of its columns made
+  // the app a worse view of it than the sheet it came from.
+  const looksHeader = c =>
+    /^(search(able)?|player|in ?game)\s*name/i.test(((c && c[0]) || '').trim());
+  const header = rows.length && looksHeader(rows[0]) ? rows[0] : [];
+  const body = (header.length ? rows.slice(1) : rows)
+    .filter(c => (c[0] || '').trim() && !looksHeader(c));
+  // A column earns its place by having a heading or any value under it: the export carries
+  // trailing empties and a stray note cell, and neither is a column anybody wants offered.
+  const width = Math.max(header.length, ...body.map(c => c.length), 0);
+  const keep = [];
+  for (let i = 0; i < width; i++)
+    if ((header[i] || '').trim() || body.some(c => (c[i] || '').trim())) keep.push(i);
+  const used = new Map();
+  const cols = keep.map(i => {
+    let label = (header[i] || '').replace(/\s+/g, ' ').trim() || `Column ${i + 1}`;
+    // Two columns really are both called Search Name in this tab, and a picker with two
+    // identical entries is a picker you cannot use.
+    const n = (used.get(label) || 0) + 1;
+    used.set(label, n);
+    return { label: n > 1 ? `${label} (${n})` : label, i };
+  });
+  const all = body.map(c => ({
+    search: (c[0] || '').trim(),
+    ingame: (c[1] || c[0] || '').trim(),
+    alliance: (c[2] || '').trim(),
+    cells: keep.map(i => (c[i] || '').trim()),
+  }));
   if (!all.length) throw new Error('No roster rows found in that tab.');
   // Every row is kept, and the filter is applied when the roster is read rather than baked in
   // here. Splitting at pull time meant changing the filter did nothing until you pulled again,
   // and the count on the badge stayed where it was.
-  return { all };
+  return { all, cols };
 }
 // Nothing is filtered out any more. Every player in the sheet is a candidate, including the
 // ones parked in z3.? or z1.Transferred: they are on the roster, and a row in the recording
@@ -2858,6 +2901,35 @@ function rebuildIndexes() {
   catch (e) {}
 }
 
+// Whatever the last pull found. A cache written before this only had the three columns the
+// matcher uses, so it falls back to those rather than rendering an empty table.
+function rosterCols() {
+  const c = rosterCache && rosterCache.cols;
+  return (c && c.length) ? c
+    : [{ label: 'Player', i: 0 }, { label: 'Name in video', i: 1 }, { label: 'Alliance', i: 2 }];
+}
+// Hiding is a property of the view, not of the data, so it lives in this browser and never
+// reaches the database. Hiding a column here is not the same act as correcting a player.
+const hiddenCols = () => new Set(store.get('rosterHidden') || []);
+
+function drawColPick(cols, hidden) {
+  const box = $('colpick');
+  const sig = cols.map(c => c.i + ':' + c.label).join('|') + '#' + [...hidden].sort().join(',');
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  box.innerHTML = cols.map(c =>
+    `<label class="colopt"><input type="checkbox" data-i="${c.i}"`
+    + `${hidden.has(c.i) ? '' : ' checked'}><span>${esc(c.label)}</span></label>`).join('')
+    + '<button class="ghost sm" id="colAll">Show all</button>';
+  box.querySelectorAll('input[type=checkbox]').forEach(cb => cb.onchange = () => {
+    const h = hiddenCols();
+    if (cb.checked) h.delete(+cb.dataset.i); else h.add(+cb.dataset.i);
+    store.set('rosterHidden', [...h]);
+    drawRoster();
+  });
+  $('colAll').onclick = () => { store.set('rosterHidden', []); drawRoster(); };
+}
+
 function drawRoster() {
   const all = mergedRoster();
   if (!all.length) {
@@ -2887,13 +2959,14 @@ function drawRoster() {
 
   const edited = all.filter(r => r.src === 'edited').length;
   const added  = all.filter(r => r.src === 'added').length;
-  const hidden = [...rosterEdits.values()].filter(e => e.removed).length;
+  const nCols = rosterCols().length;
+  const nShown = rosterCols().filter(c => !hiddenCols().has(c.i)).length;
   $('histNote').innerHTML = stats([
     [all.length, 'players'],
     [new Set(all.map(r => r.alliance).filter(Boolean)).size, 'alliances'],
     [edited, 'corrected'],
     [added, 'added here'],
-    [hidden, 'hidden'],
+    [nShown + ' / ' + nCols, 'columns', true],
   ]) + (list.length === all.length ? ''
       : `<div class="note">${list.length} of ${all.length} shown</div>`);
 
@@ -2902,20 +2975,32 @@ function drawRoster() {
     .map(a => `<option value="${esc(a)}"${a === sel ? ' selected' : ''}>`
             + `${esc(a) || '—'}</option>`).join('');
 
-  tbl(th(['Player', 'Name in video', 'Alliance', '', ''])
+  const cols = rosterCols();
+  const hidden = hiddenCols();
+  const shown = cols.filter(c => !hidden.has(c.i));
+  drawColPick(cols, hidden);
+
+  tbl(th([...shown.map(c => esc(c.label)), '', ''])
     + '<tbody>' + list.map(r => {
-      const i = MAIN_ALLIANCES.indexOf(r.alliance);
+      const ai = MAIN_ALLIANCES.indexOf(r.alliance);
+      const cell = c => {
+        // Two of these columns are not a view of the sheet, they are what the matcher runs on,
+        // so they stay editable wherever they sit. The rest is the sheet's own record.
+        if (c.i === 1) return `<td contenteditable data-f="ingame" `
+          + `class="${r.src === 'sheet' ? 'asdrawn' : 'named'}">${esc(r.ingame)}</td>`;
+        if (c.i === 2) return `<td class="${r.alliance ? 'c' + (ai < 0 ? 'X' : ai) : ''}">`
+          + `<select class="allipick" data-f="alliance">${opts(r.alliance)}</select></td>`;
+        if (c.i === 0) return `<td style="font-weight:600">${esc(r.search)}</td>`;
+        const n = cols.indexOf(c);
+        const v = (r.cells && r.cells[n]) || '';
+        return `<td class="${/^-?[\d.,]+$/.test(v) ? 'num' : ''}">${esc(v)}</td>`;
+      };
       return `<tr data-search="${esc(r.search)}">
-        <td style="font-weight:600">${esc(r.search)}</td>
-        <td contenteditable data-f="ingame" class="${r.src === 'sheet' ? 'asdrawn' : 'named'}"
-            >${esc(r.ingame)}</td>
-        <td class="${r.alliance ? 'c' + (i < 0 ? 'X' : i) : ''}">
-          <select class="allipick" data-f="alliance">${opts(r.alliance)}</select></td>
+        ${shown.map(cell).join('')}
         <td>${r.src === 'sheet' ? ''
              : `<span class="tag ${r.src === 'added' ? 'tag-new' : 'tag-edit'}">${r.src}</span>`}</td>
         <td style="text-align:right">${r.src === 'sheet' ? ''
-             : '<button class="ghost sm rowrevert">Revert</button>'}
-          <button class="ghost sm rowhide">Hide</button></td>
+             : '<button class="ghost sm rowrevert">Revert</button>'}</td>
       </tr>`;
     }).join('') + '</tbody>');
 
@@ -2942,12 +3027,6 @@ function drawRoster() {
   $('histTbl').querySelectorAll('.rowrevert').forEach(b => b.onclick = async () => {
     const search = b.closest('tr').dataset.search;
     try { await revertRosterEdit(search); note(`✓ ${search} back to the sheet`); }
-    catch (e) { note('✗ ' + e.message); }
-    drawRoster();
-  });
-  $('histTbl').querySelectorAll('.rowhide').forEach(b => b.onclick = async () => {
-    const search = b.closest('tr').dataset.search;
-    try { await putRosterEdit(search, { removed: 1 }); note(`✓ ${search} hidden`); }
     catch (e) { note('✗ ' + e.message); }
     drawRoster();
   });
@@ -3167,6 +3246,7 @@ $('histTabs').querySelectorAll('.tab').forEach(t => t.onclick = async () => {
 });
 $('rosterFind').oninput = drawRoster;
 $('rosterAlli').onchange = drawRoster;
+$('rosterCols').onclick = () => $('colpick').classList.toggle('hide');
 $('rosterPull').onclick = () => $('pull').click();
 $('rosterAdd').onclick = async () => {
   const name = prompt('Roster name for the new player:');
