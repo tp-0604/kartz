@@ -7,7 +7,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../../state/AppContext.jsx';
 import SheetWorkspace from '../sheet/SheetWorkspace.jsx';
-import { sheetColumns, toSheetValues, fromSheetValues, validate } from '../../sheet/roster.js';
+import { columnSpec, toSheetValues, fromSheetValues, validate, DEFAULT_MAPPING } from '../../sheet/roster.js';
+import RosterImport from './RosterImport.jsx';
 import { store } from '../../utils/storage.js';
 import { fmtTime } from '../../utils/format.js';
 import { ApiError } from '../../services/api.js';
@@ -15,7 +16,7 @@ import { Stats } from '../shared/ui.jsx';
 
 const DRAFT = 'draft.roster';
 
-export default function RosterScreen({ active }) {
+export default function RosterScreen() {
   const { roster, rosterMeta, rosterLoaded, loadRoster, saveRoster, notify } = useApp();
   const [ctl, setCtl] = useState(null);
   const ctlRef = useRef(null);
@@ -24,6 +25,8 @@ export default function RosterScreen({ active }) {
   const [problems, setProblems] = useState([]);
   const [draft, setDraft] = useState(null);
   const [seeded, setSeeded] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const mapRef = useRef(DEFAULT_MAPPING);
   const draftTimer = useRef(null);
 
   const onReady = useCallback(c => { ctlRef.current = c; setCtl(c); }, []);
@@ -37,11 +40,12 @@ export default function RosterScreen({ active }) {
   // Draw the roster into the sheet once both the sheet and the rows are ready.
   const draw = useCallback((rows, meta) => {
     const c = ctlRef.current; if (!c) return;
+    const mapping = (meta && meta.mapping && meta.mapping.search) ? meta.mapping : DEFAULT_MAPPING;
+    const columns = (meta && meta.columns && meta.columns.length)
+      ? meta.columns : [mapping.search, mapping.ingame, mapping.alliance].filter(Boolean);
+    mapRef.current = mapping;
     if (meta && meta.sheet) c.restore(meta.sheet);
-    else {
-      const cols = sheetColumns(meta ? meta.columns : [], meta ? meta.labels : []);
-      c.loadValues(toSheetValues(rows, cols), cols);
-    }
+    else c.loadValues(toSheetValues(rows, columns, mapping), columnSpec(columns, mapping));
     setProblems([]);
     const d = store.get(DRAFT);
     setDraft(d && meta && d.at > (meta.savedAt || '') ? d : null);
@@ -81,7 +85,8 @@ export default function RosterScreen({ active }) {
 
   const save = async () => {
     const c = ctlRef.current; if (!c) return;
-    const { rows, columns, labels, blanks } = fromSheetValues(c.readValues());
+    const { rows, columns, mapping, blanks, missing } = fromSheetValues(c.readValues(), mapRef.current);
+    if (missing) { notify('The sheet has no player-name column. The first column is the identity.', 'warn'); return; }
     const probs = validate(rows);
     if (probs.length) { setProblems(probs); notify('Two rows share a player name. Fix them and save again.', 'warn'); return; }
     if (!rows.length && !window.confirm('That would delete every player. Save an empty roster?')) return;
@@ -90,8 +95,9 @@ export default function RosterScreen({ active }) {
     setProblems([]);
     setBusy('saving');
     try {
-      const out = await saveRoster({ rows, columns, labels, sheet: c.snapshot(),
+      const out = await saveRoster({ rows, columns, mapping, sheet: c.snapshot(),
                                      version: rosterMeta.version, allowEmpty: !rows.length });
+      mapRef.current = mapping;
       store.del(DRAFT); setDraft(null);
       c.markClean();
       notify(`Saved ${out.saved} players ✓`);
@@ -120,12 +126,13 @@ export default function RosterScreen({ active }) {
         <div className="pagehead__text">
           <h1>Roster</h1>
           <p>Who is who, kept here. The searchable name is a player's identity and is what every score
-            points at; the name in video is what the game draws. Anything you add to the right of Alliance
-            is yours, and it is kept.</p>
+            points at; the name in video is what a recording is matched against. Every other column is yours,
+            in whatever order you keep it.</p>
         </div>
         <div className="pagehead__actions">
           <button className="btn btn--icon" title="Undo" onClick={() => ctl && ctl.undo()} disabled={!ctl}>↶</button>
           <button className="btn btn--icon" title="Redo" onClick={() => ctl && ctl.redo()} disabled={!ctl}>↷</button>
+          <button className="btn" onClick={() => setImporting(true)} disabled={!ctl || !!busy}>Replace from a table</button>
           <button className="btn" onClick={reload} disabled={!ctl || !!busy}>Reload</button>
           <button className={'btn btn--primary savebtn' + (dirty ? ' is-dirty' : '')}
                   onClick={save} disabled={!ctl || !!busy}>
@@ -138,7 +145,7 @@ export default function RosterScreen({ active }) {
         <Stats items={[
           [rosterLoaded ? roster.length : '—', 'players'],
           [alliances.size || '—', 'alliances'],
-          [rosterMeta.columns.length + 3, 'columns'],
+          [rosterMeta.columns.length || '—', 'columns'],
           [rosterMeta.version || '—', 'version'],
         ]} />
 
@@ -165,7 +172,18 @@ export default function RosterScreen({ active }) {
 
         <SheetWorkspace onReady={onReady} unitId="kartz-roster" name="Roster" className="sheet-host sheet-host--roster" />
       </div>
-      {!active && null}
+
+      {importing && (
+        <RosterImport onClose={() => setImporting(false)}
+          onLoad={({ values, columns, mapping }) => {
+            const c = ctlRef.current; if (!c) return;
+            mapRef.current = mapping;
+            c.loadValues(values, columnSpec(columns, mapping));
+            c.markDirty();
+            setProblems([]);
+            notify(`${values.length - 1} rows loaded — check them, then press Save.`);
+          }} />
+      )}
     </>
   );
 }

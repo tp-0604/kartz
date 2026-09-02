@@ -61,7 +61,7 @@ export default function SetupPanel({ onClose }) {
           <div className="stack stack--tight">
             <span className="label">Roster</span>
             <p className="hint">
-              {roster.length ? `${roster.length} players, ${rosterMeta.columns.length + 3} columns` : 'no players yet'}.
+              {roster.length ? `${roster.length} players, ${rosterMeta.columns.length} columns` : 'no players yet'}.
               The roster is kept in this app's own database and edited on the Roster screen. Nothing is
               pulled from a Google Sheet any more.
             </p>

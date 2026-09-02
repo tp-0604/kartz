@@ -36,10 +36,15 @@ against it; the sheet is out of the loop and these rows are the record. Add a pl
 row, remove one by deleting the row, paste a block in from anywhere, and press Save — the whole
 list is written at once.
 
-Three columns are the app's. **Player** is the identity and is what every score points at, so no
-two rows may share one; **Name in video** is what the game draws, and is what a recording is
-matched against; **Alliance** is whose they are. Everything to the right of those — CP, march
-types, anything you add — is the roster's own, and is kept without being read.
+The sheet keeps **whatever columns it has, in whatever order it has them**. Three of them are the
+app's, and it finds those by heading: **Player** is the identity every score points at, so no two
+rows may share one; **Name in video** is what a recording is matched against; **Alliance** is
+optional. Every other column is the roster's own and is kept without being read.
+
+**Replace from a table** takes a whole list from somewhere else — an .xlsx or .csv file, or a
+block of cells pasted straight out of a spreadsheet. It shows the columns it found, guesses which
+three are the app's, lets you correct that, warns about any repeated player name, and puts the
+table in the sheet. Nothing is written until you press Save.
 
 The one-time move brought 881 players over. Six of them shared a Player name with somebody else
 in the old sheet (`Cat`, `Goose`, `Killua`, `Lexi ALT`, `mav`, `Weezy` — two Gooses in two

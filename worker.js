@@ -225,8 +225,18 @@ async function handleData(seg, parts, request, env, reply) {
     });
     let sheet = null;
     if (meta && meta.snapshot) { try { sheet = JSON.parse(meta.snapshot); } catch { sheet = null; } }
-    const j = v => { try { return JSON.parse(v || '[]'); } catch { return []; } };
-    return reply({ rows, columns: j(meta && meta.columns), labels: j(meta && meta.labels),
+    const j = (v, d) => { try { return JSON.parse(v || d); } catch { return JSON.parse(d); } };
+    let columns = j(meta && meta.columns, '[]');
+    let mapping = j(meta && meta.mapping, '{}');
+    // A roster saved before columns could be in any order kept the three the app needs at the
+    // front and only listed the rest. Read that as the shape it meant.
+    if (!mapping.search) {
+      const labels = j(meta && meta.labels, '[]');
+      mapping = { search: labels[0] || 'Player', ingame: labels[1] || 'Name in video',
+                  alliance: labels[2] || 'Alliance' };
+      columns = [mapping.search, mapping.ingame, mapping.alliance, ...columns];
+    }
+    return reply({ rows, columns, mapping,
                    version: meta ? meta.version : 0, savedAt: meta ? meta.saved_at : null, sheet }, 200);
   }
 
@@ -277,12 +287,16 @@ async function handleData(seg, parts, request, env, reply) {
                           extra && extra !== '{}' ? extra : null, n, now));
       n++;
     }
+    const mapping = body.mapping && typeof body.mapping === 'object' ? body.mapping : {};
+    if (!mapping.search)
+      return reply({ error: { code: 400, message:
+        'the save did not say which column holds the player name.' } }, 400);
     stmts.push(env.DB.prepare(
-      `UPDATE roster_meta SET columns = ?, labels = ?, snapshot = ?, version = version + 1, saved_at = ?
-        WHERE id = 1`)
+      `UPDATE roster_meta SET columns = ?, labels = ?, mapping = ?, snapshot = ?,
+              version = version + 1, saved_at = ? WHERE id = 1`)
       .bind(JSON.stringify(Array.isArray(body.columns) ? body.columns : []),
-            JSON.stringify(Array.isArray(body.labels) ? body.labels : []),
-            snapshot, now));
+            JSON.stringify([mapping.search, mapping.ingame || '', mapping.alliance || '']),
+            JSON.stringify(mapping), snapshot, now));
 
     // D1 allows a hundred bound parameters to a query, so a roster cannot be written as one
     // statement; it is written as one batch of them, which is applied all or not at all.
@@ -561,15 +575,24 @@ function csvCell(v) {
 async function rosterCsv(env) {
   const { results } = await env.DB.prepare(
     'SELECT search, ingame, alliance, extra FROM roster ORDER BY sort, search COLLATE NOCASE').all();
-  const meta = await env.DB.prepare('SELECT columns FROM roster_meta WHERE id = 1').first();
-  let cols = [];
-  try { cols = JSON.parse((meta && meta.columns) || '[]'); } catch { cols = []; }
-  const head = ['Player', 'Name in video', 'Alliance', ...cols];
+  const meta = await env.DB.prepare('SELECT columns, labels, mapping FROM roster_meta WHERE id = 1').first();
+  const j = (v, d) => { try { return JSON.parse(v || d); } catch { return JSON.parse(d); } };
+  let cols = j(meta && meta.columns, '[]');
+  let map = j(meta && meta.mapping, '{}');
+  if (!map.search) {
+    const labels = j(meta && meta.labels, '[]');
+    map = { search: labels[0] || 'Player', ingame: labels[1] || 'Name in video',
+            alliance: labels[2] || 'Alliance' };
+    cols = [map.search, map.ingame, map.alliance, ...cols];
+  }
   const body = (results || []).map(r => {
     let extra = {};
     try { extra = r.extra ? JSON.parse(r.extra) : {}; } catch { extra = {}; }
-    return [r.search, r.ingame, r.alliance || '', ...cols.map(c => extra[c] ?? '')].map(csvCell).join(',');
+    const at = c => c === map.search ? r.search : c === map.ingame ? r.ingame
+                  : c === map.alliance ? (r.alliance || '') : (extra[c] ?? '');
+    return cols.map(at).map(csvCell).join(',');
   });
+  const head = cols;
   return new Response([head.join(','), ...body].join('\n'), {
     status: 200,
     headers: { 'content-type': 'text/csv; charset=utf-8',

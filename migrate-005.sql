@@ -1,0 +1,12 @@
+-- Any table, in its own column order.
+--
+-- The roster was stored as three fixed columns and a bag of extras, which meant a list copied
+-- from somewhere else had its first three columns rearranged to suit. The sheet now keeps
+-- whatever columns it has, in whatever order it has them, and the app finds the three it needs
+-- by heading: which one is the identity, which is the name a recording is matched against, and
+-- which is the alliance.
+--
+-- Only the column is added here. A roster saved before this has an empty mapping, and the
+-- Worker reads that as the old shape — three fixed headings, then the rest — so nothing has to
+-- be rewritten until the next save.
+ALTER TABLE roster_meta ADD COLUMN mapping TEXT NOT NULL DEFAULT '{}';

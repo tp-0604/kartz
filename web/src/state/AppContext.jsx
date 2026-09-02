@@ -20,7 +20,7 @@ const tabFromHash = () => {
   return TABS.some(t => t.id === h) ? h : (store.get('tab') || 'extract');
 };
 
-const EMPTY_META = { columns: [], labels: [], version: 0, savedAt: null, sheet: null };
+const EMPTY_META = { columns: [], mapping: {}, version: 0, savedAt: null, sheet: null };
 
 // The roster is read from the database, and mirrored into this browser as it arrives. The
 // mirror is not a second source of truth: it is what the extractor matches against when the
@@ -72,7 +72,7 @@ export function AppProvider({ children }) {
 
   // ---- the roster ---------------------------------------------------------------------------
   const applyRoster = useCallback(j => {
-    const meta = { columns: j.columns || [], labels: j.labels || [], version: j.version || 0,
+    const meta = { columns: j.columns || [], mapping: j.mapping || {}, version: j.version || 0,
                    savedAt: j.savedAt || null, sheet: j.sheet || null };
     setRoster(j.rows || []);
     setRosterMeta(meta);
@@ -87,7 +87,7 @@ export function AppProvider({ children }) {
 
   const saveRoster = useCallback(async body => {
     const out = await API.saveRoster(body);
-    applyRoster({ rows: body.rows, columns: body.columns, labels: body.labels,
+    applyRoster({ rows: body.rows, columns: body.columns, mapping: body.mapping,
                   version: out.version, savedAt: new Date().toISOString(), sheet: null });
     return out;
   }, [applyRoster]);

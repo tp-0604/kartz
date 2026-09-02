@@ -175,3 +175,9 @@
   font: 500 12.5px/1.4 var(--sans); color: var(--muted); }
 .sheet-host--roster { height: calc(100vh - 330px); min-height: 460px; }
 @media (max-width: 1080px) { .sheet-host--roster { height: calc(100vh - 420px); } }
+.dialog--wide { width: min(760px, 100%); }
+.maprows { display: flex; flex-direction: column; gap: var(--s2); }
+.mapping__row { display: grid; grid-template-columns: 130px minmax(160px, 250px) 1fr; gap: var(--s3);
+  align-items: center; }
+.mapping__row select { width: 100%; }
+@media (max-width: 700px) { .mapping__row { grid-template-columns: 1fr; gap: 6px; } }
