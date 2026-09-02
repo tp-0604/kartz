@@ -1,9 +1,7 @@
-// What every screen shares: the roster (sheet plus corrections), the saved boards, the
-// aliases Remember my fixes stored, and the handoff from the extractor to the sheet.
+// What every screen shares: the roster, the saved boards, the aliases Remember my fixes
+// stored, and the handoff from the extractor to the sheet.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { store } from '../utils/storage.js';
-import { ROSTER_SHEET } from '../extractor/config.js';
-import { pullRoster as pullSheet } from '../extractor/roster.js';
 import * as API from '../services/api.js';
 import { today } from '../utils/format.js';
 
@@ -22,42 +20,27 @@ const tabFromHash = () => {
   return TABS.some(t => t.id === h) ? h : (store.get('tab') || 'extract');
 };
 
-// The roster as the app actually uses it: the sheet, with this database's corrections applied.
-// Storing the difference rather than a copy is what lets Pull from sheet stay safe to press —
-// it brings in new players without undoing a single correction.
-export function mergeRoster(cache, edits) {
-  const base = (cache && cache.all) || [];
-  const seen = new Set(), out = [];
-  for (const r of base) {
-    const e = edits.get(r.search);
-    seen.add(r.search);
-    if (e && e.removed) continue;
-    out.push({ search: r.search,
-               ingame:   (e && e.ingame)   || r.ingame,
-               alliance: (e && e.alliance) || r.alliance,
-               cells: r.cells,
-               fromSheet: { ingame: r.ingame, alliance: r.alliance },
-               src: e ? 'edited' : 'sheet' });
-  }
-  for (const [k, e] of edits)
-    if (e.added && !e.removed && !seen.has(k))
-      out.push({ search: k, ingame: e.ingame || k, alliance: e.alliance || '',
-                 cells: null, fromSheet: null, src: 'added' });
-  return out.sort((a, b) => a.search.localeCompare(b.search, undefined, { sensitivity: 'base' }));
-}
+const EMPTY_META = { columns: [], labels: [], version: 0, savedAt: null, sheet: null };
 
-const loadCache = () => {
-  let c = store.get('roster') || null;
-  // A roster cached by an earlier version was stored already split. Put it back together.
-  if (c && !c.all) c = { all: [...(c.active || []), ...(c.skipped || [])], cols: null };
-  return c;
+// The roster is read from the database, and mirrored into this browser as it arrives. The
+// mirror is not a second source of truth: it is what the extractor matches against when the
+// phone is on a bad connection, and it is replaced whole every time the real thing loads.
+const loadMirror = () => {
+  const m = store.get('roster');
+  if (Array.isArray(m)) return { rows: m, meta: EMPTY_META };
+  if (m && Array.isArray(m.rows)) return { rows: m.rows, meta: { ...EMPTY_META, ...(m.meta || {}) } };
+  // a mirror written by the version that pulled from Google Sheets
+  if (m && Array.isArray(m.all))
+    return { rows: m.all.map(r => ({ search: r.search, ingame: r.ingame, alliance: r.alliance, extra: {} })), meta: EMPTY_META };
+  return { rows: [], meta: EMPTY_META };
 };
 
 export function AppProvider({ children }) {
   const [tab, setTab] = useState(tabFromHash);
-  const [rosterCache, setRosterCache] = useState(loadCache);
-  const [rosterEdits, setRosterEdits] = useState(() => new Map());
-  const [editsLoaded, setEditsLoaded] = useState(false);
+  const mirror = useRef(loadMirror());
+  const [roster, setRoster] = useState(mirror.current.rows);
+  const [rosterMeta, setRosterMeta] = useState(mirror.current.meta);
+  const [rosterLoaded, setRosterLoaded] = useState(false);
   const [aliases, setAliasesState] = useState(() => store.get('aliases') || {});
   const [date, setDateState] = useState(() => store.get('datestr') || today());
   const [boards, setBoards] = useState([]);
@@ -67,7 +50,7 @@ export function AppProvider({ children }) {
   const [setupOpen, setSetupOpen] = useState(false);
   const noticeTimer = useRef(null);
 
-  // ---- navigation: the hash is the address, and the last tab is remembered ----------------
+  // ---- navigation: the hash is the address, and the last screen is remembered --------------
   useEffect(() => {
     const onHash = () => setTab(tabFromHash());
     window.addEventListener('hashchange', onHash);
@@ -87,41 +70,34 @@ export function AppProvider({ children }) {
     noticeTimer.current = setTimeout(() => setNotice(null), ms);
   }, []);
 
-  // ---- roster -------------------------------------------------------------------------------
-  const loadEdits = useCallback(async () => {
-    try {
-      const j = await API.rosterEdits();
-      setRosterEdits(new Map((j.edits || []).map(e => [e.search, e])));
-    } catch { /* offline, or the Worker refused: the sheet alone still works */ }
-    setEditsLoaded(true);
-  }, []);
-  useEffect(() => { loadEdits(); }, [loadEdits]);
-
-  const pullRoster = useCallback(async () => {
-    const c = await pullSheet(ROSTER_SHEET);
-    setRosterCache(c);
-    store.set('roster', c);
-    return c;
+  // ---- the roster ---------------------------------------------------------------------------
+  const applyRoster = useCallback(j => {
+    const meta = { columns: j.columns || [], labels: j.labels || [], version: j.version || 0,
+                   savedAt: j.savedAt || null, sheet: j.sheet || null };
+    setRoster(j.rows || []);
+    setRosterMeta(meta);
+    setRosterLoaded(true);
+    // the mirror keeps the rows and the headings, never the workbook: a snapshot is large and
+    // the extractor has no use for it
+    store.set('roster', { rows: j.rows || [], meta: { ...meta, sheet: null } });
+    return { rows: j.rows || [], meta };
   }, []);
 
-  const putRosterEdit = useCallback(async (search, patch) => {
-    const cur = rosterEdits.get(search) || {};
-    const body = { search,
-      ingame:   patch.ingame   !== undefined ? patch.ingame   : cur.ingame,
-      alliance: patch.alliance !== undefined ? patch.alliance : cur.alliance,
-      added:    patch.added    !== undefined ? patch.added    : (cur.added || 0),
-      removed:  patch.removed  !== undefined ? patch.removed  : (cur.removed || 0) };
-    const j = await API.putRosterEdit(body);
-    if (j.edit) setRosterEdits(m => new Map(m).set(search, j.edit));
-  }, [rosterEdits]);
+  const loadRoster = useCallback(async () => applyRoster(await API.loadRoster()), [applyRoster]);
 
-  const revertRosterEdit = useCallback(async search => {
-    await API.revertRosterEdit(search);
-    setRosterEdits(m => { const n = new Map(m); n.delete(search); return n; });
-  }, []);
+  const saveRoster = useCallback(async body => {
+    const out = await API.saveRoster(body);
+    applyRoster({ rows: body.rows, columns: body.columns, labels: body.labels,
+                  version: out.version, savedAt: new Date().toISOString(), sheet: null });
+    return out;
+  }, [applyRoster]);
 
-  const roster = useMemo(() => mergeRoster(rosterCache, rosterEdits), [rosterCache, rosterEdits]);
-  const matchRoster = useMemo(() => roster.map(r => ({ search: r.search, ingame: r.ingame, alliance: r.alliance })), [roster]);
+  useEffect(() => { loadRoster().catch(() => setRosterLoaded(true)); }, [loadRoster]);
+
+  // What the matcher runs on: three fields, and nothing it does not use.
+  const matchRoster = useMemo(
+    () => roster.map(r => ({ search: r.search, ingame: r.ingame || r.search, alliance: r.alliance || '' })),
+    [roster]);
 
   // ---- small persisted things ----------------------------------------------------------------
   const setAliases = useCallback(a => { setAliasesState(a); store.set('aliases', a); }, []);
@@ -142,14 +118,13 @@ export function AppProvider({ children }) {
   useEffect(() => { refreshBoards().catch(() => {}); }, [refreshBoards]);
 
   // ---- the handoff: extractor (or history) → sheet ------------------------------------------
-  // { kind: 'records', meta, records } from the extractor, { kind: 'board', id } from history.
   const stage = useCallback(payload => { setStaged({ ...payload, at: Date.now() }); go('sheet'); }, [go]);
   const clearStaged = useCallback(() => setStaged(null), []);
 
   const value = {
     tab, go, notify, notice,
     setupOpen, setSetupOpen,
-    rosterCache, roster, matchRoster, rosterEdits, editsLoaded, pullRoster, putRosterEdit, revertRosterEdit, loadEdits,
+    roster, rosterMeta, rosterLoaded, matchRoster, loadRoster, saveRoster,
     aliases, setAliases, date, setDate,
     boards, boardsLoaded, refreshBoards,
     staged, stage, clearStaged,

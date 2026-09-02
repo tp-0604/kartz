@@ -3,12 +3,12 @@
 import { useEffect, useState } from 'react';
 import { useApp } from '../state/AppContext.jsx';
 import { apiBase, getPass, isCrossOrigin, ping, setPass } from '../services/api.js';
-import { ROSTER_SHEET, BUILD } from '../extractor/config.js';
+import { BUILD } from '../extractor/config.js';
 import { store } from '../utils/storage.js';
 import { FlashButton } from './shared/ui.jsx';
 
 export default function SetupPanel({ onClose }) {
-  const { roster, rosterCache, pullRoster, refreshBoards, loadEdits } = useApp();
+  const { roster, rosterMeta, refreshBoards, loadRoster, go, setSetupOpen } = useApp();
   const [pass, setPassState] = useState(getPass());
   const [conn, setConn] = useState({ state: 'checking', text: 'checking…' });
 
@@ -27,7 +27,7 @@ export default function SetupPanel({ onClose }) {
   const savePass = async () => {
     setPass(pass.trim());
     await check();
-    await Promise.all([refreshBoards().catch(() => {}), loadEdits()]);
+    await Promise.all([refreshBoards().catch(() => {}), loadRoster().catch(() => {})]);
     return 'Saved ✓';
   };
 
@@ -61,16 +61,12 @@ export default function SetupPanel({ onClose }) {
           <div className="stack stack--tight">
             <span className="label">Roster</span>
             <p className="hint">
-              {roster.length ? `${roster.length} players cached on this device` : 'not pulled yet'}
-              {rosterCache && rosterCache.cols ? `, ${rosterCache.cols.length} columns` : ''}.
-              The roster is read from the alliance's Google Sheet, which stays the place people maintain it.
+              {roster.length ? `${roster.length} players, ${rosterMeta.columns.length + 3} columns` : 'no players yet'}.
+              The roster is kept in this app's own database and edited on the Roster screen. Nothing is
+              pulled from a Google Sheet any more.
             </p>
             <div className="btnrow">
-              <FlashButton className="btn btn--primary"
-                onClick={async () => { const c = await pullRoster(); return `${c.all.length} ✓`; }}>
-                Pull roster
-              </FlashButton>
-              <a className="btn" href={ROSTER_SHEET} target="_blank" rel="noreferrer">Open the sheet</a>
+              <button className="btn" onClick={() => { setSetupOpen(false); go('roster'); }}>Open the roster</button>
             </div>
           </div>
 

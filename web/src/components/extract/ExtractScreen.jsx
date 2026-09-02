@@ -11,7 +11,7 @@ import ReviewTable, { keptRows, makeOutName } from './ReviewTable.jsx';
 import { Empty, FlashButton } from '../shared/ui.jsx';
 
 export default function ExtractScreen() {
-  const { roster, matchRoster, pullRoster, aliases, setAliases, date, setDate, notify, stage, refreshBoards } = useApp();
+  const { roster, matchRoster, aliases, setAliases, date, setDate, notify, stage, refreshBoards, go } = useApp();
   const [queue, setQueue] = useState([]);              // [{ file, alliance, status, rows }]
   const [label, setLabel] = useState(DAYS[0]);
   const [running, setRunning] = useState(false);
@@ -159,14 +159,11 @@ export default function ExtractScreen() {
               <span className="step">1</span>
               <h2>Roster</h2>
               <div className="sectionhead__spacer" />
-              <FlashButton className="btn btn--sm"
-                onClick={async () => { const c = await pullRoster(); return `${c.all.length} ✓`; }}>
-                Update
-              </FlashButton>
+              <button className="btn btn--sm" onClick={() => go('roster')}>Edit</button>
             </div>
             <div className="rosterstate">
               <b>{matchRoster.length || '—'}</b>
-              <span>{matchRoster.length ? 'names, matched against the alliance sheet' : 'not pulled yet — press Update'}</span>
+              <span>{matchRoster.length ? 'players a name can be matched to' : 'the roster is empty — add players on the Roster screen'}</span>
             </div>
           </section>
 

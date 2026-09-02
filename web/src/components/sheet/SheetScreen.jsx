@@ -28,7 +28,7 @@ export default function SheetScreen() {
   const draftTimer = useRef(null);
   const metaRef = useRef(meta); metaRef.current = meta;
 
-  const onReady = useCallback(c => { ctlRef.current = c; setCtl(c); }, []);
+  const onReady = useCallback(c => { ctlRef.current = c; if (c) c.reset(); setCtl(c); }, []);
 
   useEffect(() => {
     if (!ctl) return;

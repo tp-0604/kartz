@@ -24,10 +24,27 @@ No CSV, no download, no Google Sheets in the middle. Four screens:
 | **Extract** | the recording in, the rows out — unchanged logic, now in `web/src/extractor/` |
 | **Sheet** | a workbook (Univer, Apache-2.0): formulas, formatting, sort, filter, undo/redo. Columns A–E are the record; anything to the right is kept with the sheet |
 | **History** | every board saved: by month and day, one month across its days, one player over time, and **Import** for backloading past months from the Kartz Tracking workbook |
-| **Roster** | the alliance's Google Sheet (`InputRoster`), pulled by link, with this database's corrections on top |
+| **Roster** | the list of players, edited as a spreadsheet and kept in this app's database |
 
-**Setup** (the ⚙ button) holds the shared phrase the Worker asks for when the page is hosted away
-from it, and the roster pull.
+**Setup** holds the shared phrase the Worker asks for when the page is hosted away from it.
+
+### The roster
+
+The roster is maintained **here**, on the Roster screen, as a spreadsheet. It used to live in a
+Google Sheet tab that the app pulled from, with the database holding only the differences
+against it; the sheet is out of the loop and these rows are the record. Add a player by typing a
+row, remove one by deleting the row, paste a block in from anywhere, and press Save — the whole
+list is written at once.
+
+Three columns are the app's. **Player** is the identity and is what every score points at, so no
+two rows may share one; **Name in video** is what the game draws, and is what a recording is
+matched against; **Alliance** is whose they are. Everything to the right of those — CP, march
+types, anything you add — is the roster's own, and is kept without being read.
+
+The one-time move brought 881 players over. Six of them shared a Player name with somebody else
+in the old sheet (`Cat`, `Goose`, `Killua`, `Lexi ALT`, `mav`, `Weezy` — two Gooses in two
+alliances, a Killua in each of 698C and 698W). A shared identity cannot be stored, so the second
+of each pair came in as `Goose (2)` and so on. **Rename those six** to whatever they should be.
 
 ### Running it locally
 

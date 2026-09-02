@@ -58,6 +58,38 @@ export function createSheetController(univerAPI) {
       setDirty(false);
     },
 
+    /**
+     * Replace the sheet with a raw block: the first row is the header. Used where the columns
+     * are not fixed in code — the roster's are whatever its own heading row says.
+     */
+    loadValues(values, columns) {
+      quietly(() => {
+        const ws = sheet();
+        ws.clear();
+        const width = Math.max(1, ...values.map(r => r.length));
+        ensureRows(ws, values.length + 40);
+        // Format before value, or the sheet decides for itself what a cell of digits is.
+        (columns || []).forEach((c, i) => {
+          if (c.numberFormat) ws.getRange(HEADER_ROW + 1, i, values.length + 40, 1).setNumberFormat(c.numberFormat);
+        });
+        if (values.length) ws.getRange(HEADER_ROW, 0, values.length, width).setValues(values);
+        const head = ws.getRange(HEADER_ROW, 0, 1, width);
+        head.setFontWeight('bold').setBackgroundColor(HEADER_BG).setFontColor(HEADER_INK);
+        (columns || []).forEach((c, i) => { if (c.width) ws.setColumnWidths(i, 1, c.width); });
+        ws.setFrozenRows(HEADER_ROW + 1);
+        ws.getRange(HEADER_ROW + 1, 0).activate();
+      });
+      setDirty(false);
+    },
+
+    /** The sheet as a raw block, header row included. */
+    readValues() {
+      const ws = sheet();
+      const lastRow = ws.getLastRow(), lastCol = ws.getLastColumn();
+      if (lastRow < 0 || lastCol < 0) return [];
+      return ws.getRange(HEADER_ROW, 0, lastRow + 1, lastCol + 1).getValues();
+    },
+
     /** Append below whatever is there. A second recording in one sitting, say. */
     appendRows(records, columns = COLUMNS) {
       quietly(() => {

@@ -61,10 +61,10 @@ export const monthView = (month, alliance) =>
 export const playerView = search => api('/player?search=' + encodeURIComponent(search));
 export const allRows = () => api('/all');
 
-// ---- roster overrides --------------------------------------------------------------------
-export const rosterEdits = () => api('/roster');
-export const putRosterEdit = body => api('/roster', json('PUT', body));
-export const revertRosterEdit = search => api('/roster?search=' + encodeURIComponent(search), { method: 'DELETE' });
+// ---- the roster --------------------------------------------------------------------------
+// The whole list, read and written at once, the way a spreadsheet is saved.
+export const loadRoster = () => api('/roster/rows');
+export const saveRoster = body => api('/roster/rows', json('PUT', body));
 
 // A cheap "is the Worker there and does it accept this browser" probe for the Setup screen.
 export const ping = () => api('/boards');

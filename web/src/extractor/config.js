@@ -19,10 +19,6 @@ export const batchSize = n => Math.min(BATCH_MAX, Math.max(BATCH_MIN, Math.ceil(
 // the run goes in one burst; runExtraction trims it further if the roster has grown.
 export const FRAME_BUDGET = 64;
 
-// The one tab everybody pulls from. It was a text box on every device, which is a per-person
-// chance to paste the wrong link for something that has only ever had one right answer.
-export const ROSTER_SHEET =
-  'https://docs.google.com/spreadsheets/d/1aXTc9v4jHtB5Ma598R3Qfij-vsMlDhXho9bP_m2M5kE/edit?gid=767166123';
 
 // The four alliances the sheet is actually organised around. Anything else in its Alliance
 // column — z3.?, z1.Transferred, a stray 698E — is a candidate for filtering out.

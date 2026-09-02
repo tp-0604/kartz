@@ -86,7 +86,8 @@ const boardId = (event, date, alliance) => `${event}|${date}|${alliance}`;
 // The snapshot rides along with the rows and only with them. A route that changes rows without
 // bringing a new snapshot drops the old one, so the sheet can never be newer or older than the
 // rows it shows. expectVersion refuses a save from a copy that is behind another officer's.
-const SNAPSHOT_MAX = 1_500_000;             // bytes of JSON; a 150-row workbook is ~50 KB
+const SNAPSHOT_MAX = 1_500_000;
+const ROSTER_MAX = 3000;                    // the alliance roster is ~900; this is a sanity bound             // bytes of JSON; a 150-row workbook is ~50 KB
 
 async function saveBoard(env, reply, { event, date, alliance, label, rows, sheet, mode, expectVersion }) {
   event = String(event || 'kartz').trim() || 'kartz';
@@ -206,6 +207,89 @@ async function handleData(seg, parts, request, env, reply) {
   const sub = parts[1] || '';              // /boards/<id>
   const leaf = parts[2] || '';             // /boards/<id>/rows
   const readBody = () => request.json().catch(() => null);
+
+  // ---- the roster itself -----------------------------------------------------------------
+  //
+  // One list, held here. It used to be a Google Sheet with this database holding only the
+  // differences against it; now these rows are the record and nothing is pulled from anywhere.
+  // The whole list is written at once, the way a spreadsheet is saved, so a row deleted in the
+  // sheet is a row deleted here — which is why the version has to match before a save lands.
+  if (seg === 'roster' && sub === 'rows' && method === 'GET') {
+    const { results } = await env.DB.prepare(
+      'SELECT search, ingame, alliance, extra FROM roster ORDER BY sort, search COLLATE NOCASE').all();
+    const meta = await env.DB.prepare('SELECT * FROM roster_meta WHERE id = 1').first();
+    const rows = (results || []).map(r => {
+      let extra = {};
+      try { extra = r.extra ? JSON.parse(r.extra) : {}; } catch { extra = {}; }
+      return { search: r.search, ingame: r.ingame, alliance: r.alliance, extra };
+    });
+    let sheet = null;
+    if (meta && meta.snapshot) { try { sheet = JSON.parse(meta.snapshot); } catch { sheet = null; } }
+    const j = v => { try { return JSON.parse(v || '[]'); } catch { return []; } };
+    return reply({ rows, columns: j(meta && meta.columns), labels: j(meta && meta.labels),
+                   version: meta ? meta.version : 0, savedAt: meta ? meta.saved_at : null, sheet }, 200);
+  }
+
+  if (seg === 'roster' && sub === 'rows' && method === 'PUT') {
+    const body = await readBody();
+    if (!body) return reply({ error: { code: 400, message: 'a JSON body is required.' } }, 400);
+    const meta = await env.DB.prepare('SELECT version FROM roster_meta WHERE id = 1').first();
+    const current = meta ? meta.version : 0;
+    if (body.version !== undefined && body.version !== null && Number(body.version) !== current)
+      return reply({ error: { code: 409, message:
+        'the roster was saved by someone else since you opened it — reload it and re-apply your edits.' },
+        version: current }, 409);
+
+    const rows = Array.isArray(body.rows) ? body.rows : null;
+    if (!rows) return reply({ error: { code: 400, message: 'rows is required.' } }, 400);
+    if (rows.length > ROSTER_MAX)
+      return reply({ error: { code: 400, message: `too many rows (${rows.length}).` } }, 400);
+
+    // A save that would empty the roster is almost always a sheet that failed to load rather
+    // than a decision, so it has to be asked for by name.
+    if (!rows.length && !body.allowEmpty)
+      return reply({ error: { code: 400, message:
+        'that would delete every player. If you meant it, clear the rows and save again.' } }, 400);
+
+    let snapshot = null;
+    if (body.sheet !== undefined && body.sheet !== null) {
+      snapshot = typeof body.sheet === 'string' ? body.sheet : JSON.stringify(body.sheet);
+      if (snapshot.length > SNAPSHOT_MAX)
+        return reply({ error: { code: 413, message: 'the sheet snapshot is too large to store.' } }, 413);
+    }
+
+    const now = new Date().toISOString();
+    const ins = env.DB.prepare(
+      'INSERT INTO roster (search, ingame, alliance, extra, sort, updated_at) VALUES (?,?,?,?,?,?)');
+    const stmts = [env.DB.prepare('DELETE FROM roster').bind()];
+    const seen = new Set(), skipped = [];
+    let n = 0;
+    for (const r of rows) {
+      const search = String(r.search ?? '').trim();
+      if (!search) continue;                       // a row with no identity is a blank line
+      // Exactly as the primary key sees it: Anubis and anubis are two players in two
+      // alliances, and only a repeat of the same string would reject the batch.
+      if (seen.has(search)) { skipped.push(search); continue; }
+      seen.add(search);
+      const extra = r.extra && typeof r.extra === 'object' ? JSON.stringify(r.extra) : null;
+      stmts.push(ins.bind(search, String(r.ingame ?? '').trim() || search,
+                          r.alliance ? String(r.alliance).trim() : null,
+                          extra && extra !== '{}' ? extra : null, n, now));
+      n++;
+    }
+    stmts.push(env.DB.prepare(
+      `UPDATE roster_meta SET columns = ?, labels = ?, snapshot = ?, version = version + 1, saved_at = ?
+        WHERE id = 1`)
+      .bind(JSON.stringify(Array.isArray(body.columns) ? body.columns : []),
+            JSON.stringify(Array.isArray(body.labels) ? body.labels : []),
+            snapshot, now));
+
+    // D1 allows a hundred bound parameters to a query, so a roster cannot be written as one
+    // statement; it is written as one batch of them, which is applied all or not at all.
+    await env.DB.batch(stmts);
+    const after = await env.DB.prepare('SELECT version FROM roster_meta WHERE id = 1').first();
+    return reply({ saved: n, skipped, version: after ? after.version : current + 1 }, 200);
+  }
 
   // ---- roster overrides -----------------------------------------------------------------
   // What this stores is a diff, not a roster. The sheet stays the place new players arrive,
@@ -472,68 +556,20 @@ function csvCell(v) {
   return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t;
 }
 
-// The same tab the app pulls from, exported as CSV. Link-readable, so no credential is
-// involved — this is the Worker reading exactly what a browser would.
-const ROSTER_SHEET_CSV =
-  'https://docs.google.com/spreadsheets/d/1aXTc9v4jHtB5Ma598R3Qfij-vsMlDhXho9bP_m2M5kE'
-  + '/export?format=csv&gid=767166123';
-
-// Minimal RFC4180 reader — roster names legitimately contain commas and newlines.
-function readCsv(text) {
-  const rows = [[]]; let cell = '', quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (quoted) {
-      if (c === '"' && text[i + 1] === '"') { cell += '"'; i++; }
-      else if (c === '"') quoted = false;
-      else cell += c;
-    } else if (c === '"') quoted = true;
-    else if (c === ',') { rows[rows.length - 1].push(cell); cell = ''; }
-    else if (c === '\n') { rows[rows.length - 1].push(cell); cell = ''; rows.push([]); }
-    else if (c !== '\r') cell += c;
-  }
-  rows[rows.length - 1].push(cell);
-  return rows.filter(r => r.some(v => v.trim() !== ''));
-}
-
-// The roster the app actually uses: the sheet, with this database's corrections applied.
-//
-// This exists so the workbook can show what the app believes without anybody having to trust
-// that the two agree. It is a mirror and must stay one — point a sheet formula at this and
-// write the result into the tab the app pulls from, and the two feed each other in a circle.
+// The roster, for a spreadsheet that wants to mirror it. It is a read of this database now,
+// not of a Google Sheet: the app is where the roster is maintained.
 async function rosterCsv(env) {
-  const r = await fetch(ROSTER_SHEET_CSV, { cf: { cacheTtl: 120 } });
-  if (!r.ok) return new Response('could not read the roster sheet (' + r.status + ')', { status: 502 });
-  const rows = readCsv(await r.text());
-  const sheet = rows
-    .map(c => ({ search: (c[0] || '').trim(),
-                 ingame: (c[1] || c[0] || '').trim(),
-                 alliance: (c[2] || '').trim() }))
-    .filter(x => x.search && !/^search\s*name/i.test(x.search));
-
   const { results } = await env.DB.prepare(
-    'SELECT search, ingame, alliance, added, removed FROM roster_edits').all();
-  const edits = new Map((results || []).map(e => [e.search, e]));
-
-  const out = [];
-  for (const row of sheet) {
-    const e = edits.get(row.search);
-    if (e && e.removed) continue;
-    out.push({ ...row,
-               ingame:   (e && e.ingame)   || row.ingame,
-               alliance: (e && e.alliance) || row.alliance,
-               source:   e ? 'edited' : 'sheet' });
-    if (e) edits.delete(row.search);
-  }
-  // Whatever is left was created in the app and has no counterpart in the sheet.
-  for (const e of edits.values())
-    if (e.added && !e.removed)
-      out.push({ search: e.search, ingame: e.ingame || e.search,
-                 alliance: e.alliance || '', source: 'added' });
-
-  out.sort((a, b) => a.search.localeCompare(b.search, undefined, { sensitivity: 'base' }));
-  const head = ['Player', 'Name in video', 'Alliance', 'Source'];
-  const body = out.map(x => [x.search, x.ingame, x.alliance, x.source].map(csvCell).join(','));
+    'SELECT search, ingame, alliance, extra FROM roster ORDER BY sort, search COLLATE NOCASE').all();
+  const meta = await env.DB.prepare('SELECT columns FROM roster_meta WHERE id = 1').first();
+  let cols = [];
+  try { cols = JSON.parse((meta && meta.columns) || '[]'); } catch { cols = []; }
+  const head = ['Player', 'Name in video', 'Alliance', ...cols];
+  const body = (results || []).map(r => {
+    let extra = {};
+    try { extra = r.extra ? JSON.parse(r.extra) : {}; } catch { extra = {}; }
+    return [r.search, r.ingame, r.alliance || '', ...cols.map(c => extra[c] ?? '')].map(csvCell).join(',');
+  });
   return new Response([head.join(','), ...body].join('\n'), {
     status: 200,
     headers: { 'content-type': 'text/csv; charset=utf-8',

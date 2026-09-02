@@ -169,3 +169,9 @@
 .iconbtn--danger:hover { color: var(--bad); background: var(--badbg); }
 .iconbtn--ok { color: var(--ok); }
 .iconbtn--ok:hover { color: var(--ok); background: var(--okbg); }
+
+/* ---- Roster ---------------------------------------------------------------------------------- */
+.rosterstatus { display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  font: 500 12.5px/1.4 var(--sans); color: var(--muted); }
+.sheet-host--roster { height: calc(100vh - 330px); min-height: 460px; }
+@media (max-width: 1080px) { .sheet-host--roster { height: calc(100vh - 420px); } }

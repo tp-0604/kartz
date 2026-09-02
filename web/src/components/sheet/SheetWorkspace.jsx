@@ -13,10 +13,9 @@ import '@univerjs/preset-sheets-core/lib/index.css';
 import '@univerjs/preset-sheets-sort/lib/index.css';
 import '@univerjs/preset-sheets-filter/lib/index.css';
 import { createSheetController } from '../../sheet/SheetController.js';
-import { COLUMNS } from '../../sheet/columns.js';
 import { BUILD } from '../../extractor/config.js';
 
-export default function SheetWorkspace({ onReady }) {
+export default function SheetWorkspace({ onReady, unitId = 'kartz', name = 'Kartz', className = 'sheet-host' }) {
   const host = useRef(null);
   useEffect(() => {
     // React's StrictMode mounts, unmounts and mounts again in development. Univer is an
@@ -37,16 +36,17 @@ export default function SheetWorkspace({ onReady }) {
           UniverSheetsFilterPreset(),
         ],
       }));
-      univerAPI.createWorkbook({ id: 'kartz', name: 'Kartz' });
+      univerAPI.createWorkbook({ id: unitId, name });
       controller = createSheetController(univerAPI);
-      controller.loadRows([], COLUMNS);
       onReady(controller);
       if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
         // A test bridge for development only: code dropped on document.body runs here, in the
-        // page's own world with the controller in scope, and answers on the same element.
-        window.__kartzSheet = { controller, univerAPI };
-        host.current.dataset.ready = '1';
+        // page's own world with the controller in scope, and answers on the same element. Two
+        // sheets can be open at once, so each answers only to its own unit id.
+        window.__kartzSheets = { ...(window.__kartzSheets || {}), [unitId]: { controller, univerAPI } };
+        host.current.dataset.ready = unitId;
         window.addEventListener('kartz:test', async () => {
+          if ((document.body.dataset.kartzUnit || 'kartz') !== unitId) return;
           try {
             const fn = new Function('controller', 'univerAPI', document.body.dataset.kartzCode || '');
             const out = await fn(controller, univerAPI);
@@ -62,5 +62,5 @@ export default function SheetWorkspace({ onReady }) {
       if (univerAPI) univerAPI.dispose();
     };
   }, []);
-  return <div ref={host} className="sheet-host" />;
+  return <div ref={host} className={className} />;
 }
