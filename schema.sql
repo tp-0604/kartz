@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS boards (
   date     TEXT NOT NULL,               -- ISO. the month falls out of it, so does the ordering
   alliance TEXT NOT NULL,               -- whose board was filmed
   label    TEXT,                        -- 'Day 1', 'Final'. optional, and free text on purpose
-  saved_at TEXT NOT NULL
+  saved_at TEXT NOT NULL,
+  version  INTEGER NOT NULL DEFAULT 1   -- bumped on every write; a save from a stale copy is refused
 );
 
 CREATE TABLE IF NOT EXISTS scores (
@@ -33,3 +34,11 @@ CREATE TABLE IF NOT EXISTS scores (
 CREATE INDEX IF NOT EXISTS scores_by_player   ON scores(search);
 CREATE INDEX IF NOT EXISTS scores_by_alliance ON scores(alliance);
 CREATE INDEX IF NOT EXISTS boards_by_date     ON boards(event, date);
+
+-- One workbook snapshot per board: the sheet the rows were last reviewed in, with its
+-- formatting and formulas. Saved with the rows, dropped when the rows change any other way.
+CREATE TABLE IF NOT EXISTS board_sheets (
+  board_id   TEXT PRIMARY KEY,
+  snapshot   TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);

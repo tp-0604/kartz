@@ -5,3 +5,4 @@ _roster.tsv
 _sheet.txt
 .wrangler/
 node_modules/
+web/dist/

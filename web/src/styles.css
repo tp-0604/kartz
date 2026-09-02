@@ -1,0 +1,362 @@
+/* ---------------------------------------------------------------------------------------
+   Console rails + density, Soft button sizes.
+
+   Two ideas do all the work here. Colour is an identity, never decoration: an alliance owns
+   a hue and wears it as a rail down the left edge of anything that belongs to it, so a 698S
+   player sitting inside a 698W board is visible without reading a word. And the four scales
+   — alliance, name resolution, score movement, run state — never share a hue, so a green
+   chip cannot mean both "698N" and "saved".
+
+   The density is the console's: 7px rows, so a 153-row board is a page and a half rather
+   than five. The controls are not: 48px tall with 12px between them, because the extract
+   half of this is done one-handed on a phone in front of the game.
+   --------------------------------------------------------------------------------------- */
+:root{
+  --bg:#edeff3; --panel:#fff; --panel2:#f4f6f9; --ink:#161a20; --muted:#5d6678;
+  --line:#dbe0e7; --accent:#2a7f78; --accink:#fff; --accbg:#e2efee;
+  --ok:#2d7a52; --warn:#8e610f; --bad:#a33c37;
+  --okbg:#e4f0e9; --warnbg:#f5eedc; --badbg:#f7e9e7;
+  /* One hue per alliance, by position in MAIN_ALLIANCES — 698W, 698S, 698N, 698C — so an
+     alliance keeps its colour in every view. Held at roughly equal lightness and well below
+     the accent's chroma: they are labels, and labels should not shout over the controls. */
+  --a0:#6a58a3; --a1:#2f6f96; --a2:#3a6f4a; --a3:#946129; --aX:#767e8c;
+  --shade:rgba(15,22,35,.13);
+  --sans:Barlow,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --rad:10px; --rad2:8px; --btnrad:12px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0f1216; --panel:#181c23; --panel2:#212630; --ink:#e3e7ee; --muted:#8d97a7;
+  --line:#29303a; --accent:#4fa8a0; --accink:#06211f; --accbg:#16302e;
+  --ok:#5cc48b; --warn:#d6a75d; --bad:#e08079;
+  --okbg:#14271c; --warnbg:#2a2416; --badbg:#2d1d1c;
+  --a0:#9b8ee0; --a1:#5aa9c9; --a2:#6fbf83; --a3:#d7a05a; --aX:#8d97a7;
+  --shade:rgba(0,0,0,.5);
+}}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:15.5px/1.5 var(--sans);-webkit-font-smoothing:antialiased;
+  padding:0 0 72px}
+.wrap{max-width:1000px;margin:0 auto;padding:18px 16px 0}
+
+/* ---------------------------------------------------------------------------------------
+   The shell. Two tabs, one bar, and it follows you down a long board so switching back is
+   never a scroll to the top.
+   --------------------------------------------------------------------------------------- */
+.top{position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--panel) 92%,transparent);
+  backdrop-filter:saturate(160%) blur(12px);border-bottom:1px solid var(--line)}
+.topin{max-width:1000px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;
+  gap:14px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:9px;font:700 17px/1 var(--sans);
+  letter-spacing:-.01em;flex:none}
+.brand u{width:10px;height:16px;border-radius:2px;background:var(--accent);
+  text-decoration:none;display:block}
+.build{margin-left:auto;font:500 11px/1 var(--mono);color:var(--muted);white-space:nowrap}
+
+.mtabs{display:flex;gap:4px;background:var(--panel2);border:1px solid var(--line);
+  border-radius:14px;padding:4px}
+.mtab{width:auto;flex:none;background:transparent;color:var(--muted);border:0;
+  font:600 14.5px/1 var(--sans);padding:12px 20px;min-height:44px;border-radius:10px;
+  cursor:pointer;transition:background .15s,color .15s,transform .07s ease}
+.mtab:hover{color:var(--ink)}
+.mtab.on{background:var(--accent);color:var(--accink)}
+.mtab:active{transform:scale(.96)}
+@media (max-width:560px){
+  .topin{gap:10px}
+  .mtabs{order:3;width:100%;padding:4px}
+  .mtab{flex:1}
+  .build{margin-left:auto}
+  /* A section's action wraps onto its own line at this width, and margin-left:auto then
+     strands it against the right edge with a hole beside it. Full width instead — which is
+     also the easier thing to hit. */
+  .shead>button,.shead>button.sm{margin-left:0;width:100%}
+}
+
+.pane{padding-top:16px}
+.lede{color:var(--muted);font-size:13.5px;margin:0 0 14px;max-width:70ch;line-height:1.55}
+
+/* ---------------------------------------------------------------------------------------
+   Panels
+   --------------------------------------------------------------------------------------- */
+section{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
+  padding:15px 16px;margin-bottom:12px}
+.shead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+h1{font-size:19px;margin:0 0 2px}
+h2{font:600 11.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;
+  color:var(--muted);margin:0;flex:none}
+.shead>.pill{flex:none}
+.shead>button{margin-left:auto}
+label{display:block;font:600 11.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;
+  color:var(--muted);margin:0 0 7px}
+.note{font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.5}
+/* A utility, so it has to beat whatever the thing it is hiding sets for itself: .viewbar
+   and .pane declare display, and #queue declares it from an id. Without !important the
+   four view bars all showed at once, because a later single-class rule outranks this. */
+.hide{display:none !important}
+
+/* ---------------------------------------------------------------------------------------
+   Controls. Big, spaced, and they answer when you press them.
+   --------------------------------------------------------------------------------------- */
+input,select,textarea,button{font-family:var(--sans);color:var(--ink);background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--btnrad);width:100%}
+input,select,textarea{font-size:15px;font-weight:500;padding:13px;min-height:48px}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;
+  border-color:var(--accent)}
+textarea{font-family:var(--mono);font-size:12px;resize:vertical;line-height:1.5}
+input[type=date]{font-variant-numeric:tabular-nums}
+
+button{background:var(--accent);color:var(--accink);border-color:transparent;
+  font-size:15px;font-weight:700;letter-spacing:.005em;padding:14px 20px;min-height:48px;
+  cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  transition:transform .07s ease,filter .12s ease,background .15s ease,border-color .15s ease,
+             color .15s ease}
+button:not(:disabled):active{transform:scale(.955);filter:brightness(.93)}
+button:disabled{opacity:.42;cursor:default}
+button:focus-visible,.mtab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.ghost{background:var(--panel);color:var(--accent);border-color:var(--line);font-weight:600}
+button.ghost:hover:not(:disabled){border-color:var(--accent)}
+button.ghost:not(:disabled):active{background:var(--panel2)}
+/* what a finished action looks like, for the second or so it says so */
+button.done,button.ghost.done{background:var(--ok);border-color:var(--ok);color:#fff;
+  filter:none;transform:none}
+/* A refusal has to be as loud as a success, and it has to happen where the finger is. */
+button.nope,button.ghost.nope{background:var(--warn);border-color:var(--warn);color:#fff;
+  filter:none;transform:none}
+button.ghost.tickok{color:var(--ok);border-color:var(--ok)}
+@keyframes lookhere{0%,100%{box-shadow:0 0 0 0 transparent}
+  30%{box-shadow:0 0 0 3px color-mix(in srgb,var(--warn) 45%,transparent)}}
+.lookhere{animation:lookhere 1.1s ease 2}
+
+/* a group of buttons: 12px apart, and never touching the thing above them */
+.btnrow{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px}
+.btnrow>button{flex:1 1 190px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
+.row>*{flex:1;min-width:160px}
+#go{margin-top:14px}
+
+/* smaller buttons, where the row they sit in is the point and the button is not */
+button.sm,.viewbar button{width:auto;min-height:42px;padding:11px 16px;font-size:14px}
+.boardcard button{min-height:34px;font-size:13px;font-weight:600}
+.pencil{background:none;border:0;color:var(--muted);cursor:pointer;font-size:14px;
+  padding:0 5px;width:auto;min-height:0;line-height:1;opacity:.5;border-radius:5px}
+.pencil:hover{opacity:1;color:var(--accent)}
+
+/* ---------------------------------------------------------------------------------------
+   Recording
+   --------------------------------------------------------------------------------------- */
+.drop{border:2px dashed var(--line);border-radius:var(--rad);padding:30px 16px;
+  text-align:center;color:var(--muted);cursor:pointer;background:var(--panel2);
+  transition:border-color .15s,color .15s,background .15s}
+.drop strong{display:block;color:var(--ink);font-size:15.5px;margin-bottom:5px}
+.drop:hover,.drop.on{border-color:var(--accent);color:var(--accent);background:var(--accbg)}
+.bar{height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:12px}
+.bar>i{display:block;height:100%;width:0;background:var(--accent);border-radius:4px;
+  transition:width .15s}
+.log{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:pre-wrap;
+  margin-top:10px;line-height:1.6}
+.strip{display:flex;gap:6px;overflow-x:auto;margin-top:12px;padding-bottom:4px}
+.strip img{height:88px;border-radius:6px;border:1px solid var(--line);flex:none}
+
+/* The queue wears the run state as a rail: waiting, working, saved, failed. */
+#queue{display:flex;flex-direction:column;gap:8px;margin-top:12px}
+.qrow{display:flex;gap:11px;align-items:center;padding:9px 12px;border:1px solid var(--line);
+  border-left:3px solid var(--muted);border-radius:var(--rad2);background:var(--panel2);
+  font-size:13.5px}
+.qrow .qname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-family:var(--mono);font-size:11.5px;color:var(--muted)}
+.qrow select{width:auto;min-width:104px;min-height:38px;padding:8px 10px;font-size:13px}
+.qrow .qstat{color:var(--muted);font-size:12.5px;font-weight:600;min-width:104px;text-align:right}
+.qrow.qdone{border-left-color:var(--ok)}
+.qrow.qdone .qstat{color:var(--ok)}
+.qrow.qfail{border-left-color:var(--bad)}
+.qrow.qfail .qstat{color:var(--bad)}
+
+/* ---------------------------------------------------------------------------------------
+   Tables — the console half. Dense, tabular, and every row carrying its alliance.
+   --------------------------------------------------------------------------------------- */
+.tablewrap{overflow-x:auto;margin-top:10px}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:600px}
+th{text-align:left;font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;
+  color:var(--muted);padding:9px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:middle}
+tbody tr:last-child td{border-bottom:0}
+tr.ok td:nth-child(3){color:var(--ok)}
+/* Resolution state as a rail, not a wash. A full warm row for every unmatched name made a
+   board of new players unreadable; a 3px edge says the same thing and stays out of the way. */
+#tbl tbody tr.ok>td:first-child{box-shadow:inset 3px 0 0 var(--ok)}
+#tbl tbody tr.new>td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
+#tbl tbody tr.new{background:color-mix(in srgb,var(--warn) 6%,transparent)}
+#tbl tr.drop{opacity:.4}
+#tbl tr.drop>td:first-child{box-shadow:inset 3px 0 0 var(--muted)}
+.named{color:var(--ok);font-weight:600}
+.asdrawn{color:var(--ink)}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.rank{color:var(--muted);font-variant-numeric:tabular-nums;font-family:var(--mono);
+  font-size:12px;width:44px}
+.allipick{width:auto;min-width:92px;max-width:150px;padding:7px 9px;min-height:36px;
+  font-size:13px;font-weight:600}
+.pickbox{padding:6px 9px;font-size:13px;min-width:170px;min-height:34px}
+td select{width:auto;padding:6px 8px;font-size:12.5px;min-width:150px;min-height:34px}
+.rowdrop{width:auto;min-height:0}
+
+/* ---------------------------------------------------------------------------------------
+   The database half
+   --------------------------------------------------------------------------------------- */
+.tabs{display:flex;gap:7px;margin:0 0 14px;flex-wrap:wrap}
+/* A level below the two that matter, so it reads as a filter on this tab rather than a
+   rival to it: pills on the panel, not a second segmented bar. */
+.tab{width:auto;flex:none;background:var(--panel2);color:var(--muted);
+  border:1px solid var(--line);padding:9px 15px;min-height:40px;font-size:13.5px;
+  font-weight:600;border-radius:20px}
+.tab:hover{color:var(--ink)}
+.tab.on{background:var(--accbg);border-color:transparent;color:var(--accent)}
+.viewbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:4px}
+.viewbar>*{width:auto;flex:none}
+.viewbar select,.viewbar input{min-width:170px;min-height:42px;padding:11px 12px;font-size:14px}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(116px,1fr));gap:9px;
+  margin:2px 0 16px}
+.stat{background:var(--panel2);border:1px solid var(--line);border-radius:var(--rad2);
+  padding:11px 13px}
+.stat b{display:block;font:700 22px/1.15 var(--mono);letter-spacing:-.03em;
+  font-variant-numeric:tabular-nums;color:var(--ink)}
+.stat span{display:block;font:600 10px/1 var(--mono);text-transform:uppercase;
+  letter-spacing:.1em;color:var(--muted);margin-top:5px}
+.stat.wide b{font-size:15px;letter-spacing:0}
+
+/* The chip is a rail at chip size — same idea, same colour, wherever an alliance is named. */
+.chip{display:inline-flex;align-items:center;gap:7px;padding:4px 10px 4px 7px;
+  border-radius:6px;font:600 12px/1 var(--sans);white-space:nowrap;color:var(--ac,var(--aX));
+  background:color-mix(in srgb,currentColor 11%,transparent)}
+.chip::before{content:'';width:3px;height:13px;border-radius:2px;background:currentColor;
+  flex:none}
+.c0{--ac:var(--a0);color:var(--a0)} .c1{--ac:var(--a1);color:var(--a1)}
+.c2{--ac:var(--a2);color:var(--a2)} .c3{--ac:var(--a3);color:var(--a3)}
+.cX{--ac:var(--aX);color:var(--aX)}
+/* The alliance cell on a board stays editable, so it cannot be a pill — but it can still
+   carry the alliance's colour, which is what makes a 698S player inside a 698W board visible. */
+#histTbl td.c0,#histTbl td.c1,#histTbl td.c2,#histTbl td.c3,#histTbl td.cX{background:none}
+/* …and the row it sits in gets the rail, read off that same cell. */
+#histTbl tbody tr:has(td.c0)>td:first-child{box-shadow:inset 3px 0 0 var(--a0)}
+#histTbl tbody tr:has(td.c1)>td:first-child{box-shadow:inset 3px 0 0 var(--a1)}
+#histTbl tbody tr:has(td.c2)>td:first-child{box-shadow:inset 3px 0 0 var(--a2)}
+#histTbl tbody tr:has(td.c3)>td:first-child{box-shadow:inset 3px 0 0 var(--a3)}
+#histTbl tbody tr:has(td.cX)>td:first-child{box-shadow:inset 3px 0 0 var(--aX)}
+
+/* A score is easier to compare against its neighbours than to read in isolation, so the cell
+   carries a bar of its own size behind the number. */
+.barcell{position:relative}
+.barcell i{position:absolute;left:0;top:50%;transform:translateY(-50%);height:17px;
+  background:color-mix(in srgb,var(--accent) 14%,transparent);border-radius:3px;z-index:0}
+.barcell span{position:relative;z-index:1;font-variant-numeric:tabular-nums;padding-left:5px;
+  font-family:var(--mono);font-size:12.5px}
+
+.delta{font-variant-numeric:tabular-nums;font-size:12px;font-family:var(--mono);font-weight:500}
+.up{color:var(--ok)} .down{color:var(--bad)} .flat{color:var(--muted)}
+
+.spark{display:block}
+.spark path{fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linejoin:round;
+  stroke-linecap:round}
+.spark .fill{fill:color-mix(in srgb,var(--accent) 13%,transparent);stroke:none}
+.spark circle{fill:var(--accent)}
+
+.tag{display:inline-block;font:600 10.5px/1.5 var(--sans);padding:2px 7px;border-radius:5px;
+  letter-spacing:.02em}
+.tag-edit{color:var(--warn);background:var(--warnbg)}
+.tag-new{color:var(--muted);background:var(--line)}
+.edited{color:var(--warn);font-size:11px;margin-left:5px}
+
+#histTbl th.sortable{cursor:pointer;user-select:none}
+#histTbl th.sortable:hover{color:var(--ink)}
+#histTbl th .dir{opacity:.5;font-size:9px}
+#histTbl tbody tr:hover{background:color-mix(in srgb,var(--accent) 5%,transparent)}
+#histTbl td.num{text-align:right;font-variant-numeric:tabular-nums}
+#histTbl td.rank{color:var(--muted);font-variant-numeric:tabular-nums;width:44px}
+#histTbl td[contenteditable]{outline:none;border-bottom:1px dashed var(--line)}
+#histTbl td[contenteditable]:focus{background:var(--accbg);border-bottom-color:var(--accent)}
+
+#colpick{display:flex;flex-wrap:wrap;gap:11px 18px;align-items:center;background:var(--panel2);
+  border:1px solid var(--line);border-radius:var(--rad);padding:13px 15px;margin:0 0 12px}
+.colopt{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:500;
+  cursor:pointer;white-space:nowrap;min-height:34px}
+.colopt input{width:auto;min-height:0;padding:0;margin:0;accent-color:var(--accent);
+  width:17px;height:17px;flex:none}
+#colpick button{margin-left:auto}
+
+/* The drill: year, then month, then which of the three recordings. A row of chips rather
+   than a dropdown, because the whole set is four or five items wide and a list you can see
+   beats a list you have to open — and on a phone it wraps instead of covering the screen. */
+#drill{display:flex;flex-direction:column;gap:9px;margin:0 0 14px;background:var(--panel2);
+  border:1px solid var(--line);border-radius:var(--rad);padding:12px 13px}
+.drillrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.drilllab{font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;
+  color:var(--muted);width:46px;flex:none}
+.chiprow{display:flex;gap:8px;flex-wrap:wrap;flex:1;min-width:0}
+.chipbtn{width:auto;flex:none;min-height:40px;padding:10px 15px;font-size:13.5px;
+  font-weight:600;border-radius:10px;background:var(--panel);color:var(--muted);
+  border:1px solid var(--line)}
+.chipbtn:hover:not(.on){color:var(--ink);border-color:var(--accent)}
+.chipbtn.on{background:var(--accent);border-color:transparent;color:var(--accink)}
+/* A day with no recording yet is still worth showing — its absence is the information. */
+.chipbtn.empty{opacity:.45}
+.chipbtn .n{font:500 11px/1 var(--mono);opacity:.65;margin-left:7px}
+@media (max-width:560px){
+  .drilllab{width:100%}
+  .chipbtn{flex:1 1 auto}
+}
+
+.boardlist{display:flex;flex-direction:column;gap:8px}
+.boardcard{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
+  padding:10px 13px;border:1px solid var(--line);border-left:3px solid var(--aX);
+  border-radius:var(--rad2);background:var(--panel2);cursor:pointer;
+  transition:border-color .15s,background .15s,transform .07s ease}
+.boardcard:has(.c0){border-left-color:var(--a0)}
+.boardcard:has(.c1){border-left-color:var(--a1)}
+.boardcard:has(.c2){border-left-color:var(--a2)}
+.boardcard:has(.c3){border-left-color:var(--a3)}
+.boardcard:hover{background:var(--panel);border-color:var(--accent)}
+.boardcard:active{transform:scale(.995)}
+.boardcard .bmeta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;min-width:0}
+.boardcard .bdate{font-weight:700;font-variant-numeric:tabular-nums;font-size:14px}
+.boardcard .bsub{color:var(--muted);font-size:12.5px}
+.monthhead{font:600 10.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;
+  color:var(--muted);margin:16px 0 7px}
+.monthhead:first-child{margin-top:0}
+
+/* ---------------------------------------------------------------------------------------
+   Odds and ends
+   --------------------------------------------------------------------------------------- */
+.pill{font:600 11px/1 var(--mono);padding:5px 9px;border-radius:20px;white-space:nowrap;
+  letter-spacing:.03em}
+.p-ok{background:var(--okbg);color:var(--ok)}
+.p-new{background:var(--warnbg);color:var(--warn)}
+.p-bad{background:var(--badbg);color:var(--bad)}
+
+.menu{position:fixed;z-index:60;background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--rad2);box-shadow:0 10px 30px var(--shade);max-height:230px;
+  overflow-y:auto;min-width:210px;padding:5px 0}
+.menu div{padding:8px 12px;font-size:13.5px;cursor:pointer;display:flex;
+  justify-content:space-between;gap:12px;white-space:nowrap}
+.menu div:hover,.menu div.on{background:var(--accent);color:var(--accink)}
+.menu div span{opacity:.55;font-size:11px}
+.menu .none{color:var(--muted);cursor:default}
+.menu .newopt{font-weight:700}
+.menu hr{border:0;border-top:1px solid var(--line);margin:5px 0}
+
+.warnbox{background:var(--warnbg);color:var(--warn);border-radius:var(--rad2);padding:11px 13px;
+  font-size:13px;margin-top:10px;font-weight:500}
+.okbox{background:var(--okbg);color:var(--ok);border-radius:var(--rad2);padding:11px 13px;
+  font-size:13px;margin-top:10px;font-weight:500}
+
+details{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
+  padding:13px 16px;margin-bottom:12px}
+details summary{cursor:pointer;font-size:13.5px;font-weight:600;color:var(--muted)}
+details summary:hover{color:var(--ink)}
+details[open] summary{margin-bottom:6px}
+
+@media (prefers-reduced-motion:reduce){
+  *{transition-duration:.01ms !important;animation-duration:.01ms !important}
+}

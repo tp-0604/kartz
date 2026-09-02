@@ -4,7 +4,94 @@ Screen recording of the in-game **Ranking** list → rows you paste into the tra
 Runs in a browser on any device. The recording never leaves your phone; only sampled frames
 go to the model.
 
-Live at `https://kartz.<your-subdomain>.workers.dev`
+Live at `https://kartz.<your-subdomain>.workers.dev` (the old single page in `public/`), and the
+new app under `web/` — see **The app** below.
+
+---
+
+## The app
+
+The page is now a React application in `web/`, with a spreadsheet inside it. The workflow is
+
+    recording → Extract → review the rows → Open in sheet → edit, format, add columns → Save
+                                                              ↓
+                                            Cloudflare Worker (worker.js) → D1
+
+No CSV, no download, no Google Sheets in the middle. Four screens:
+
+| screen | what it is for |
+|---|---|
+| **Extract** | the recording in, the rows out — unchanged logic, now in `web/src/extractor/` |
+| **Sheet** | a workbook (Univer, Apache-2.0): formulas, formatting, sort, filter, undo/redo. Columns A–E are the record; anything to the right is kept with the sheet |
+| **History** | every board saved: by month and day, one month across its days, one player over time, and **Import** for backloading past months from the Kartz Tracking workbook |
+| **Roster** | the alliance's Google Sheet (`InputRoster`), pulled by link, with this database's corrections on top |
+
+**Setup** (the ⚙ button) holds the shared phrase the Worker asks for when the page is hosted away
+from it, and the roster pull.
+
+### Running it locally
+
+    npx wrangler dev --port 8787 --local      # the API, with a local copy of the database
+    cd web && npm install && npm run dev      # the app at http://localhost:5173/kartz/
+
+The dev server proxies `/api` to the Worker, so the two share an origin exactly as they do in
+production. The first time, create the local tables:
+
+    npx wrangler d1 execute kartz-db --local --file=schema.sql
+    npx wrangler d1 execute kartz-db --local --file=migrate-002.sql
+
+`http://localhost:5173/kartz/?demo=1` loads a few made-up rows into the review table so the
+sheet and the save can be tried without a recording or a Gemini key.
+
+### The database
+
+`migrate-003.sql` adds two things to an existing database and must be run once against the
+real one before the new app is deployed:
+
+    npx wrangler d1 execute kartz-db --remote --file=migrate-003.sql
+
+- `board_sheets` — one workbook snapshot per board (formatting, formulas, scratch columns),
+  saved in the same batch as the rows and dropped whenever the rows change any other way.
+- `boards.version` — bumped on every write; a save from a stale copy is refused with a 409
+  rather than silently overwriting another officer's work.
+
+The scores stay in typed columns (`boards`, `scores`) — that is what the month and player views
+query, and what the Apps Script pull reads. The snapshot is presentation, never the record.
+
+### Hosting the app
+
+Two ways; the build is the same.
+
+**From the Worker** (simplest — one origin, no phrase needed): build the app and point the
+assets binding at it.
+
+    cd web && BASE_PATH=/ npm run build
+    # wrangler.toml:  [assets] directory = "./web/dist"
+    npx wrangler deploy
+
+**On GitHub Pages**: `.github/workflows/deploy.yml` builds `web/` and publishes it at
+`https://tp-0604.github.io/kartz/` on every push to `main`. Before the first run set the
+repository variable `VITE_API_BASE` to the Worker's URL plus `/api`, set Pages → Source to
+GitHub Actions, and give the Worker a `SHARED_PASS` (`npx wrangler secret put SHARED_PASS`) —
+each officer types it once on the Setup screen. GitHub Pages on a private repository needs a
+paid plan; on the free plan the repository must be public.
+
+### API
+
+Everything the old page used still works. Added:
+
+| | |
+|---|---|
+| `GET /api/boards/:id` | board, rows, and the sheet snapshot if there is one |
+| `POST /api/boards` | create; `409` if it exists, unless `replace: true` |
+| `PUT /api/boards/:id` | the sheet's save: rows as reviewed, the snapshot, and the `version` it was loaded at |
+| `PATCH` / `DELETE /api/boards/:id` | relabel or delete (the old `/board` routes, path-style) |
+| `POST /api/boards/:id/rows` | add or overwrite rows by rank |
+| `PATCH` / `DELETE /api/boards/:id/rows/:place` | correct or remove one row |
+
+Undo and redo live in the workbook and never reach the network; the database sees the sheet
+only when Save is pressed, as one atomic replacement of the board. A draft is kept in the
+browser two seconds after the last change, so a closed tab costs nothing.
 
 ---
 

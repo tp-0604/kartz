@@ -1,0 +1,63 @@
+# Builds the React app in web/ and publishes it to GitHub Pages at
+# https://tp-0604.github.io/kartz/ on every push to main that touches it.
+#
+# Before the first run:
+#   1. Settings → Pages → Source: GitHub Actions.
+#   2. Settings → Secrets and variables → Actions → Variables → New repository variable
+#        VITE_API_BASE = https://kartz.<your-subdomain>.workers.dev/api
+#      (the Worker's URL, with /api on the end). Without it the build points at /api on
+#      github.io, which does not exist.
+#   3. The Worker must list https://tp-0604.github.io in ALLOWED_ORIGINS (it does) and have
+#      SHARED_PASS set, which each officer types once on the app's Setup screen.
+#
+# GitHub Pages on a private repository needs a paid GitHub plan; on the free plan the
+# repository has to be public. The alternative is to serve the same build from the Worker:
+# see README.md, "Hosting the app".
+name: Deploy to GitHub Pages
+on:
+  push:
+    branches: [main]
+    paths: ['web/**', '.github/workflows/deploy.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: npm run build
+        env:
+          BASE_PATH: /kartz/
+          VITE_API_BASE: ${{ vars.VITE_API_BASE }}
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
