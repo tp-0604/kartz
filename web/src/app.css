@@ -112,3 +112,22 @@ tr.new{background:color-mix(in srgb,var(--warn) 6%,transparent)}
   .step{flex-wrap:wrap}
   .step>button{width:100%;margin-left:0 !important}
 }
+
+/* ---- the workbook import ---------------------------------------------------------------- */
+.monthrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 12px;
+  border:1px solid var(--line);border-radius:var(--rad2);background:var(--panel2)}
+.monthrow b{min-width:130px;font-size:14px}
+.monthrow input[type=date]{width:auto;min-height:36px;padding:6px 10px;font-size:13px}
+.monthrow .st{margin-left:auto;font:600 11px/1 var(--mono);color:var(--muted);white-space:nowrap}
+.monthrow .disc{min-height:28px;padding:2px 8px;font-size:12px;width:auto;border:0;background:none;color:var(--muted)}
+.boardsub{display:flex;flex-direction:column;gap:5px;margin:6px 0 2px 26px}
+.boardsub .previewrow{background:var(--panel);padding:6px 11px;font-size:13px}
+.tag-ok{color:var(--ok);background:var(--okbg)}
+.thinlist{margin:4px 0 10px;padding-left:18px;font-size:12.5px;color:var(--muted);line-height:1.7}
+.thinlist .st{font-family:var(--mono);font-size:11px}
+h3.subhead{font-size:15px;font-weight:600;margin:18px 0 0}
+@media (max-width:560px){
+  .monthrow b{min-width:0;flex-basis:100%}
+  .monthrow .st{margin-left:0;flex-basis:100%}
+  .boardsub{margin-left:0}
+}

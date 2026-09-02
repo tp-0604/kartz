@@ -43,6 +43,35 @@ production. The first time, create the local tables:
 `http://localhost:5173/kartz/?demo=1` loads a few made-up rows into the review table so the
 sheet and the save can be tried without a recording or a Gemini key.
 
+### Backloading the old workbook
+
+**History → Import → Whole workbook.** Download the tracking sheet from Google (*File → Download →
+Microsoft Excel*) and drop the .xlsx on that screen. It is read in the browser — nothing is
+uploaded — and nothing is written until you press Import. From the current workbook that is
+**111 boards and about 15,600 scores across 14 months**.
+
+Every tab named for a month is read, including the ones named for an alliance as well
+(`North September 2025`) and the working copies (`north`, `central`, `FebNorth`). `InputRoster`
+is not, because the app reads the roster live.
+
+**Dates.** A month tab records Day 1, Day 4 and the Final and never says which days those were.
+Three months are dated by the workbook itself, in the rows the extractor wrote into `north` and
+`central`: 23 March, 27 April and 25 May 2026. Every one of those Day 1s is **the fourth Monday
+of its month**, and Day 4 and the Final are three and six days after it — the `north` tab labels
+its own three columns Day 1, Day 4 and Day 7. So every other month is *offered* its fourth
+Monday, with the date shown against the month and editable before you import. Eleven of the
+fourteen months are dated that way and are worth a glance.
+
+**Two tabs describing one board are joined, not fought over.** February's main tab lost its 698N
+scores and the `FebNorth` copy has them; the March 698N scores exist only in a second table
+sitting to the right of the `north` tab. A board is every player either tab recorded, and where
+both hold the same player the tab with the game's own ranks is believed.
+
+Parked alliances (`z1.Transferred`, `z3.?`) and boards of one or two stray cells are left out;
+both are listed under *What was left out* with the threshold to change.
+
+**History → Import → One tab** is still there for a single tab, by link or paste.
+
 ### The database
 
 `migrate-003.sql` adds two things to an existing database and must be run once against the

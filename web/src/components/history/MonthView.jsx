@@ -50,7 +50,7 @@ export default function MonthView() {
           [list.length, 'players'], [days.length, days.length === 1 ? 'scoring day' : 'scoring days'],
           [totals[totals.length - 1].toLocaleString(), 'total scored'], [alliance || 'all', 'alliance', true],
         ]} />
-        <div className="tablewrap"><table id="histTbl">
+        <div className="tablewrap"><table className="histtbl">
           <Head cols={cols} />
           <tbody>{sorted.map(p => (
             <tr key={p.name}>

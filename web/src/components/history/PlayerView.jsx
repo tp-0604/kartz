@@ -40,7 +40,7 @@ export default function PlayerView() {
             <Sparkline values={pts} w={150} h={32} />
             <span className="bsub">{boards.map(b => <AllianceChip key={b} a={b} />)}{names.length > 1 ? ` · seen as ${names.map(n => '“' + n + '”').join(', ')}` : ''}</span>
           </div>
-          <div className="tablewrap"><table id="histTbl">
+          <div className="tablewrap"><table className="histtbl">
             <thead><tr><th>Date</th><th>Board</th><th>Label</th><th>Rank</th><th>Move</th><th>Name in video</th><th>Points</th><th>Change</th></tr></thead>
             <tbody>{h.map((r, i) => {
               const prev = i > 0 ? h[i - 1] : null;

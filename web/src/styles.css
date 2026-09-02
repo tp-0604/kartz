@@ -238,13 +238,13 @@ td select{width:auto;padding:6px 8px;font-size:12.5px;min-width:150px;min-height
 .cX{--ac:var(--aX);color:var(--aX)}
 /* The alliance cell on a board stays editable, so it cannot be a pill — but it can still
    carry the alliance's colour, which is what makes a 698S player inside a 698W board visible. */
-#histTbl td.c0,#histTbl td.c1,#histTbl td.c2,#histTbl td.c3,#histTbl td.cX{background:none}
+.histtbl td.c0,.histtbl td.c1,.histtbl td.c2,.histtbl td.c3,.histtbl td.cX{background:none}
 /* …and the row it sits in gets the rail, read off that same cell. */
-#histTbl tbody tr:has(td.c0)>td:first-child{box-shadow:inset 3px 0 0 var(--a0)}
-#histTbl tbody tr:has(td.c1)>td:first-child{box-shadow:inset 3px 0 0 var(--a1)}
-#histTbl tbody tr:has(td.c2)>td:first-child{box-shadow:inset 3px 0 0 var(--a2)}
-#histTbl tbody tr:has(td.c3)>td:first-child{box-shadow:inset 3px 0 0 var(--a3)}
-#histTbl tbody tr:has(td.cX)>td:first-child{box-shadow:inset 3px 0 0 var(--aX)}
+.histtbl tbody tr:has(td.c0)>td:first-child{box-shadow:inset 3px 0 0 var(--a0)}
+.histtbl tbody tr:has(td.c1)>td:first-child{box-shadow:inset 3px 0 0 var(--a1)}
+.histtbl tbody tr:has(td.c2)>td:first-child{box-shadow:inset 3px 0 0 var(--a2)}
+.histtbl tbody tr:has(td.c3)>td:first-child{box-shadow:inset 3px 0 0 var(--a3)}
+.histtbl tbody tr:has(td.cX)>td:first-child{box-shadow:inset 3px 0 0 var(--aX)}
 
 /* A score is easier to compare against its neighbours than to read in isolation, so the cell
    carries a bar of its own size behind the number. */
@@ -269,14 +269,14 @@ td select{width:auto;padding:6px 8px;font-size:12.5px;min-width:150px;min-height
 .tag-new{color:var(--muted);background:var(--line)}
 .edited{color:var(--warn);font-size:11px;margin-left:5px}
 
-#histTbl th.sortable{cursor:pointer;user-select:none}
-#histTbl th.sortable:hover{color:var(--ink)}
-#histTbl th .dir{opacity:.5;font-size:9px}
-#histTbl tbody tr:hover{background:color-mix(in srgb,var(--accent) 5%,transparent)}
-#histTbl td.num{text-align:right;font-variant-numeric:tabular-nums}
-#histTbl td.rank{color:var(--muted);font-variant-numeric:tabular-nums;width:44px}
-#histTbl td[contenteditable]{outline:none;border-bottom:1px dashed var(--line)}
-#histTbl td[contenteditable]:focus{background:var(--accbg);border-bottom-color:var(--accent)}
+.histtbl th.sortable{cursor:pointer;user-select:none}
+.histtbl th.sortable:hover{color:var(--ink)}
+.histtbl th .dir{opacity:.5;font-size:9px}
+.histtbl tbody tr:hover{background:color-mix(in srgb,var(--accent) 5%,transparent)}
+.histtbl td.num{text-align:right;font-variant-numeric:tabular-nums}
+.histtbl td.rank{color:var(--muted);font-variant-numeric:tabular-nums;width:44px}
+.histtbl td[contenteditable]{outline:none;border-bottom:1px dashed var(--line)}
+.histtbl td[contenteditable]:focus{background:var(--accbg);border-bottom-color:var(--accent)}
 
 #colpick{display:flex;flex-wrap:wrap;gap:11px 18px;align-items:center;background:var(--panel2);
   border:1px solid var(--line);border-radius:var(--rad);padding:13px 15px;margin:0 0 12px}

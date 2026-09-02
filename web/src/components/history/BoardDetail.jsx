@@ -74,7 +74,7 @@ export default function BoardDetail({ id, onBack, onOpenInSheet }) {
         [data.sheet ? 'yes' : 'no', 'formatted sheet saved', true],
       ]} />
       <p className="note" style={{ marginTop: 0 }}>Edit a cell and leave it to save the correction. For anything bigger, open the board in the sheet.</p>
-      <div className="tablewrap"><table id="histTbl">
+      <div className="tablewrap"><table className="histtbl">
         <Head cols={cols} />
         <tbody>{list.map(r => {
           const p = r.search ? before.get(r.search) : null;

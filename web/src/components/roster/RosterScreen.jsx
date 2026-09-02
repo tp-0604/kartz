@@ -81,7 +81,7 @@ export default function RosterScreen() {
             </div>
             {list.length !== roster.length && <div className="note">{list.length} of {roster.length} shown</div>}
             <div className="tablewrap">
-              <table id="histTbl">
+              <table className="histtbl">
                 <thead><tr>{shown.map(c => <th key={c.i}>{c.label}</th>)}<th></th><th></th></tr></thead>
                 <tbody>
                   {list.map((r, ri) => (

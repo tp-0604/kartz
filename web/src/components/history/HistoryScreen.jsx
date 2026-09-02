@@ -195,7 +195,7 @@ function Combined({ month, year, all, setAll }) {
         [list.reduce((a, p) => a + p.total, 0).toLocaleString(), 'points'],
         [`${monthName(month)} ${year}`, 'month', true],
       ]} />
-      <div className="tablewrap"><table id="histTbl">
+      <div className="tablewrap"><table className="histtbl">
         <Head cols={columns} />
         <tbody>{sorted.map((p, n) => (
           <tr key={p.name}>

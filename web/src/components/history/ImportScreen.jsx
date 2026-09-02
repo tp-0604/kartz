@@ -8,14 +8,27 @@ import { createBoard } from '../../services/api.js';
 import { MAIN_ALLIANCES } from '../../extractor/config.js';
 import { today } from '../../utils/format.js';
 import { AllianceChip, FlashButton } from '../shared/ui.jsx';
+import WorkbookImport from './WorkbookImport.jsx';
 
 const KIND_TEXT = {
-  month: 'a month tab: one row per player, every alliance, Day 1 / Day 4 / Final score columns',
-  alliance: 'an alliance tab: one row per player, day score columns, the alliance in the tab name',
-  flat: 'flat rows: a date, a rank and points on every row',
+  days: 'one row per player, with a column per scoring day',
+  flat: 'flat rows: a date and points on every row',
 };
 
 export default function ImportScreen() {
+  const [mode, setMode] = useState('workbook');
+  return (
+    <>
+      <div className="tabs" style={{ marginTop: 4 }}>
+        <button className={'tab' + (mode === 'workbook' ? ' on' : '')} onClick={() => setMode('workbook')}>Whole workbook</button>
+        <button className={'tab' + (mode === 'tab' ? ' on' : '')} onClick={() => setMode('tab')}>One tab</button>
+      </div>
+      {mode === 'workbook' ? <WorkbookImport /> : <SingleTabImport />}
+    </>
+  );
+}
+
+function SingleTabImport() {
   const { matchRoster, refreshBoards, notify } = useApp();
   const [link, setLink] = useState('');
   const [text, setText] = useState('');
@@ -51,7 +64,7 @@ export default function ImportScreen() {
   const boards = table && layout
     ? buildBoards(table, layout, { day1, alliance, roster: matchRoster })
     : [];
-  const needAlliance = layout && layout.kind === 'alliance' && !alliance;
+  const needAlliance = layout && layout.kind === 'days' && layout.alliance < 0 && !alliance;
   const totalRows = boards.reduce((n, b) => n + b.rows.length, 0);
   const unmatched = boards.reduce((n, b) => n + b.unmatched, 0);
 
@@ -75,9 +88,9 @@ export default function ImportScreen() {
 
   return (
     <section>
-      <div className="shead"><h2>Import from Google Sheets</h2></div>
+      <div className="shead"><h2>Import one tab</h2></div>
       <p className="note" style={{ marginTop: 0 }}>
-        Backload past months from the Kartz Tracking workbook. Paste a tab's link (the sheet must be link-readable, and the link must
+        One tab at a time, straight from Google. Paste the tab's link (the sheet must be link-readable, and the link must
         include the tab's <code>gid</code>), or select the tab's cells in Sheets, copy, and paste them below. Nothing is saved until you press Import.
       </p>
       <div className="importgrid">
@@ -97,7 +110,7 @@ export default function ImportScreen() {
 
       {layout && (
         <>
-          <div className="okbox">Recognised {KIND_TEXT[layout.kind]} — {table.length - 1} rows, {layout.cols.scores.length || 1} score column{(layout.cols.scores.length || 1) === 1 ? '' : 's'}.</div>
+          <div className="okbox">Recognised {KIND_TEXT[layout.kind]} — {table.length - 1} rows, {layout.days.length || 1} score column{(layout.days.length || 1) === 1 ? '' : 's'}.</div>
           <div className="mapping">
             {layout.kind !== 'flat' && (
               <>
@@ -106,7 +119,7 @@ export default function ImportScreen() {
                   <span className="inline-note" style={{ marginLeft: 10 }}>Day 4 is three days later and the Final six, as the tracking sheet has always had them.</span></div>
               </>
             )}
-            {(layout.kind === 'alliance' || (layout.kind === 'flat' && layout.cols.alliance < 0)) && (
+            {layout.alliance < 0 && (
               <>
                 <span className="role">Alliance</span>
                 <select value={alliance} onChange={e => setAlliance(e.target.value)} style={{ width: 'auto' }}>
