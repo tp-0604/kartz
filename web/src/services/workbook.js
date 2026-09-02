@@ -62,6 +62,26 @@ export function classify(name) {
   return { kind: 'unknown', why: 'the name does not say which month and year it is' };
 }
 
+/**
+ * The Day 1 of each month, read back from boards that already exist.
+ *
+ * A board that has been saved carries both its date and which day of the event it was, so it
+ * dates its own month exactly. That beats any rule: August 2026 ran Tuesday to Monday, not from
+ * the fourth Monday, and only the board saved from that recording says so.
+ */
+export function day1sFromBoards(boards) {
+  const back = { 'Day 1': 0, 'Day 4': 3, 'Final': FINAL_OFFSET };
+  const out = new Map();
+  for (const b of boards || []) {
+    const off = back[b.label];
+    if (off === undefined || !b.date) continue;
+    const d1 = addDays(b.date, -off);
+    const ym = d1.slice(0, 7);
+    if (!out.has(ym)) out.set(ym, d1);
+  }
+  return out;
+}
+
 /** Given every real date seen, the Day 1 of each event: a date with no board three days before it. */
 export function day1sFrom(dates) {
   const set = new Set(dates);
@@ -86,7 +106,7 @@ const FINAL_OFFSET = 6;
  * @param {object} o.dates     month -> Day 1, whatever the user has changed
  * @returns {{ months, boards, skipped, unknown, day1s, totals }}
  */
-export function planWorkbook(sheets, { roster = [], dates = {}, minRows = 3 } = {}) {
+export function planWorkbook(sheets, { roster = [], dates = {}, minRows = 3, existing = [] } = {}) {
   const skipped = [], unknown = [], rawBoards = [], monthTabs = [];
 
   // ---- the dated tabs first: they are the only place a real date exists -------------------
@@ -147,6 +167,8 @@ export function planWorkbook(sheets, { roster = [], dates = {}, minRows = 3 } = 
 
   // Every real date the workbook holds, and the Day 1 each event started on.
   const day1s = day1sFrom(rawBoards.map(b => b.date));
+  // Boards already saved date their own month better than anything here can work out.
+  const fromApp = day1sFromBoards(existing);
   const groupOf = date => [...day1s.values()].find(d =>
     date === d || date === addDays(d, 3) || date === addDays(d, FINAL_OFFSET)) || null;
   for (const b of rawBoards) {
@@ -161,10 +183,12 @@ export function planWorkbook(sheets, { roster = [], dates = {}, minRows = 3 } = 
   const monthsSeen = new Map();
   const dayBoards = [];
   for (const t of monthTabs) {
+    const saved = fromApp.get(t.month) || null;
     const known = day1s.get(t.month) || null;
-    const day1 = dates[t.month] || known || fourthMonday(t.month);
+    const day1 = dates[t.month] || saved || known || fourthMonday(t.month);
+    const from = dates[t.month] ? 'you' : saved ? 'saved' : known ? 'workbook' : 'monday';
     if (!monthsSeen.has(t.month))
-      monthsSeen.set(t.month, { month: t.month, day1, known, tabs: [], boards: 0, rows: 0 });
+      monthsSeen.set(t.month, { month: t.month, day1, known, saved, from, tabs: [], boards: 0, rows: 0 });
     const entry = monthsSeen.get(t.month);
     entry.day1 = day1;
     if (!entry.tabs.includes(t.source)) entry.tabs.push(t.source);
@@ -228,7 +252,8 @@ export function planWorkbook(sheets, { roster = [], dates = {}, minRows = 3 } = 
       months.set(b.month, m
         ? { ...m, boards: 0, rows: 0, tabs: [] }
         : { month: b.month, day1: day1s.get(b.month) || fourthMonday(b.month),
-            known: day1s.get(b.month) || null, tabs: [], boards: 0, rows: 0 });
+            known: day1s.get(b.month) || null, saved: fromApp.get(b.month) || null,
+            from: day1s.get(b.month) ? 'workbook' : 'monday', tabs: [], boards: 0, rows: 0 });
     }
     const m = months.get(b.month);
     if (!m.tabs.includes(b.source)) m.tabs.push(b.source);

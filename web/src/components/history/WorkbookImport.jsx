@@ -12,7 +12,7 @@ import { AllianceChip, Empty } from '../shared/ui.jsx';
 const fmtN = n => n.toLocaleString();
 
 export default function WorkbookImport() {
-  const { matchRoster, refreshBoards, notify } = useApp();
+  const { matchRoster, refreshBoards, notify, boards } = useApp();
   const [file, setFile] = useState(null);
   const [sheets, setSheets] = useState(null);
   const [unread, setUnread] = useState([]);
@@ -27,8 +27,8 @@ export default function WorkbookImport() {
   const input = useRef(null);
 
   const plan = useMemo(
-    () => (sheets ? planWorkbook(sheets, { roster: matchRoster, dates, minRows }) : null),
-    [sheets, matchRoster, dates, minRows]);
+    () => (sheets ? planWorkbook(sheets, { roster: matchRoster, dates, minRows, existing: boards }) : null),
+    [sheets, matchRoster, dates, minRows, boards]);
 
   const read = async f => {
     if (!f) return;
@@ -106,9 +106,10 @@ export default function WorkbookImport() {
           <h3 className="subhead" style={{ marginBottom: 4 }}>When each event started</h3>
           <p className="note" style={{ marginTop: 0 }}>
             A month tab records Day 1, Day 4 and the Final but never says which days those were.
-            Three months are dated by the workbook itself, and each of those Day 1s is the fourth Monday
-            of its month — so every other month is offered its fourth Monday. Change any that are wrong;
-            Day 4 and the Final follow, three and six days later.
+            A month is dated from a board you have already saved where there is one, then from the dated
+            rows the workbook itself holds. Those all land on the fourth Monday, so a month with neither is
+            offered its fourth Monday — worth a glance, because August 2026 ran from the Tuesday.
+            Change any that are wrong; Day 4 and the Final follow, three and six days later.
           </p>
           <div className="previewlist">
             {plan.months.map(m => {
@@ -121,8 +122,8 @@ export default function WorkbookImport() {
                     <b>{monthLabel(m.month)}</b>
                     <input type="date" value={m.day1}
                            onChange={e => setDates(d => ({ ...d, [m.month]: e.target.value }))} />
-                    <span className={'tag ' + (m.known ? 'tag-ok' : 'tag-new')}>
-                      {m.known ? 'dated by the workbook' : 'fourth Monday'}
+                    <span className={'tag ' + (m.from === 'monday' ? 'tag-new' : 'tag-ok')}>
+                      {{ you: 'your date', saved: 'from a board you saved', workbook: 'dated by the workbook' }[m.from] || 'fourth Monday'}
                     </span>
                     <span className="st">{m.boards} boards · {fmtN(m.rows)} scores</span>
                   </div>
