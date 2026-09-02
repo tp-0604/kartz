@@ -4,7 +4,7 @@
 // Shown in the header. Several people run this from their own phones and a browser can sit on
 // an open tab for days, so "it is still happening" and "it is fixed" are easy to say about
 // different builds. Bump it with any change worth telling apart from the one before.
-export const BUILD = '2026-09-02r';
+export const BUILD = '2026-09-02u';
 export const MODEL = 'gemini-3.5-flash-lite';
 export const FALLBACKS = [];        // one model, deliberately: a run either works or says why
 

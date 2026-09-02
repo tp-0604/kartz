@@ -1,5 +1,4 @@
-// Backloading boards from the Kartz Tracking workbook: a tab's link or its pasted cells in,
-// a preview of the boards it makes, one press to save them.
+// Backloading: the whole workbook, or one tab at a time.
 import { useState } from 'react';
 import { useApp } from '../../state/AppContext.jsx';
 import { sheetCsvUrl } from '../../extractor/roster.js';
@@ -12,19 +11,19 @@ import WorkbookImport from './WorkbookImport.jsx';
 
 const KIND_TEXT = {
   days: 'one row per player, with a column per scoring day',
-  flat: 'flat rows: a date and points on every row',
+  flat: 'flat rows, with a date and points on every row',
 };
 
 export default function ImportScreen() {
   const [mode, setMode] = useState('workbook');
   return (
-    <>
-      <div className="tabs" style={{ marginTop: 4 }}>
-        <button className={'tab' + (mode === 'workbook' ? ' on' : '')} onClick={() => setMode('workbook')}>Whole workbook</button>
-        <button className={'tab' + (mode === 'tab' ? ' on' : '')} onClick={() => setMode('tab')}>One tab</button>
+    <div className="stack">
+      <div className="chips">
+        <button className={'chip' + (mode === 'workbook' ? ' is-on' : '')} onClick={() => setMode('workbook')}>Whole workbook</button>
+        <button className={'chip' + (mode === 'tab' ? ' is-on' : '')} onClick={() => setMode('tab')}>One tab</button>
       </div>
       {mode === 'workbook' ? <WorkbookImport /> : <SingleTabImport />}
-    </>
+    </div>
   );
 }
 
@@ -56,14 +55,12 @@ function SingleTabImport() {
       if (!raw.trim()) throw new Error('Paste the tab, or give its link.');
       const rows = parseTable(raw);
       const lay = detectLayout(rows);
-      if (!lay || !lay.kind) throw new Error('Could not recognise those columns. Expected Day 1 / Day 4 / Final score columns, or Date, Rank and Points.');
+      if (!lay || !lay.kind) throw new Error('Could not recognise those columns. Expected Day 1 / Day 4 / Final score columns, or Date and Points.');
       setTable(rows); setLayout(lay);
     } catch (e) { setErr(e.message); setTable(null); setLayout(null); }
   };
 
-  const boards = table && layout
-    ? buildBoards(table, layout, { day1, alliance, roster: matchRoster })
-    : [];
+  const boards = table && layout ? buildBoards(table, layout, { day1, alliance, roster: matchRoster }) : [];
   const needAlliance = layout && layout.kind === 'days' && layout.alliance < 0 && !alliance;
   const totalRows = boards.reduce((n, b) => n + b.rows.length, 0);
   const unmatched = boards.reduce((n, b) => n + b.unmatched, 0);
@@ -87,78 +84,89 @@ function SingleTabImport() {
   };
 
   return (
-    <section>
-      <div className="shead"><h2>Import one tab</h2></div>
-      <p className="note" style={{ marginTop: 0 }}>
-        One tab at a time, straight from Google. Paste the tab's link (the sheet must be link-readable, and the link must
-        include the tab's <code>gid</code>), or select the tab's cells in Sheets, copy, and paste them below. Nothing is saved until you press Import.
-      </p>
-      <div className="importgrid">
-        <div>
-          <label htmlFor="implink">Tab link</label>
-          <input id="implink" value={link} onChange={e => setLink(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…/edit?gid=…" spellCheck={false} />
+    <div className="stack">
+      <div className="panel">
+        <div className="sectionhead">
+          <h2>Import one tab</h2>
+          <p>Straight from Google. Paste the tab's link — the sheet must be link-readable and the link must include the
+            tab's <code>gid</code> — or select the tab's cells in Sheets, copy, and paste them below.</p>
+        </div>
+        <div className="stack">
+          <div className="field">
+            <label className="label" htmlFor="implink">Tab link</label>
+            <input id="implink" value={link} onChange={e => setLink(e.target.value)}
+                   placeholder="https://docs.google.com/spreadsheets/d/…/edit?gid=…" spellCheck={false} />
+          </div>
+          <div className="field">
+            <label className="label" htmlFor="imptext">…or paste the cells</label>
+            <textarea id="imptext" value={text} onChange={e => setText(e.target.value)}
+                      placeholder={'Searchable Name\tGame Name\tCP\tMM/CE\tAlliance\tDay 1 Score\t…'} spellCheck={false} />
+          </div>
+          <div className="btnrow">
+            <button className="btn btn--primary" onClick={read}>Read it</button>
+          </div>
+          {err && <div className="note note--bad">{err}</div>}
         </div>
       </div>
-      <div style={{ marginTop: 12 }}>
-        <label htmlFor="imptext">…or paste the cells</label>
-        <textarea id="imptext" className="paste" value={text} onChange={e => setText(e.target.value)} placeholder={'Searchable Name\tGame Name\tCP\tMM/CE\tAlliance\tDay 1 Score\t…'} spellCheck={false} />
-      </div>
-      <div className="btnrow" style={{ marginTop: 12 }}>
-        <button onClick={read}>Read it</button>
-      </div>
-      {err && <div className="problems" style={{ marginTop: 12 }}>{err}</div>}
 
       {layout && (
-        <>
-          <div className="okbox">Recognised {KIND_TEXT[layout.kind]} — {table.length - 1} rows, {layout.days.length || 1} score column{(layout.days.length || 1) === 1 ? '' : 's'}.</div>
-          <div className="mapping">
+        <div className="panel">
+          <div className="note note--ok">
+            Recognised {KIND_TEXT[layout.kind]} — {table.length - 1} rows,
+            {' '}{layout.days.length || 1} score column{(layout.days.length || 1) === 1 ? '' : 's'}.
+          </div>
+          <div className="mapping" style={{ marginTop: 'var(--s4)' }}>
             {layout.kind !== 'flat' && (
               <>
-                <span className="role">Day 1 was</span>
-                <div><input type="date" value={day1} onChange={e => setDay1(e.target.value)} style={{ width: 170 }} />
-                  <span className="inline-note" style={{ marginLeft: 10 }}>Day 4 is three days later and the Final six, as the tracking sheet has always had them.</span></div>
+                <span className="mapping__role">Day 1 was</span>
+                <div className="row">
+                  <input type="date" value={day1} onChange={e => setDay1(e.target.value)} style={{ width: 168 }} />
+                  <span className="hint">Day 4 is three days later and the Final six.</span>
+                </div>
               </>
             )}
             {layout.alliance < 0 && (
               <>
-                <span className="role">Alliance</span>
-                <select value={alliance} onChange={e => setAlliance(e.target.value)} style={{ width: 'auto' }}>
+                <span className="mapping__role">Alliance</span>
+                <select value={alliance} onChange={e => setAlliance(e.target.value)} style={{ width: 'auto', minWidth: 170 }}>
                   <option value="">{layout.kind === 'flat' ? 'from the roster' : 'choose…'}</option>
                   {MAIN_ALLIANCES.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
               </>
             )}
-            <span className="role">Existing</span>
-            <label className="colopt" style={{ margin: 0 }}>
+            <span className="mapping__role">Existing</span>
+            <label className="check">
               <input type="checkbox" checked={replace} onChange={e => setReplace(e.target.checked)} />
               <span>Replace boards already saved for the same date and alliance</span>
             </label>
           </div>
 
-          {needAlliance ? <div className="warnbox">Choose which alliance this tab belongs to.</div> : (
-            <>
-              <div className="rowmsg">{boards.length} board{boards.length === 1 ? '' : 's'} · {totalRows} rows
-                {unmatched ? ` · ${unmatched} names not on the roster (kept as written, with no roster name)` : ' · every name matched the roster'}</div>
-              <div className="previewlist">
+          {needAlliance ? <div className="note note--warn" style={{ marginTop: 'var(--s4)' }}>Choose which alliance this tab belongs to.</div> : (
+            <div className="stack" style={{ marginTop: 'var(--s4)' }}>
+              <p className="hint">{boards.length} board{boards.length === 1 ? '' : 's'} · {totalRows} rows
+                {unmatched ? ` · ${unmatched} names not on the roster` : ' · every name matched the roster'}</p>
+              <div className="importmonths">
                 {boards.map(b => {
                   const r = results && results.find(x => x.date === b.date && x.alliance === b.alliance && x.label === b.label);
                   return (
                     <div key={b.date + b.alliance + b.label} className="previewrow">
                       <AllianceChip a={b.alliance} />
-                      <span><b>{b.date}</b> · {b.label || 'no day'} · top {Math.max(...b.rows.map(x => x.points)).toLocaleString()}</span>
-                      <span className="st">{b.rows.length} rows{b.unmatched ? ` · ${b.unmatched} new` : ''}</span>
-                      <span className={'st ' + (r ? (r.ok ? 'ok' : 'bad') : '')}>{r ? (r.ok ? `saved ${r.saved} ✓` : r.error) : ''}</span>
+                      <span><strong>{b.date}</strong> · {b.label || 'no day'} · top {Math.max(...b.rows.map(x => x.points)).toLocaleString()}</span>
+                      <span className="previewrow__st">{b.rows.length} rows{b.unmatched ? ` · ${b.unmatched} new` : ''}</span>
+                      <span className={'previewrow__st' + (r ? (r.ok ? ' is-ok' : ' is-bad') : '')}>{r ? (r.ok ? `saved ${r.saved} ✓` : r.error) : ''}</span>
                     </div>
                   );
                 })}
               </div>
               <div className="btnrow">
-                <FlashButton onClick={importAll} disabled={!boards.length}>Import {boards.length} board{boards.length === 1 ? '' : 's'}</FlashButton>
+                <FlashButton className="btn btn--primary" onClick={importAll} disabled={!boards.length}>
+                  Import {boards.length} board{boards.length === 1 ? '' : 's'}
+                </FlashButton>
               </div>
-            </>
+            </div>
           )}
-        </>
+        </div>
       )}
-    </section>
+    </div>
   );
 }

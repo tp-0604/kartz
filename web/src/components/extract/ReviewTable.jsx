@@ -1,5 +1,5 @@
 // The rows a run produced, and every way to settle one without typing: tick it, pick a
-// name, throw it out, bring it back. Same rules as the old render(), row for row.
+// name, throw it out, bring it back.
 import { MAIN_ALLIANCES } from '../../extractor/config.js';
 import { fold } from '../../extractor/matching.js';
 import { missingRanks } from '../../extractor/run.js';
@@ -40,31 +40,41 @@ export default function ReviewTable({ rows, setRows, roster, allianceAll, setAll
   };
 
   return (
-    <>
-      <div className={need || holes.length ? 'warnbox' : 'okbox'}>
-        {rows.length} players · {rows.length - need - dropped} matched to the roster
-        {dropped ? ` · ${dropped} excluded` : ''}
-        {need ? <> · <strong>{need} to confirm below</strong></> : null}
+    <div className="stack">
+      <div className="toolbar toolbar--tight">
+        <div className={'note ' + (need ? 'note--warn' : 'note--ok')} style={{ flex: '1 1 260px' }}>
+          {rows.length} players · {rows.length - need - dropped} matched
+          {dropped ? ` · ${dropped} excluded` : ''}
+          {need ? <> · <strong>{need} to confirm</strong></> : ''}
+        </div>
+        <div className="field">
+          <label className="label" htmlFor="alliall">Alliance for the board</label>
+          <select id="alliall" value={allianceAll} onChange={e => chooseAll(e.target.value)} style={{ minWidth: 150 }}>
+            <option value="">as found</option>
+            {MAIN_ALLIANCES.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
       </div>
+
       {holes.length > 0 && (
-        <div className="warnbox">
+        <div className="note note--warn">
           The game showed ranks up to {top}, but {holes.length === 1
-            ? <>rank <strong>{holeText}</strong> was never captured, so that player is missing from the rows below. </>
-            : <>{holes.length} ranks were never captured — <strong>{holeText}</strong> — so those players are missing from the rows below. </>}
-          Everyone else keeps the rank the game gave them. Record that stretch again more slowly if you want the gap filled.
+            ? <>rank <strong>{holeText}</strong> was never captured, so that player is missing below. </>
+            : <>{holes.length} ranks were never captured — <strong>{holeText}</strong> — so those players are missing below. </>}
+          Everyone else keeps the rank the game gave them.
         </div>
       )}
+
       <div className="tablewrap">
-        <table id="tbl">
+        <table className="review">
           <thead><tr>
-            <th>Rank</th><th>Name in video</th><th>Game Name</th>
-            <th>Alliance<br />
-              <select className="allipick" value={allianceAll} onChange={e => chooseAll(e.target.value)} title="one alliance for the whole recording">
-                <option value="">as found</option>
-                {MAIN_ALLIANCES.map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </th>
-            <th>Kartz Points</th><th></th><th></th>
+            <th className="rank">Rank</th>
+            <th>Name in video</th>
+            <th>Game name</th>
+            <th>Alliance</th>
+            <th className="num">Points</th>
+            <th>State</th>
+            <th />
           </tr></thead>
           <tbody>
             {rows.map((r, i) => {
@@ -74,20 +84,19 @@ export default function ReviewTable({ rows, setRows, roster, allianceAll, setAll
               const alli = allianceAll || (r.alliancePick !== undefined ? r.alliancePick
                          : r.match ? r.match.alliance : r.skipped ? r.skipped.alliance : '');
               return (
-                <tr key={i} className={(green || r.pick ? 'ok' : 'new') + (r.dropped ? ' drop' : '')}>
-                  <td>{r.skipped ? (r.seenRank || '—') : r.rank}</td>
+                <tr key={i} className={(green || r.pick ? 'is-ok' : 'is-new') + (r.dropped ? ' is-dropped' : '')}>
+                  <td className="rank">{r.skipped ? (r.seenRank || '—') : r.rank}</td>
                   <td>{r.name}</td>
                   <td>
                     {settled ? (
-                      <>
+                      <span className="review__name">
                         <span className={green ? 'named' : 'asdrawn'}>{shown}</span>
-                        <button className="pencil" title="change this name" onClick={() => update(i, { editing: true })}>✎</button>
+                        <button className="iconbtn" title="change this name" onClick={() => update(i, { editing: true })}>✎</button>
                         {!green && (
-                          <button className="ghost tickok" title="this name is right as it is"
-                                  style={{ width: 'auto', padding: '4px 9px', marginLeft: 6, minHeight: 0 }}
+                          <button className="iconbtn iconbtn--ok" title="this name is right as it is"
                                   onClick={() => update(i, { confirmed: true })}>✓</button>
                         )}
-                      </>
+                      </span>
                     ) : (
                       <RosterSearch roster={roster} initial={r.pick || (r.editing ? shown : '')}
                         commitOnBlur={!r.editing}
@@ -102,15 +111,14 @@ export default function ReviewTable({ rows, setRows, roster, allianceAll, setAll
                         onCancel={() => update(i, { editing: false })} />
                     )}
                   </td>
-                  <td>{alli ? alli : <span className="note">—</span>}</td>
-                  <td>{r.points}</td>
-                  <td>{r.skipped ? <span className="pill p-new">excluded</span>
-                     : r.match ? <span className="pill p-ok">{r.near1 ? '1 char' : 'exact'}</span>
-                     : r.confirmed ? <span className="pill p-ok">confirmed</span>
-                     : <span className="pill p-new">confirm</span>}</td>
+                  <td>{alli ? alli : <span className="muted">—</span>}</td>
+                  <td className="num">{r.points}</td>
+                  <td>{r.skipped ? <span className="pill pill--flat">excluded</span>
+                     : r.match ? <span className="pill pill--ok">{r.near1 ? '1 char' : 'exact'}</span>
+                     : r.confirmed ? <span className="pill pill--ok">confirmed</span>
+                     : <span className="pill pill--warn">confirm</span>}</td>
                   <td>
-                    <button className="ghost rowdrop" title={r.dropped ? 'bring this row back' : 'not a real row'}
-                            style={{ width: 'auto', padding: '4px 9px', minHeight: 0 }}
+                    <button className="iconbtn iconbtn--danger" title={r.dropped ? 'bring this row back' : 'not a real row'}
                             onClick={() => update(i, row => ({ dropped: !row.dropped, editing: false }))}>
                       {r.dropped ? '↺' : '✕'}
                     </button>
@@ -121,6 +129,6 @@ export default function ReviewTable({ rows, setRows, roster, allianceAll, setAll
           </tbody>
         </table>
       </div>
-    </>
+    </div>
   );
 }

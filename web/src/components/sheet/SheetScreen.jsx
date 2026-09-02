@@ -14,7 +14,7 @@ import { AllianceChip } from '../shared/ui.jsx';
 const draftKey = meta => 'draft.' + (meta.id || `new|${meta.date}|${meta.alliance}`);
 const NEW_META = date => ({ id: null, date, alliance: '', label: DAYS[0], version: null, savedAt: null });
 
-export default function SheetScreen({ active }) {
+export default function SheetScreen() {
   const { staged, clearStaged, boards, refreshBoards, notify, date: defaultDate } = useApp();
   const [ctl, setCtl] = useState(null);
   const ctlRef = useRef(null);
@@ -30,14 +30,13 @@ export default function SheetScreen({ active }) {
 
   const onReady = useCallback(c => { ctlRef.current = c; setCtl(c); }, []);
 
-  // ---- dirty flag, straight from the workbook ---------------------------------------------
   useEffect(() => {
     if (!ctl) return;
     setDirty(ctl.isDirty());
     return ctl.onDirty(setDirty);
   }, [ctl]);
 
-  // ---- a local draft two seconds after the last change, so a closed tab costs nothing -----
+  // A local draft two seconds after the last change, so a closed tab costs nothing.
   useEffect(() => {
     if (!ctl) return;
     clearTimeout(draftTimer.current);
@@ -55,7 +54,6 @@ export default function SheetScreen({ active }) {
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty]);
 
-  // ---- loading a board from the database ----------------------------------------------------
   const openBoard = useCallback(async id => {
     const c = ctlRef.current; if (!c) return;
     setBusy('loading'); setProblems([]);
@@ -78,21 +76,19 @@ export default function SheetScreen({ active }) {
     setMeta(m); setLoadedAs(null); setBaseline([]); setProblems([]); setDraft(null);
   }, [defaultDate]);
 
-  // ---- what the extractor or history handed over ---------------------------------------------
   useEffect(() => {
     if (!ctl || !staged) return;
     if (staged.kind === 'records') {
       ctl.loadRows(staged.records);
       const m = { ...NEW_META(staged.meta.date || defaultDate), ...staged.meta, id: null, version: null };
       setMeta(m); setLoadedAs(null); setBaseline(staged.records); setProblems([]); setDraft(null);
-      ctl.markDirty();                       // it is not in the database yet, and that is worth a dot
+      ctl.markDirty();
     } else if (staged.kind === 'board') {
       openBoard(staged.id);
     }
     clearStaged();
   }, [ctl, staged, clearStaged, openBoard, defaultDate]);
 
-  // ---- save -------------------------------------------------------------------------------------
   const save = async () => {
     const c = ctlRef.current; if (!c) return;
     if (!meta.alliance) { notify('Choose the alliance this board belongs to.', 'warn'); return; }
@@ -108,7 +104,6 @@ export default function SheetScreen({ active }) {
     try {
       let id = meta.id, version = meta.version;
       if (id && loadedAs && (loadedAs.date !== meta.date || loadedAs.alliance !== meta.alliance)) {
-        // the board moved to another date or alliance: rename first, then save under the new id
         const r = await patchBoard(id, { date: meta.date, alliance: meta.alliance, label: meta.label || null });
         id = r.board; version = null;
       }
@@ -139,10 +134,7 @@ export default function SheetScreen({ active }) {
   };
 
   const leaveOk = () => !dirty || window.confirm('This sheet has unsaved changes. Leave them behind?');
-  const chooseBoard = id => {
-    if (!leaveOk()) return;
-    if (!id) startNew(); else openBoard(id);
-  };
+  const chooseBoard = id => { if (!leaveOk()) return; if (!id) startNew(); else openBoard(id); };
   const restoreDraft = () => {
     const c = ctlRef.current; if (!c || !draft) return;
     c.restore(draft.snapshot); c.markDirty();
@@ -150,7 +142,6 @@ export default function SheetScreen({ active }) {
     setDraft(null);
     notify('Draft restored — press Save to keep it.');
   };
-  const discardDraft = () => { store.del(draftKey(meta)); setDraft(null); };
 
   const alliances = [...new Set([...MAIN_ALLIANCES, ...boards.map(b => b.alliance)])];
   const boardLabel = b => `${b.date} · ${b.alliance}${b.label ? ' · ' + b.label : ''} (${b.players})`;
@@ -160,65 +151,74 @@ export default function SheetScreen({ active }) {
 
   return (
     <>
-      <div className="boardbar">
-        <div>
-          <label htmlFor="pickboard">Board</label>
-          <select id="pickboard" className="pickboard" value={meta.id || ''} onChange={e => chooseBoard(e.target.value)} disabled={!!busy}>
+      <div className="pagehead">
+        <div className="pagehead__text">
+          <h1>Sheet</h1>
+          <p>Columns A to E are the record. Anything you add to the right is kept with the sheet.</p>
+        </div>
+      </div>
+
+      <div className="sheetbar">
+        <div className="field">
+          <label className="label" htmlFor="pickboard">Board</label>
+          <select id="pickboard" value={meta.id || ''} onChange={e => chooseBoard(e.target.value)} disabled={!!busy}>
             <option value="">{meta.id ? 'New board…' : 'New board'}</option>
             {boards.map(b => <option key={b.id} value={b.id}>{boardLabel(b)}{b.has_sheet ? ' ▤' : ''}</option>)}
           </select>
         </div>
-        <div>
-          <label htmlFor="bdate">Date</label>
-          <input id="bdate" type="date" value={meta.date} onChange={e => { setMeta(m => ({ ...m, date: e.target.value })); ctl && ctl.markDirty(); }} />
+        <div className="field">
+          <label className="label" htmlFor="bdate">Date</label>
+          <input id="bdate" type="date" value={meta.date}
+                 onChange={e => { setMeta(m => ({ ...m, date: e.target.value })); if (ctl) ctl.markDirty(); }} />
         </div>
-        <div>
-          <label htmlFor="balli">Alliance</label>
-          <select id="balli" value={meta.alliance} onChange={e => { setMeta(m => ({ ...m, alliance: e.target.value })); ctl && ctl.markDirty(); }}>
+        <div className="field">
+          <label className="label" htmlFor="balli">Alliance</label>
+          <select id="balli" value={meta.alliance}
+                  onChange={e => { setMeta(m => ({ ...m, alliance: e.target.value })); if (ctl) ctl.markDirty(); }}>
             <option value="">choose…</option>
             {alliances.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         </div>
-        <div>
-          <label htmlFor="bday">Scoring day</label>
-          <select id="bday" value={meta.label || ''} onChange={e => { setMeta(m => ({ ...m, label: e.target.value })); ctl && ctl.markDirty(); }}>
+        <div className="field">
+          <label className="label" htmlFor="bday">Scoring day</label>
+          <select id="bday" value={meta.label || ''}
+                  onChange={e => { setMeta(m => ({ ...m, label: e.target.value })); if (ctl) ctl.markDirty(); }}>
             <option value="">—</option>
             {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
         </div>
-        <div className="grow" />
-        <div className="actions">
-          <button className="ghost icon" title="Undo (Ctrl+Z)" onClick={() => ctl && ctl.undo()} disabled={!ctl}>↶</button>
-          <button className="ghost icon" title="Redo (Ctrl+Y)" onClick={() => ctl && ctl.redo()} disabled={!ctl}>↷</button>
-          <button className="ghost" onClick={() => { if (leaveOk()) startNew(); }} disabled={!ctl || !!busy}>New</button>
-          {meta.id && <button className="ghost" onClick={() => { if (leaveOk()) openBoard(meta.id); }} disabled={!!busy} title="throw away local changes and reload from the database">Reload</button>}
-          <button className={'savebtn' + (dirty ? ' dirty' : '')} onClick={save} disabled={!ctl || !!busy}>
+        <div className="sheetbar__actions">
+          <button className="btn btn--icon" title="Undo" onClick={() => ctl && ctl.undo()} disabled={!ctl}>↶</button>
+          <button className="btn btn--icon" title="Redo" onClick={() => ctl && ctl.redo()} disabled={!ctl}>↷</button>
+          <button className="btn" onClick={() => { if (leaveOk()) startNew(); }} disabled={!ctl || !!busy}>New</button>
+          {meta.id && <button className="btn" onClick={() => { if (leaveOk()) openBoard(meta.id); }} disabled={!!busy}>Reload</button>}
+          <button className={'btn btn--primary savebtn' + (dirty ? ' is-dirty' : '')} onClick={save} disabled={!ctl || !!busy}>
             {busy === 'saving' ? 'Saving…' : busy === 'loading' ? 'Loading…' : 'Save'}
           </button>
         </div>
-        <div className="sheetstatus">
-          <span><i className={'dot' + (!meta.id ? ' new' : dirty ? ' dirty' : '')} />{status}</span>
+        <div className="sheetbar__status">
+          <span><i className={'dot' + (!meta.id ? ' dot--new' : dirty ? ' dot--dirty' : '')} />{status}</span>
           {meta.alliance && <AllianceChip a={meta.alliance} />}
-          <span className="inline-note">Columns A–E are the record. Anything you add to the right is kept with the sheet.</span>
         </div>
       </div>
 
       {draft && (
-        <div className="draftbar">
-          <span>A draft of this board from {fmtTime(draft.at)} was left unsaved in this browser.</span>
-          <button onClick={restoreDraft}>Restore draft</button>
-          <button className="ghost" onClick={discardDraft}>Discard</button>
+        <div className="note note--warn" style={{ marginBottom: 'var(--s3)' }}>
+          <div className="row">
+            <span style={{ flex: 1 }}>A draft of this board from {fmtTime(draft.at)} was left unsaved in this browser.</span>
+            <button className="btn btn--sm" onClick={restoreDraft}>Restore draft</button>
+            <button className="btn btn--sm btn--quiet" onClick={() => { store.del(draftKey(meta)); setDraft(null); }}>Discard</button>
+          </div>
         </div>
       )}
       {problems.length > 0 && (
-        <div className="problems">
-          <strong>Not saved.</strong> Every row needs a rank, a name in the "Name in video" column, and points:
+        <div className="note note--bad" style={{ marginBottom: 'var(--s3)' }}>
+          <strong>Not saved.</strong> Every row needs a rank, a name in the Name in video column, and points:
           <ul>{problems.slice(0, 8).map((p, i) => <li key={i}>{p}</li>)}{problems.length > 8 && <li>and {problems.length - 8} more</li>}</ul>
         </div>
       )}
 
       <SheetWorkspace onReady={onReady} />
-      {!active && null}
     </>
   );
 }

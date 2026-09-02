@@ -20,28 +20,32 @@ export default function PlayerView() {
     catch (e) { notify('✗ ' + e.message, 'bad'); }
   };
 
-  let body = null;
+  let body = <p className="hint">Type a roster name and choose the player.</p>;
   if (data) {
     const { h } = data;
-    if (!h.length) body = <Empty title={`Nothing saved for "${data.search}"`} />;
+    if (!h.length) body = <div className="panel"><Empty title={`Nothing saved for “${data.search}”`} /></div>;
     else {
       const names = [...new Set(h.map(r => r.ingame))];
       const pts = h.map(r => r.points);
       const best = Math.max(...pts);
       const boards = [...new Set(h.map(r => r.board))];
       body = (
-        <>
+        <div className="stack">
           <Stats items={[
             [h.length, h.length === 1 ? 'board' : 'boards'], [best.toLocaleString(), 'best score'],
             [Math.round(pts.reduce((a, b) => a + b, 0) / pts.length).toLocaleString(), 'average'],
             [names.length, names.length === 1 ? 'name used' : 'names used'],
           ]} />
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
-            <Sparkline values={pts} w={150} h={32} />
-            <span className="bsub">{boards.map(b => <AllianceChip key={b} a={b} />)}{names.length > 1 ? ` · seen as ${names.map(n => '“' + n + '”').join(', ')}` : ''}</span>
+          <div className="row">
+            <Sparkline values={pts} w={160} h={34} />
+            {boards.map(b => <AllianceChip key={b} a={b} />)}
+            {names.length > 1 && <span className="hint">seen as {names.map(n => '“' + n + '”').join(', ')}</span>}
           </div>
-          <div className="tablewrap"><table className="histtbl">
-            <thead><tr><th>Date</th><th>Board</th><th>Label</th><th>Rank</th><th>Move</th><th>Name in video</th><th>Points</th><th>Change</th></tr></thead>
+          <div className="tablewrap"><table>
+            <thead><tr>
+              <th>Date</th><th>Board</th><th>Day</th><th className="rank">Rank</th><th>Move</th>
+              <th>Name in video</th><th className="num">Points</th><th>Change</th>
+            </tr></thead>
             <tbody>{h.map((r, i) => {
               const prev = i > 0 ? h[i - 1] : null;
               return (
@@ -49,24 +53,26 @@ export default function PlayerView() {
                   <td>{r.date}</td><td><AllianceChip a={r.board} /></td><td>{r.label || '—'}</td>
                   <td className="rank">{r.place}</td><td>{prev ? <RankDelta d={prev.place - r.place} /> : null}</td>
                   <td>{r.ingame}</td><ScoreCell v={r.points} max={best} />
-                  <td>{prev ? <Delta d={r.points - prev.points} /> : <span className="flat">—</span>}</td>
+                  <td>{prev ? <Delta d={r.points - prev.points} /> : <span className="delta flat">—</span>}</td>
                 </tr>
               );
             })}</tbody>
           </table></div>
-        </>
+        </div>
       );
     }
   }
 
   return (
-    <>
-      <div className="viewbar">
-        <div style={{ minWidth: 260 }}>
-          <RosterSearch roster={roster} initial={who} autoFocus={false} commitOnBlur onCommit={look} placeholder="roster name…" className="" />
+    <div className="stack">
+      <div className="toolbar">
+        <div className="field" style={{ minWidth: 280 }}>
+          <label className="label">Player</label>
+          <RosterSearch roster={roster} initial={who} autoFocus={false} commitOnBlur
+                        onCommit={look} placeholder="roster name…" className="input" />
         </div>
       </div>
-      <div style={{ marginTop: 12 }}>{body || <div className="note">Type a roster name and choose the player.</div>}</div>
-    </>
+      {body}
+    </div>
   );
 }

@@ -11,8 +11,7 @@ export const allianceClass = a => {
 };
 
 export function AllianceChip({ a }) {
-  if (!a) return <span className="chip cX">unknown</span>;
-  return <span className={'chip ' + allianceClass(a)}>{a}</span>;
+  return <span className={'tag ' + (a ? allianceClass(a) : 'cX')}>{a || 'unknown'}</span>;
 }
 
 // A score compared against the best on the same board, drawn behind the number.
@@ -20,13 +19,13 @@ export function ScoreCell({ v, max, ...rest }) {
   const w = max > 0 ? Math.max(2, Math.round((v / max) * 100)) : 0;
   return (
     <td className="barcell num" {...rest}>
-      <i style={{ width: w + '%' }} /><span>{(v ?? 0).toLocaleString()}</span>
+      <i style={{ width: `calc(${w}% - 8px)` }} /><span>{(v ?? 0).toLocaleString()}</span>
     </td>
   );
 }
 
 export function Delta({ d }) {
-  if (d === null || d === undefined || !isFinite(d)) return <span className="flat">—</span>;
+  if (d === null || d === undefined || !isFinite(d)) return <span className="delta flat">—</span>;
   if (d > 0) return <span className="delta up">▲ {d.toLocaleString()}</span>;
   if (d < 0) return <span className="delta down">▼ {Math.abs(d).toLocaleString()}</span>;
   return <span className="delta flat">0</span>;
@@ -40,7 +39,7 @@ export function RankDelta({ d }) {
   return <span className="delta flat">–</span>;
 }
 
-export function Sparkline({ values, w = 78, h = 20 }) {
+export function Sparkline({ values, w = 74, h = 20 }) {
   const v = (values || []).filter(x => typeof x === 'number');
   if (v.length < 2) return null;
   const lo = Math.min(...v), hi = Math.max(...v), span = hi - lo || 1;
@@ -55,32 +54,30 @@ export function Sparkline({ values, w = 78, h = 20 }) {
   );
 }
 
+// One strip divided by hairlines, rather than a row of floating boxes that wraps ragged.
 export function Stats({ items }) {
   return (
     <div className="stats">
       {items.map(([n, l, wide], i) => (
-        <div key={i} className={'stat' + (wide ? ' wide' : '')}><b>{n}</b><span>{l}</span></div>
+        <div key={i} className={'stat' + (wide ? ' stat--wide' : '')} title={String(n)}>
+          <b>{n}</b><span>{l}</span>
+        </div>
       ))}
     </div>
   );
 }
 
 export function Empty({ title, children }) {
-  return (
-    <div className="stat empty">
-      <b>{title}</b>
-      <span className="emptysub">{children}</span>
-    </div>
-  );
+  return <div className="empty"><b>{title}</b>{children ? <span>{children}</span> : null}</div>;
 }
 
-export function Pill({ kind = 'new', children }) {
-  return <span className={'pill p-' + kind}>{children}</span>;
+export function Pill({ kind = 'flat', children }) {
+  return <span className={'pill pill--' + kind}>{children}</span>;
 }
 
 // A button that says what it did. onClick may return a string to show for a moment, or throw
 // to be refused out loud — in both cases the answer happens where the finger is.
-export function FlashButton({ onClick, children, className = '', disabled, ms = 1600, ...rest }) {
+export function FlashButton({ onClick, children, className = 'btn', disabled, ms = 1600, ...rest }) {
   const [flash, setFlash] = useState(null);
   const [busy, setBusy] = useState(false);
   const timer = useRef(null);
@@ -90,9 +87,9 @@ export function FlashButton({ onClick, children, className = '', disabled, ms = 
     setBusy(true);
     try {
       const out = await onClick(e);
-      if (typeof out === 'string' && out) { setFlash({ text: out, cls: 'done' }); }
+      if (typeof out === 'string' && out) setFlash({ text: out, cls: 'is-done' });
     } catch (err) {
-      setFlash({ text: (err && err.message) || 'failed', cls: 'nope' });
+      setFlash({ text: (err && err.message) || 'failed', cls: 'is-nope' });
     } finally {
       setBusy(false);
       clearTimeout(timer.current);
@@ -123,12 +120,11 @@ export function useSort(defaultSort) {
   };
   const Head = ({ cols }) => (
     <thead><tr>{cols.map((c, i) => (
-      <th key={i} className={c.get ? 'sortable' : ''} onClick={c.get ? () => toggle(i) : undefined}>
+      <th key={i} className={(c.get ? 'is-sortable ' : '') + (c.num ? 'num' : '')}
+          onClick={c.get ? () => toggle(i) : undefined}>
         {c.h}{sort && sort.i === i ? <span className="dir"> {sort.desc ? '▼' : '▲'}</span> : null}
       </th>
     ))}</tr></thead>
   );
   return { sort, apply, Head };
 }
-
-export const confirmAsync = msg => Promise.resolve(window.confirm(msg));

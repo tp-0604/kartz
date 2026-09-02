@@ -11,43 +11,45 @@ const SheetScreen = lazy(() => import('./components/sheet/SheetScreen.jsx'));
 
 function Shell() {
   const { tab, go, notice, setupOpen, setSetupOpen } = useApp();
-  // Once the sheet has been opened it stays mounted — switching tabs must not throw away an
+  // Once the sheet has been opened it stays mounted — switching screens must not throw away an
   // unsaved workbook — and is simply hidden while another screen is up.
   const [sheetMounted, setSheetMounted] = useState(tab === 'sheet');
   useEffect(() => { if (tab === 'sheet') setSheetMounted(true); }, [tab]);
 
   return (
-    <>
-      <header className="top"><div className="topin">
-        <div className="brand" onClick={() => go('extract')} role="button" tabIndex={0}><u />Kartz</div>
-        <nav className="mtabs" aria-label="Screens">
-          {TABS.map(t => (
-            <button key={t.id} type="button" className={'mtab' + (tab === t.id ? ' on' : '')}
-                    onClick={() => go(t.id)} title={t.hint}>{t.label}</button>
-          ))}
-        </nav>
-        <button type="button" className="gear" onClick={() => setSetupOpen(true)} title="Setup: connection and roster">
-          <span aria-hidden="true">⚙</span><span className="gearlabel">Setup</span>
-        </button>
-        <span className="build" title="build">{BUILD}</span>
-      </div></header>
+    <div className="shell">
+      <header className="topbar">
+        <div className="container topbar__in">
+          <button className="brand" onClick={() => go('extract')}><i />Kartz</button>
+          <nav className="nav" aria-label="Screens">
+            {TABS.map(t => (
+              <button key={t.id} type="button" className="nav__item" title={t.hint}
+                      aria-current={tab === t.id ? 'page' : undefined}
+                      onClick={() => go(t.id)}>{t.label}</button>
+            ))}
+          </nav>
+          <div className="topbar__spacer" />
+          <span className="build">{BUILD}</span>
+          <button className="btn btn--sm" onClick={() => setSetupOpen(true)}>Setup</button>
+        </div>
+      </header>
 
-      <div className="wrap">
-        <div className="pane" hidden={tab !== 'extract'}><ExtractScreen active={tab === 'extract'} /></div>
-        <div className="pane sheetpane" hidden={tab !== 'sheet'}>
+      <main className="page container">
+        <div className="pane" hidden={tab !== 'extract'}><ExtractScreen /></div>
+        <div className="pane" hidden={tab !== 'sheet'}>
           {sheetMounted && (
-            <Suspense fallback={<section className="loading">Loading the workbook…</section>}>
-              <SheetScreen active={tab === 'sheet'} />
+            <Suspense fallback={<div className="loading">Loading the workbook…</div>}>
+              <SheetScreen />
             </Suspense>
           )}
         </div>
         <div className="pane" hidden={tab !== 'history'}><HistoryScreen active={tab === 'history'} /></div>
-        <div className="pane" hidden={tab !== 'roster'}><RosterScreen active={tab === 'roster'} /></div>
-      </div>
+        <div className="pane" hidden={tab !== 'roster'}><RosterScreen /></div>
+      </main>
 
-      {notice && <div className={'toast t-' + notice.kind} role="status">{notice.text}</div>}
+      {notice && <div className={'toast' + (notice.kind === 'ok' ? '' : ' toast--' + notice.kind)} role="status">{notice.text}</div>}
       {setupOpen && <SetupPanel onClose={() => setSetupOpen(false)} />}
-    </>
+    </div>
   );
 }
 

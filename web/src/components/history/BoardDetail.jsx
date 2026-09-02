@@ -24,8 +24,8 @@ export default function BoardDetail({ id, onBack, onOpenInSheet }) {
   };
   useEffect(() => { load(); }, [id]);
 
-  if (err) return <div className="note">✗ {err} <button className="ghost sm" onClick={onBack}>Back</button></div>;
-  if (!data) return <div className="note">loading…</div>;
+  if (err) return <div className="note note--bad">{err} <button className="btn btn--sm" onClick={onBack}>Back</button></div>;
+  if (!data) return <div className="loading">Loading…</div>;
   const { board: b, rows: rw, prev } = data;
   const max = Math.max(...rw.map(r => r.points), 0);
   const before = new Map();
@@ -50,7 +50,7 @@ export default function BoardDetail({ id, onBack, onOpenInSheet }) {
 
   const cols = [
     { h: 'Rank', get: r => r.place }, { h: 'Player', get: r => r.search || '' }, { h: 'Name in video', get: r => r.ingame },
-    { h: 'Alliance', get: r => r.alliance || '' }, { h: 'Points', get: r => r.points },
+    { h: 'Alliance', get: r => r.alliance || '' }, { h: 'Points', num: true, get: r => r.points },
     { h: 'Change', get: r => { const p = r.search && before.get(r.search); return p ? r.points - p.points : -Infinity; } },
     { h: '' }, { h: '' },
   ];
@@ -58,44 +58,50 @@ export default function BoardDetail({ id, onBack, onOpenInSheet }) {
   const opts = [...MAIN_ALLIANCES, ...new Set(rw.map(r => r.alliance).filter(a => a && !MAIN_ALLIANCES.includes(a)))];
 
   return (
-    <>
-      <div className="subhead">
-        <button className="ghost sm" onClick={onBack}>← All boards</button>
+    <div className="stack">
+      <div className="toolbar toolbar--tight">
+        <button className="btn btn--sm btn--quiet" onClick={onBack}>← All boards</button>
         <AllianceChip a={b.alliance} />
-        <span className="bsub"><b>{b.date}</b>{b.label ? ' · ' + b.label : ''}{prev ? ` · compared with ${prev.board.date}` : ' · no earlier board to compare'}</span>
-        <span className="grow" />
-        <button className="sm" onClick={onOpenInSheet}>Open in sheet</button>
-        <button className="ghost sm" onClick={removeBoard}>Delete board</button>
+        <span className="hint"><strong>{b.date}</strong>{b.label ? ' · ' + b.label : ''}
+          {prev ? ` · compared with ${prev.board.date}` : ' · no earlier board to compare'}</span>
+        <div className="toolbar__spacer" />
+        <button className="btn btn--sm btn--primary" onClick={onOpenInSheet}>Open in sheet</button>
+        <button className="btn btn--sm btn--danger" onClick={removeBoard}>Delete board</button>
       </div>
+
       <Stats items={[
         [rw.length, 'players'], [max.toLocaleString(), 'top score'],
         [Math.round(rw.reduce((n, r) => n + r.points, 0) / (rw.length || 1)).toLocaleString(), 'average'],
         [`${matched}/${rw.length}`, 'named'], [edited, 'corrected'],
-        [data.sheet ? 'yes' : 'no', 'formatted sheet saved', true],
+        [data.sheet ? 'yes' : 'no', 'sheet saved', true],
       ]} />
-      <p className="note" style={{ marginTop: 0 }}>Edit a cell and leave it to save the correction. For anything bigger, open the board in the sheet.</p>
-      <div className="tablewrap"><table className="histtbl">
+      <p className="hint">Edit a cell and leave it to save the correction. For anything bigger, open the board in the sheet.</p>
+
+      <div className="tablewrap"><table>
         <Head cols={cols} />
         <tbody>{list.map(r => {
           const p = r.search ? before.get(r.search) : null;
           return (
             <tr key={r.place}>
               <td className="rank">{r.place}</td>
-              <td><input className="cellin" defaultValue={r.search || ''} onBlur={e => { if (e.target.value.trim() !== (r.search || '')) commit(r.place, 'search', e.target.value.trim()); }} /></td>
-              <td><input className="cellin" defaultValue={r.ingame} onBlur={e => { if (e.target.value.trim() !== r.ingame) commit(r.place, 'ingame', e.target.value.trim()); }} /></td>
+              <td><input className="cellin" defaultValue={r.search || ''}
+                         onBlur={e => { if (e.target.value.trim() !== (r.search || '')) commit(r.place, 'search', e.target.value.trim()); }} /></td>
+              <td><input className="cellin" defaultValue={r.ingame}
+                         onBlur={e => { if (e.target.value.trim() !== r.ingame) commit(r.place, 'ingame', e.target.value.trim()); }} /></td>
               <td className={allianceClass(r.alliance)}>
-                <select className="allipick" value={r.alliance || ''} onChange={e => commit(r.place, 'alliance', e.target.value)}>
+                <select className="cellsel" value={r.alliance || ''} onChange={e => commit(r.place, 'alliance', e.target.value)}>
                   <option value="">—</option>{opts.map(a => <option key={a} value={a}>{a}</option>)}
                 </select>
               </td>
-              <td><input className="cellin num" defaultValue={r.points} onBlur={e => { const v = e.target.value.replace(/[^\d-]/g, ''); if (v !== String(r.points)) commit(r.place, 'points', v); }} /></td>
-              <td>{p ? <Delta d={r.points - p.points} /> : <span className="flat">—</span>}</td>
-              <td>{r.edited ? <span className="tag tag-edit">edited</span> : !r.search ? <span className="tag tag-new">new</span> : null}</td>
-              <td><button className="rowdel" title="remove this row" onClick={() => removeRow(r)}>✕</button></td>
+              <td className="num"><input className="cellin num" defaultValue={r.points}
+                         onBlur={e => { const v = e.target.value.replace(/[^\d-]/g, ''); if (v !== String(r.points)) commit(r.place, 'points', v); }} /></td>
+              <td>{p ? <Delta d={r.points - p.points} /> : <span className="delta flat">—</span>}</td>
+              <td>{r.edited ? <span className="pill pill--warn">edited</span> : !r.search ? <span className="pill pill--flat">new</span> : null}</td>
+              <td><button className="iconbtn iconbtn--danger" title="remove this row" onClick={() => removeRow(r)}>✕</button></td>
             </tr>
           );
         })}</tbody>
       </table></div>
-    </>
+    </div>
   );
 }

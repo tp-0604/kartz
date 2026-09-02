@@ -1,362 +1,506 @@
-/* ---------------------------------------------------------------------------------------
-   Console rails + density, Soft button sizes.
+/* =========================================================================================
+   Kartz — the design system.
 
-   Two ideas do all the work here. Colour is an identity, never decoration: an alliance owns
-   a hue and wears it as a rail down the left edge of anything that belongs to it, so a 698S
-   player sitting inside a 698W board is visible without reading a word. And the four scales
-   — alliance, name resolution, score movement, run state — never share a hue, so a green
-   chip cannot mean both "698N" and "saved".
+   One console, two jobs: extracting a recording one-handed on a phone in front of the game,
+   and reading three years of boards sitting down at a desk. The system has to serve both, so
+   it is built on two ideas.
 
-   The density is the console's: 7px rows, so a 153-row board is a page and a half rather
-   than five. The controls are not: 48px tall with 12px between them, because the extract
-   half of this is done one-handed on a phone in front of the game.
-   --------------------------------------------------------------------------------------- */
-:root{
-  --bg:#edeff3; --panel:#fff; --panel2:#f4f6f9; --ink:#161a20; --muted:#5d6678;
-  --line:#dbe0e7; --accent:#2a7f78; --accink:#fff; --accbg:#e2efee;
-  --ok:#2d7a52; --warn:#8e610f; --bad:#a33c37;
-  --okbg:#e4f0e9; --warnbg:#f5eedc; --badbg:#f7e9e7;
-  /* One hue per alliance, by position in MAIN_ALLIANCES — 698W, 698S, 698N, 698C — so an
-     alliance keeps its colour in every view. Held at roughly equal lightness and well below
-     the accent's chroma: they are labels, and labels should not shout over the controls. */
-  --a0:#6a58a3; --a1:#2f6f96; --a2:#3a6f4a; --a3:#946129; --aX:#767e8c;
-  --shade:rgba(15,22,35,.13);
-  --sans:Barlow,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
-  --rad:10px; --rad2:8px; --btnrad:12px;
-}
-@media (prefers-color-scheme:dark){:root{
-  --bg:#0f1216; --panel:#181c23; --panel2:#212630; --ink:#e3e7ee; --muted:#8d97a7;
-  --line:#29303a; --accent:#4fa8a0; --accink:#06211f; --accbg:#16302e;
-  --ok:#5cc48b; --warn:#d6a75d; --bad:#e08079;
-  --okbg:#14271c; --warnbg:#2a2416; --badbg:#2d1d1c;
-  --a0:#9b8ee0; --a1:#5aa9c9; --a2:#6fbf83; --a3:#d7a05a; --aX:#8d97a7;
-  --shade:rgba(0,0,0,.5);
-}}
+   ONE SCALE FOR EVERYTHING. Every control is 38px tall (46 where a thumb has to find it),
+   every gap comes from a six-step spacing scale, every corner from three radii. Nothing is
+   sized by eye. That is what stops a row of buttons looking assembled from spare parts.
 
-*{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
-body{margin:0;background:var(--bg);color:var(--ink);
-  font:15.5px/1.5 var(--sans);-webkit-font-smoothing:antialiased;
-  padding:0 0 72px}
-.wrap{max-width:1000px;margin:0 auto;padding:18px 16px 0}
+   COLOUR IS AN IDENTITY, NEVER DECORATION. An alliance owns a hue and wears it as a rail down
+   the left edge of anything belonging to it, so a 698S player inside a 698W board is visible
+   without reading a word. The four scales — alliance, name resolution, score movement, run
+   state — never share a hue, so a green chip cannot mean both "698N" and "saved".
 
-/* ---------------------------------------------------------------------------------------
-   The shell. Two tabs, one bar, and it follows you down a long board so switching back is
-   never a scroll to the top.
-   --------------------------------------------------------------------------------------- */
-.top{position:sticky;top:0;z-index:40;background:color-mix(in srgb,var(--panel) 92%,transparent);
-  backdrop-filter:saturate(160%) blur(12px);border-bottom:1px solid var(--line)}
-.topin{max-width:1000px;margin:0 auto;padding:10px 16px;display:flex;align-items:center;
-  gap:14px;flex-wrap:wrap}
-.brand{display:flex;align-items:center;gap:9px;font:700 17px/1 var(--sans);
-  letter-spacing:-.01em;flex:none}
-.brand u{width:10px;height:16px;border-radius:2px;background:var(--accent);
-  text-decoration:none;display:block}
-.build{margin-left:auto;font:500 11px/1 var(--mono);color:var(--muted);white-space:nowrap}
+   The page is a data console, so it is drawn with hairlines and alignment rather than boxes
+   inside boxes. A table is allowed the whole width of the window; prose is not.
+   ========================================================================================= */
 
-.mtabs{display:flex;gap:4px;background:var(--panel2);border:1px solid var(--line);
-  border-radius:14px;padding:4px}
-.mtab{width:auto;flex:none;background:transparent;color:var(--muted);border:0;
-  font:600 14.5px/1 var(--sans);padding:12px 20px;min-height:44px;border-radius:10px;
-  cursor:pointer;transition:background .15s,color .15s,transform .07s ease}
-.mtab:hover{color:var(--ink)}
-.mtab.on{background:var(--accent);color:var(--accink)}
-.mtab:active{transform:scale(.96)}
-@media (max-width:560px){
-  .topin{gap:10px}
-  .mtabs{order:3;width:100%;padding:4px}
-  .mtab{flex:1}
-  .build{margin-left:auto}
-  /* A section's action wraps onto its own line at this width, and margin-left:auto then
-     strands it against the right edge with a hole beside it. Full width instead — which is
-     also the easier thing to hit. */
-  .shead>button,.shead>button.sm{margin-left:0;width:100%}
+:root {
+  /* ---- neutrals: cool, biased a few degrees toward the accent so nothing reads as default */
+  --bg:      #eef1f4;
+  --panel:   #ffffff;
+  --panel2:  #f4f6f9;
+  --panel3:  #e9edf2;
+  --ink:     #12171d;
+  --ink2:    #3d4653;
+  --muted:   #667484;
+  --line:    #dde3ea;
+  --line2:   #eaeef3;
+
+  /* ---- accent */
+  --accent:   #1f6f68;
+  --accent2:  #2a8a81;
+  --accink:   #ffffff;
+  --accbg:    #e3efee;
+  --accline:  #bcdad6;
+
+  /* ---- state: resolution, movement, run */
+  --ok:   #2c7a52;  --okbg:   #e4f0e9;  --okline:  #bcdcc8;
+  --warn: #8a5d0d;  --warnbg: #f7efdc;  --warnline:#e6d3a6;
+  --bad:  #a5352f;  --badbg:  #f8e8e6;  --badline: #eec6c2;
+
+  /* ---- alliances, by position in MAIN_ALLIANCES: 698W, 698S, 698N, 698C.
+         Held at roughly equal lightness and well below the accent's chroma: they are labels,
+         and a label must not shout over the controls. */
+  --a0: #6a58a3;  --a1: #2f6f96;  --a2: #3a6f4a;  --a3: #946129;  --aX: #6f7886;
+
+  /* ---- type */
+  --sans: Barlow, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* ---- spacing: six steps, and nothing between them */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
+
+  /* ---- radii: three, and nothing between them */
+  --r1: 6px; --r2: 10px; --r3: 16px; --rpill: 999px;
+
+  /* ---- controls: one height, so a button and a field on the same row agree */
+  --h: 38px; --hlg: 46px; --hsm: 30px;
+
+  /* ---- the page */
+  --page: 1680px;
+  --topbar-h: 60px;
+  --gutter: clamp(16px, 2.6vw, 40px);
+  --shade: rgba(16, 24, 36, .10);
+  --shade2: rgba(16, 24, 36, .16);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
-.pane{padding-top:16px}
-.lede{color:var(--muted);font-size:13.5px;margin:0 0 14px;max-width:70ch;line-height:1.55}
-
-/* ---------------------------------------------------------------------------------------
-   Panels
-   --------------------------------------------------------------------------------------- */
-section{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
-  padding:15px 16px;margin-bottom:12px}
-.shead{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
-h1{font-size:19px;margin:0 0 2px}
-h2{font:600 11.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;
-  color:var(--muted);margin:0;flex:none}
-.shead>.pill{flex:none}
-.shead>button{margin-left:auto}
-label{display:block;font:600 11.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;
-  color:var(--muted);margin:0 0 7px}
-.note{font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.5}
-/* A utility, so it has to beat whatever the thing it is hiding sets for itself: .viewbar
-   and .pane declare display, and #queue declares it from an id. Without !important the
-   four view bars all showed at once, because a later single-class rule outranks this. */
-.hide{display:none !important}
-
-/* ---------------------------------------------------------------------------------------
-   Controls. Big, spaced, and they answer when you press them.
-   --------------------------------------------------------------------------------------- */
-input,select,textarea,button{font-family:var(--sans);color:var(--ink);background:var(--panel);
-  border:1px solid var(--line);border-radius:var(--btnrad);width:100%}
-input,select,textarea{font-size:15px;font-weight:500;padding:13px;min-height:48px}
-input:focus,select:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;
-  border-color:var(--accent)}
-textarea{font-family:var(--mono);font-size:12px;resize:vertical;line-height:1.5}
-input[type=date]{font-variant-numeric:tabular-nums}
-
-button{background:var(--accent);color:var(--accink);border-color:transparent;
-  font-size:15px;font-weight:700;letter-spacing:.005em;padding:14px 20px;min-height:48px;
-  cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;
-  touch-action:manipulation;-webkit-tap-highlight-color:transparent;
-  transition:transform .07s ease,filter .12s ease,background .15s ease,border-color .15s ease,
-             color .15s ease}
-button:not(:disabled):active{transform:scale(.955);filter:brightness(.93)}
-button:disabled{opacity:.42;cursor:default}
-button:focus-visible,.mtab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-button.ghost{background:var(--panel);color:var(--accent);border-color:var(--line);font-weight:600}
-button.ghost:hover:not(:disabled){border-color:var(--accent)}
-button.ghost:not(:disabled):active{background:var(--panel2)}
-/* what a finished action looks like, for the second or so it says so */
-button.done,button.ghost.done{background:var(--ok);border-color:var(--ok);color:#fff;
-  filter:none;transform:none}
-/* A refusal has to be as loud as a success, and it has to happen where the finger is. */
-button.nope,button.ghost.nope{background:var(--warn);border-color:var(--warn);color:#fff;
-  filter:none;transform:none}
-button.ghost.tickok{color:var(--ok);border-color:var(--ok)}
-@keyframes lookhere{0%,100%{box-shadow:0 0 0 0 transparent}
-  30%{box-shadow:0 0 0 3px color-mix(in srgb,var(--warn) 45%,transparent)}}
-.lookhere{animation:lookhere 1.1s ease 2}
-
-/* a group of buttons: 12px apart, and never touching the thing above them */
-.btnrow{display:flex;flex-wrap:wrap;gap:12px;margin-top:20px}
-.btnrow>button{flex:1 1 190px}
-.row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end}
-.row>*{flex:1;min-width:160px}
-#go{margin-top:14px}
-
-/* smaller buttons, where the row they sit in is the point and the button is not */
-button.sm,.viewbar button{width:auto;min-height:42px;padding:11px 16px;font-size:14px}
-.boardcard button{min-height:34px;font-size:13px;font-weight:600}
-.pencil{background:none;border:0;color:var(--muted);cursor:pointer;font-size:14px;
-  padding:0 5px;width:auto;min-height:0;line-height:1;opacity:.5;border-radius:5px}
-.pencil:hover{opacity:1;color:var(--accent)}
-
-/* ---------------------------------------------------------------------------------------
-   Recording
-   --------------------------------------------------------------------------------------- */
-.drop{border:2px dashed var(--line);border-radius:var(--rad);padding:30px 16px;
-  text-align:center;color:var(--muted);cursor:pointer;background:var(--panel2);
-  transition:border-color .15s,color .15s,background .15s}
-.drop strong{display:block;color:var(--ink);font-size:15.5px;margin-bottom:5px}
-.drop:hover,.drop.on{border-color:var(--accent);color:var(--accent);background:var(--accbg)}
-.bar{height:6px;background:var(--line);border-radius:4px;overflow:hidden;margin-top:12px}
-.bar>i{display:block;height:100%;width:0;background:var(--accent);border-radius:4px;
-  transition:width .15s}
-.log{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:pre-wrap;
-  margin-top:10px;line-height:1.6}
-.strip{display:flex;gap:6px;overflow-x:auto;margin-top:12px;padding-bottom:4px}
-.strip img{height:88px;border-radius:6px;border:1px solid var(--line);flex:none}
-
-/* The queue wears the run state as a rail: waiting, working, saved, failed. */
-#queue{display:flex;flex-direction:column;gap:8px;margin-top:12px}
-.qrow{display:flex;gap:11px;align-items:center;padding:9px 12px;border:1px solid var(--line);
-  border-left:3px solid var(--muted);border-radius:var(--rad2);background:var(--panel2);
-  font-size:13.5px}
-.qrow .qname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-  font-family:var(--mono);font-size:11.5px;color:var(--muted)}
-.qrow select{width:auto;min-width:104px;min-height:38px;padding:8px 10px;font-size:13px}
-.qrow .qstat{color:var(--muted);font-size:12.5px;font-weight:600;min-width:104px;text-align:right}
-.qrow.qdone{border-left-color:var(--ok)}
-.qrow.qdone .qstat{color:var(--ok)}
-.qrow.qfail{border-left-color:var(--bad)}
-.qrow.qfail .qstat{color:var(--bad)}
-
-/* ---------------------------------------------------------------------------------------
-   Tables — the console half. Dense, tabular, and every row carrying its alliance.
-   --------------------------------------------------------------------------------------- */
-.tablewrap{overflow-x:auto;margin-top:10px}
-table{border-collapse:collapse;width:100%;font-size:13px;min-width:600px}
-th{text-align:left;font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.1em;
-  color:var(--muted);padding:9px;border-bottom:1px solid var(--line);white-space:nowrap}
-td{padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:middle}
-tbody tr:last-child td{border-bottom:0}
-tr.ok td:nth-child(3){color:var(--ok)}
-/* Resolution state as a rail, not a wash. A full warm row for every unmatched name made a
-   board of new players unreadable; a 3px edge says the same thing and stays out of the way. */
-#tbl tbody tr.ok>td:first-child{box-shadow:inset 3px 0 0 var(--ok)}
-#tbl tbody tr.new>td:first-child{box-shadow:inset 3px 0 0 var(--warn)}
-#tbl tbody tr.new{background:color-mix(in srgb,var(--warn) 6%,transparent)}
-#tbl tr.drop{opacity:.4}
-#tbl tr.drop>td:first-child{box-shadow:inset 3px 0 0 var(--muted)}
-.named{color:var(--ok);font-weight:600}
-.asdrawn{color:var(--ink)}
-.num{text-align:right;font-variant-numeric:tabular-nums}
-.rank{color:var(--muted);font-variant-numeric:tabular-nums;font-family:var(--mono);
-  font-size:12px;width:44px}
-.allipick{width:auto;min-width:92px;max-width:150px;padding:7px 9px;min-height:36px;
-  font-size:13px;font-weight:600}
-.pickbox{padding:6px 9px;font-size:13px;min-width:170px;min-height:34px}
-td select{width:auto;padding:6px 8px;font-size:12.5px;min-width:150px;min-height:34px}
-.rowdrop{width:auto;min-height:0}
-
-/* ---------------------------------------------------------------------------------------
-   The database half
-   --------------------------------------------------------------------------------------- */
-.tabs{display:flex;gap:7px;margin:0 0 14px;flex-wrap:wrap}
-/* A level below the two that matter, so it reads as a filter on this tab rather than a
-   rival to it: pills on the panel, not a second segmented bar. */
-.tab{width:auto;flex:none;background:var(--panel2);color:var(--muted);
-  border:1px solid var(--line);padding:9px 15px;min-height:40px;font-size:13.5px;
-  font-weight:600;border-radius:20px}
-.tab:hover{color:var(--ink)}
-.tab.on{background:var(--accbg);border-color:transparent;color:var(--accent)}
-.viewbar{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-bottom:4px}
-.viewbar>*{width:auto;flex:none}
-.viewbar select,.viewbar input{min-width:170px;min-height:42px;padding:11px 12px;font-size:14px}
-
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(116px,1fr));gap:9px;
-  margin:2px 0 16px}
-.stat{background:var(--panel2);border:1px solid var(--line);border-radius:var(--rad2);
-  padding:11px 13px}
-.stat b{display:block;font:700 22px/1.15 var(--mono);letter-spacing:-.03em;
-  font-variant-numeric:tabular-nums;color:var(--ink)}
-.stat span{display:block;font:600 10px/1 var(--mono);text-transform:uppercase;
-  letter-spacing:.1em;color:var(--muted);margin-top:5px}
-.stat.wide b{font-size:15px;letter-spacing:0}
-
-/* The chip is a rail at chip size — same idea, same colour, wherever an alliance is named. */
-.chip{display:inline-flex;align-items:center;gap:7px;padding:4px 10px 4px 7px;
-  border-radius:6px;font:600 12px/1 var(--sans);white-space:nowrap;color:var(--ac,var(--aX));
-  background:color-mix(in srgb,currentColor 11%,transparent)}
-.chip::before{content:'';width:3px;height:13px;border-radius:2px;background:currentColor;
-  flex:none}
-.c0{--ac:var(--a0);color:var(--a0)} .c1{--ac:var(--a1);color:var(--a1)}
-.c2{--ac:var(--a2);color:var(--a2)} .c3{--ac:var(--a3);color:var(--a3)}
-.cX{--ac:var(--aX);color:var(--aX)}
-/* The alliance cell on a board stays editable, so it cannot be a pill — but it can still
-   carry the alliance's colour, which is what makes a 698S player inside a 698W board visible. */
-.histtbl td.c0,.histtbl td.c1,.histtbl td.c2,.histtbl td.c3,.histtbl td.cX{background:none}
-/* …and the row it sits in gets the rail, read off that same cell. */
-.histtbl tbody tr:has(td.c0)>td:first-child{box-shadow:inset 3px 0 0 var(--a0)}
-.histtbl tbody tr:has(td.c1)>td:first-child{box-shadow:inset 3px 0 0 var(--a1)}
-.histtbl tbody tr:has(td.c2)>td:first-child{box-shadow:inset 3px 0 0 var(--a2)}
-.histtbl tbody tr:has(td.c3)>td:first-child{box-shadow:inset 3px 0 0 var(--a3)}
-.histtbl tbody tr:has(td.cX)>td:first-child{box-shadow:inset 3px 0 0 var(--aX)}
-
-/* A score is easier to compare against its neighbours than to read in isolation, so the cell
-   carries a bar of its own size behind the number. */
-.barcell{position:relative}
-.barcell i{position:absolute;left:0;top:50%;transform:translateY(-50%);height:17px;
-  background:color-mix(in srgb,var(--accent) 14%,transparent);border-radius:3px;z-index:0}
-.barcell span{position:relative;z-index:1;font-variant-numeric:tabular-nums;padding-left:5px;
-  font-family:var(--mono);font-size:12.5px}
-
-.delta{font-variant-numeric:tabular-nums;font-size:12px;font-family:var(--mono);font-weight:500}
-.up{color:var(--ok)} .down{color:var(--bad)} .flat{color:var(--muted)}
-
-.spark{display:block}
-.spark path{fill:none;stroke:var(--accent);stroke-width:1.6;stroke-linejoin:round;
-  stroke-linecap:round}
-.spark .fill{fill:color-mix(in srgb,var(--accent) 13%,transparent);stroke:none}
-.spark circle{fill:var(--accent)}
-
-.tag{display:inline-block;font:600 10.5px/1.5 var(--sans);padding:2px 7px;border-radius:5px;
-  letter-spacing:.02em}
-.tag-edit{color:var(--warn);background:var(--warnbg)}
-.tag-new{color:var(--muted);background:var(--line)}
-.edited{color:var(--warn);font-size:11px;margin-left:5px}
-
-.histtbl th.sortable{cursor:pointer;user-select:none}
-.histtbl th.sortable:hover{color:var(--ink)}
-.histtbl th .dir{opacity:.5;font-size:9px}
-.histtbl tbody tr:hover{background:color-mix(in srgb,var(--accent) 5%,transparent)}
-.histtbl td.num{text-align:right;font-variant-numeric:tabular-nums}
-.histtbl td.rank{color:var(--muted);font-variant-numeric:tabular-nums;width:44px}
-.histtbl td[contenteditable]{outline:none;border-bottom:1px dashed var(--line)}
-.histtbl td[contenteditable]:focus{background:var(--accbg);border-bottom-color:var(--accent)}
-
-#colpick{display:flex;flex-wrap:wrap;gap:11px 18px;align-items:center;background:var(--panel2);
-  border:1px solid var(--line);border-radius:var(--rad);padding:13px 15px;margin:0 0 12px}
-.colopt{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;font-weight:500;
-  cursor:pointer;white-space:nowrap;min-height:34px}
-.colopt input{width:auto;min-height:0;padding:0;margin:0;accent-color:var(--accent);
-  width:17px;height:17px;flex:none}
-#colpick button{margin-left:auto}
-
-/* The drill: year, then month, then which of the three recordings. A row of chips rather
-   than a dropdown, because the whole set is four or five items wide and a list you can see
-   beats a list you have to open — and on a phone it wraps instead of covering the screen. */
-#drill{display:flex;flex-direction:column;gap:9px;margin:0 0 14px;background:var(--panel2);
-  border:1px solid var(--line);border-radius:var(--rad);padding:12px 13px}
-.drillrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-.drilllab{font:600 10px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;
-  color:var(--muted);width:46px;flex:none}
-.chiprow{display:flex;gap:8px;flex-wrap:wrap;flex:1;min-width:0}
-.chipbtn{width:auto;flex:none;min-height:40px;padding:10px 15px;font-size:13.5px;
-  font-weight:600;border-radius:10px;background:var(--panel);color:var(--muted);
-  border:1px solid var(--line)}
-.chipbtn:hover:not(.on){color:var(--ink);border-color:var(--accent)}
-.chipbtn.on{background:var(--accent);border-color:transparent;color:var(--accink)}
-/* A day with no recording yet is still worth showing — its absence is the information. */
-.chipbtn.empty{opacity:.45}
-.chipbtn .n{font:500 11px/1 var(--mono);opacity:.65;margin-left:7px}
-@media (max-width:560px){
-  .drilllab{width:100%}
-  .chipbtn{flex:1 1 auto}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:#0d1014; --panel:#151a20; --panel2:#1b2129; --panel3:#232a34;
+    --ink:#e6eaf0; --ink2:#b3bcc8; --muted:#8b95a3; --line:#262d37; --line2:#1e242c;
+    --accent:#4fb3a8; --accent2:#61c4b9; --accink:#04211f; --accbg:#12302d; --accline:#1d453f;
+    --ok:#5fc48c; --okbg:#12271b; --okline:#1e3e2b;
+    --warn:#d9a95c; --warnbg:#2a2314; --warnline:#453a1f;
+    --bad:#e08079; --badbg:#2d1c1a; --badline:#4a2c28;
+    --a0:#9b8ee0; --a1:#5aa9c9; --a2:#6fbf83; --a3:#d7a05a; --aX:#8b95a3;
+    --shade: rgba(0,0,0,.45); --shade2: rgba(0,0,0,.6);
+  }
 }
 
-.boardlist{display:flex;flex-direction:column;gap:8px}
-.boardcard{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
-  padding:10px 13px;border:1px solid var(--line);border-left:3px solid var(--aX);
-  border-radius:var(--rad2);background:var(--panel2);cursor:pointer;
-  transition:border-color .15s,background .15s,transform .07s ease}
-.boardcard:has(.c0){border-left-color:var(--a0)}
-.boardcard:has(.c1){border-left-color:var(--a1)}
-.boardcard:has(.c2){border-left-color:var(--a2)}
-.boardcard:has(.c3){border-left-color:var(--a3)}
-.boardcard:hover{background:var(--panel);border-color:var(--accent)}
-.boardcard:active{transform:scale(.995)}
-.boardcard .bmeta{display:flex;gap:10px;align-items:center;flex-wrap:wrap;min-width:0}
-.boardcard .bdate{font-weight:700;font-variant-numeric:tabular-nums;font-size:14px}
-.boardcard .bsub{color:var(--muted);font-size:12.5px}
-.monthhead{font:600 10.5px/1 var(--mono);text-transform:uppercase;letter-spacing:.12em;
-  color:var(--muted);margin:16px 0 7px}
-.monthhead:first-child{margin-top:0}
+/* =========================================================================================
+   Reset and base
+   ========================================================================================= */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 14.5px/1.55 var(--sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1, h2, h3, h4, p, ul, ol, dl, figure { margin: 0; }
+ul, ol { padding-left: 1.15em; }
+a { color: var(--accent); text-underline-offset: 2px; }
+code { font: 500 .88em/1 var(--mono); background: var(--panel3); padding: 2px 5px; border-radius: var(--r1); }
+::selection { background: color-mix(in srgb, var(--accent) 26%, transparent); }
 
-/* ---------------------------------------------------------------------------------------
-   Odds and ends
-   --------------------------------------------------------------------------------------- */
-.pill{font:600 11px/1 var(--mono);padding:5px 9px;border-radius:20px;white-space:nowrap;
-  letter-spacing:.03em}
-.p-ok{background:var(--okbg);color:var(--ok)}
-.p-new{background:var(--warnbg);color:var(--warn)}
-.p-bad{background:var(--badbg);color:var(--bad)}
+/* Zero-specificity element defaults, so a component that brings its own styles — the
+   spreadsheet does — always wins without a fight. */
+:where(input, select, textarea, button) { font-family: inherit; color: inherit; }
+:where(button) { cursor: pointer; }
 
-.menu{position:fixed;z-index:60;background:var(--panel);border:1px solid var(--line);
-  border-radius:var(--rad2);box-shadow:0 10px 30px var(--shade);max-height:230px;
-  overflow-y:auto;min-width:210px;padding:5px 0}
-.menu div{padding:8px 12px;font-size:13.5px;cursor:pointer;display:flex;
-  justify-content:space-between;gap:12px;white-space:nowrap}
-.menu div:hover,.menu div.on{background:var(--accent);color:var(--accink)}
-.menu div span{opacity:.55;font-size:11px}
-.menu .none{color:var(--muted);cursor:default}
-.menu .newopt{font-weight:700}
-.menu hr{border:0;border-top:1px solid var(--line);margin:5px 0}
+:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--r1); }
 
-.warnbox{background:var(--warnbg);color:var(--warn);border-radius:var(--rad2);padding:11px 13px;
-  font-size:13px;margin-top:10px;font-weight:500}
-.okbox{background:var(--okbg);color:var(--ok);border-radius:var(--rad2);padding:11px 13px;
-  font-size:13px;margin-top:10px;font-weight:500}
+/* =========================================================================================
+   Layout: the shell, the page, the container
+   ========================================================================================= */
+.shell { min-height: 100vh; display: flex; flex-direction: column; }
 
-details{background:var(--panel);border:1px solid var(--line);border-radius:var(--rad);
-  padding:13px 16px;margin-bottom:12px}
-details summary{cursor:pointer;font-size:13.5px;font-weight:600;color:var(--muted)}
-details summary:hover{color:var(--ink)}
-details[open] summary{margin-bottom:6px}
+.container {
+  width: 100%;
+  max-width: var(--page);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
 
-@media (prefers-reduced-motion:reduce){
-  *{transition-duration:.01ms !important;animation-duration:.01ms !important}
+/* Prose is capped for reading; everything else may use the whole window. */
+.prose { max-width: 74ch; }
+
+/* ---- top bar --------------------------------------------------------------------------- */
+.topbar {
+  position: sticky; top: 0; z-index: 40;
+  background: color-mix(in srgb, var(--panel) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--line);
+}
+.topbar__in { display: flex; align-items: center; gap: var(--s4); height: var(--topbar-h); }
+.brand {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  font: 700 17px/1 var(--sans); letter-spacing: -.015em; color: var(--ink);
+  background: none; border: 0; padding: 0; flex: none;
+}
+.brand i { width: 9px; height: 18px; border-radius: 3px; background: var(--accent); display: block; }
+.topbar__spacer { flex: 1 1 auto; }
+.build { font: 500 11px/1 var(--mono); color: var(--muted); white-space: nowrap; letter-spacing: .02em; }
+
+/* ---- page header ------------------------------------------------------------------------ */
+.page { padding-block: var(--s6) var(--s7); flex: 1 0 auto; }
+.pagehead { display: flex; align-items: flex-end; gap: var(--s5); flex-wrap: wrap; margin-bottom: var(--s5); }
+.pagehead__text { flex: 1 1 420px; min-width: 0; }
+.pagehead h1 { font: 700 27px/1.15 var(--sans); letter-spacing: -.022em; }
+.pagehead p { color: var(--muted); font-size: 14px; margin-top: 5px; max-width: 78ch; }
+.pagehead__actions { display: flex; gap: var(--s2); align-items: center; flex-wrap: wrap; margin-left: auto; }
+
+/* ---- sections ---------------------------------------------------------------------------- */
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--r3);
+  padding: var(--s5);
+}
+.panel + .panel { margin-top: var(--s4); }
+.panel--flush { padding: 0; overflow: hidden; }
+
+.sectionhead {
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  margin-bottom: var(--s4);
+}
+.sectionhead h2 { font: 600 16px/1.2 var(--sans); letter-spacing: -.01em; }
+.sectionhead__spacer { flex: 1 1 auto; }
+.sectionhead p { flex-basis: 100%; color: var(--muted); font-size: 13.5px; }
+
+/* A step in a sequence carries its number; nothing else does. */
+.step { display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 24px; height: 24px; border-radius: var(--rpill);
+  background: var(--accbg); color: var(--accent);
+  font: 700 12px/1 var(--mono); }
+
+.hint { color: var(--muted); font-size: 13px; }
+.hint + .hint { margin-top: var(--s2); }
+
+/* =========================================================================================
+   Buttons — one shape, four weights, three sizes. Nothing else.
+   ========================================================================================= */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: var(--s2);
+  height: var(--h); padding-inline: 15px; width: auto; flex: none;
+  border-radius: var(--r2); border: 1px solid transparent;
+  font: 600 13.5px/1 var(--sans); letter-spacing: .005em; white-space: nowrap;
+  background: var(--panel); color: var(--ink2); border-color: var(--line);
+  cursor: pointer; text-decoration: none;
+  transition: background .14s, border-color .14s, color .14s, transform .06s, box-shadow .14s;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+}
+.btn:hover:not(:disabled) { border-color: var(--muted); color: var(--ink); }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:disabled { opacity: .45; cursor: default; }
+
+.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--accink); }
+.btn--primary:hover:not(:disabled) { background: var(--accent2); border-color: var(--accent2); color: var(--accink); }
+
+.btn--quiet { background: transparent; border-color: transparent; color: var(--muted); }
+.btn--quiet:hover:not(:disabled) { background: var(--panel3); color: var(--ink); border-color: transparent; }
+
+.btn--danger { color: var(--bad); border-color: var(--line); }
+.btn--danger:hover:not(:disabled) { background: var(--badbg); border-color: var(--badline); color: var(--bad); }
+
+.btn--lg { height: var(--hlg); padding-inline: 22px; font-size: 15px; border-radius: var(--r2); }
+.btn--sm { height: var(--hsm); padding-inline: 11px; font-size: 12.5px; border-radius: var(--r1); }
+.btn--icon { width: var(--h); padding-inline: 0; }
+.btn--sm.btn--icon { width: var(--hsm); }
+.btn--block { width: 100%; }
+
+/* what a finished action looks like, for the second it says so */
+.btn.is-done { background: var(--ok); border-color: var(--ok); color: #fff; }
+.btn.is-nope { background: var(--warn); border-color: var(--warn); color: #fff; }
+
+/* A row of buttons: left-aligned, never stretched, never wrapped into a lone full-width bar. */
+.btnrow { display: flex; flex-wrap: wrap; gap: var(--s2); align-items: center; }
+.btnrow--end { justify-content: flex-end; }
+.btnrow--gap { margin-top: var(--s4); }
+
+/* =========================================================================================
+   Fields — the same height as a button, so a toolbar is one straight line
+   ========================================================================================= */
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.label, label.label {
+  font: 600 10.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .11em;
+  color: var(--muted);
+}
+:where(.input, .select, select, textarea,
+input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"])) {
+  height: var(--h); padding: 0 11px; width: 100%;
+  background: var(--panel); color: var(--ink);
+  border: 1px solid var(--line); border-radius: var(--r2);
+  font: 500 14px/1 var(--sans);
+  transition: border-color .14s, box-shadow .14s;
+}
+:where(textarea) { height: auto; min-height: 120px; padding: 10px 12px; line-height: 1.5;
+  font: 400 12.5px/1.6 var(--mono); resize: vertical; }
+:where(select) { padding-right: 30px; cursor: pointer;
+  appearance: none; -webkit-appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, currentColor 50%),
+                    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: calc(100% - 15px) 52%, calc(100% - 10px) 52%;
+  background-size: 5px 5px, 5px 5px; background-repeat: no-repeat; }
+input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring); }
+input::placeholder, textarea::placeholder { color: var(--muted); opacity: .8; }
+input[type="date"], input[type="month"] { font-variant-numeric: tabular-nums; }
+input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+
+.check { display: inline-flex; align-items: center; gap: var(--s2); font-size: 13.5px;
+  color: var(--ink2); cursor: pointer; min-height: var(--h); }
+.check input { flex: none; }
+
+/* A toolbar is a single row of controls that all agree on their height. */
+.toolbar { display: flex; align-items: flex-end; gap: var(--s2); flex-wrap: wrap; }
+.toolbar .field { flex: 0 1 auto; }
+.toolbar .input, .toolbar .select, .toolbar input, .toolbar select { width: auto; min-width: 170px; }
+.toolbar__spacer { flex: 1 1 auto; }
+.toolbar--tight { align-items: center; }
+
+/* =========================================================================================
+   Stats — one strip divided by hairlines, not five floating boxes
+   ========================================================================================= */
+.stats {
+  display: flex; flex-wrap: wrap; gap: 1px;
+  background: var(--line); border: 1px solid var(--line); border-radius: var(--r3);
+  overflow: hidden;
+}
+.stat { flex: 1 1 150px; padding: var(--s3) var(--s4); background: var(--panel); min-width: 0; }
+.stat b { display: block; font: 700 22px/1.1 var(--mono); letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stat span { display: block; margin-top: 5px; color: var(--muted);
+  font: 600 10px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .11em; }
+.stat--wide b { font-size: 14px; letter-spacing: 0; font-family: var(--sans); font-weight: 600; }
+
+/* =========================================================================================
+   Tabs and chips — three levels, three shapes, so a level is legible from its shape alone
+   ========================================================================================= */
+/* level 1: which screen. a segmented control in the top bar. */
+.nav { display: flex; gap: 2px; padding: 3px; background: var(--panel3); border-radius: var(--r2); flex: none; }
+.nav__item {
+  height: 32px; padding-inline: 14px; border: 0; border-radius: 7px; background: transparent;
+  color: var(--muted); font: 600 13.5px/1 var(--sans); cursor: pointer;
+  display: inline-flex; align-items: center; transition: background .14s, color .14s;
+}
+.nav__item:hover { color: var(--ink); }
+.nav__item[aria-current="page"] { background: var(--panel); color: var(--accent); box-shadow: 0 1px 2px var(--shade); }
+
+/* level 2: which view of this screen. underlined, so it cannot be mistaken for level 3. */
+.viewtabs { display: flex; gap: var(--s5); border-bottom: 1px solid var(--line); margin-bottom: var(--s4); }
+.viewtab {
+  appearance: none; background: none; border: 0; padding: 0 0 10px; cursor: pointer;
+  font: 600 14px/1 var(--sans); color: var(--muted);
+  border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color .14s, border-color .14s;
+}
+.viewtab:hover { color: var(--ink); }
+.viewtab.is-on { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* level 3: which slice of the data. chips. */
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip {
+  height: 32px; padding-inline: 12px; border-radius: var(--rpill);
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink2);
+  font: 600 13px/1 var(--sans); cursor: pointer;
+  display: inline-flex; align-items: center; gap: 7px; transition: all .14s;
+}
+.chip:hover:not(.is-on) { border-color: var(--muted); color: var(--ink); }
+.chip.is-on { background: var(--accent); border-color: var(--accent); color: var(--accink); }
+.chip__n { font: 500 11px/1 var(--mono); opacity: .62; font-variant-numeric: tabular-nums; }
+.chip.is-empty { opacity: .42; }
+
+/* =========================================================================================
+   Alliance identity: a chip where it is named, a rail where it is owned
+   ========================================================================================= */
+.tag {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  height: 22px; padding: 0 9px 0 7px; border-radius: var(--r1);
+  font: 600 11.5px/1 var(--sans); white-space: nowrap;
+  color: var(--ac, var(--aX)); background: color-mix(in srgb, currentColor 12%, transparent);
+}
+.tag::before { content: ''; width: 3px; height: 12px; border-radius: 2px; background: currentColor; flex: none; }
+.c0 { --ac: var(--a0); color: var(--a0); } .c1 { --ac: var(--a1); color: var(--a1); }
+.c2 { --ac: var(--a2); color: var(--a2); } .c3 { --ac: var(--a3); color: var(--a3); }
+.cX { --ac: var(--aX); color: var(--aX); }
+
+/* a small flat label: a state, not an identity, so no rail */
+.pill {
+  display: inline-flex; align-items: center; height: 22px; padding: 0 9px;
+  border-radius: var(--rpill); font: 600 11px/1 var(--mono); letter-spacing: .02em; white-space: nowrap;
+}
+.pill--ok   { background: var(--okbg);   color: var(--ok); }
+.pill--warn { background: var(--warnbg); color: var(--warn); }
+.pill--bad  { background: var(--badbg);  color: var(--bad); }
+.pill--flat { background: var(--panel3); color: var(--muted); }
+.pill--acc  { background: var(--accbg);  color: var(--accent); }
+
+/* =========================================================================================
+   Tables — the whole width, hairlines, and numbers that line up
+   ========================================================================================= */
+/* A long table scrolls inside its own frame rather than dragging the page down, which is what
+   lets the header stay put: overflow-x alone makes the wrapper the scroll container in both
+   axes, so a header stuck to the page would slide under the top bar instead. */
+.tablewrap { overflow: auto; border: 1px solid var(--line); border-radius: var(--r3);
+  background: var(--panel); max-height: calc(100vh - 232px); overscroll-behavior: contain; }
+.panel .tablewrap { border-radius: var(--r2); }
+table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 13.5px; }
+thead th {
+  position: sticky; top: 0; z-index: 1;
+  text-align: left; white-space: nowrap;
+  max-width: 230px; overflow: hidden; text-overflow: ellipsis;
+  background: var(--panel2); color: var(--muted);
+  font: 600 10px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em;
+  padding: 11px var(--s3); border-bottom: 1px solid var(--line);
+}
+tbody td { padding: 8px var(--s3); border-bottom: 1px solid var(--line2); vertical-align: middle; }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr:hover td { background: color-mix(in srgb, var(--accent) 4%, transparent); }
+th.is-sortable { cursor: pointer; user-select: none; }
+th.is-sortable:hover { color: var(--ink); }
+th .dir { opacity: .55; font-size: 9px; }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.rank { width: 46px; color: var(--muted); font: 500 12px/1 var(--mono);
+  font-variant-numeric: tabular-nums; }
+.name { font-weight: 600; }
+
+/* the alliance rail, read off the cell that carries the alliance */
+tbody tr:has(td.c0) td:first-child { box-shadow: inset 3px 0 0 var(--a0); }
+tbody tr:has(td.c1) td:first-child { box-shadow: inset 3px 0 0 var(--a1); }
+tbody tr:has(td.c2) td:first-child { box-shadow: inset 3px 0 0 var(--a2); }
+tbody tr:has(td.c3) td:first-child { box-shadow: inset 3px 0 0 var(--a3); }
+tbody tr:has(td.cX) td:first-child { box-shadow: inset 3px 0 0 var(--aX); }
+
+/* a cell you can type in looks like a cell until you reach for it */
+.cellin {
+  width: 100%; height: 30px; padding: 0 8px; min-width: 90px;
+  background: transparent; border: 1px solid transparent; border-radius: var(--r1);
+  font: 500 13.5px/1 var(--sans); color: inherit;
+}
+.cellin:hover { border-color: var(--line); background: var(--panel); }
+.cellin:focus { border-color: var(--accent); background: var(--panel); box-shadow: var(--ring); }
+.cellin.num { font-family: var(--mono); font-size: 12.5px; min-width: 0; width: 88px; }
+.cellsel {
+  height: 30px; width: auto; min-width: 96px; padding: 0 26px 0 8px;
+  background-color: transparent; border-color: transparent;
+  font: 600 12.5px/1 var(--sans); border-radius: var(--r1);
+}
+.cellsel:hover { border-color: var(--line); background-color: var(--panel); }
+
+/* a score, drawn against the best on the same board */
+.barcell { position: relative; }
+.barcell i { position: absolute; left: 4px; top: 50%; transform: translateY(-50%); height: 18px;
+  background: color-mix(in srgb, var(--accent) 13%, transparent); border-radius: 3px; z-index: 0; }
+.barcell span { position: relative; z-index: 1; padding-right: 2px;
+  font: 500 12.5px/1 var(--mono); font-variant-numeric: tabular-nums; }
+
+.delta { font: 500 12px/1 var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.up { color: var(--ok); } .down { color: var(--bad); } .flat { color: var(--muted); }
+
+.spark { display: block; }
+.spark path { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linejoin: round; stroke-linecap: round; }
+.spark .fill { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: none; }
+.spark circle { fill: var(--accent); }
+
+/* =========================================================================================
+   Notices
+   ========================================================================================= */
+.note { border-radius: var(--r2); padding: 11px 14px; font-size: 13.5px; font-weight: 500;
+  border: 1px solid transparent; }
+.note--ok   { background: var(--okbg);   color: var(--ok);   border-color: var(--okline); }
+.note--warn { background: var(--warnbg); color: var(--warn); border-color: var(--warnline); }
+.note--bad  { background: var(--badbg);  color: var(--bad);  border-color: var(--badline); }
+.note--flat { background: var(--panel2); color: var(--ink2); border-color: var(--line); }
+.note + .note { margin-top: var(--s2); }
+.note ul { margin: 5px 0 0; }
+
+.empty { text-align: center; padding: var(--s7) var(--s5); }
+.empty b { display: block; font: 600 16px/1.3 var(--sans); color: var(--ink); }
+.empty span { display: block; margin: 6px auto 0; max-width: 46ch; color: var(--muted); font-size: 13.5px; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 80;
+  background: var(--ink); color: var(--bg); padding: 12px 18px; border-radius: var(--r2);
+  font: 600 13.5px/1.4 var(--sans); box-shadow: 0 12px 32px var(--shade2);
+  max-width: min(92vw, 620px); animation: toastin .18s ease;
+}
+.toast--bad  { background: var(--bad);  color: #fff; }
+.toast--warn { background: var(--warn); color: #fff; }
+@keyframes toastin { from { opacity: 0; transform: translate(-50%, 10px); } to { opacity: 1; transform: translate(-50%, 0); } }
+
+/* progress */
+.bar { height: 5px; background: var(--panel3); border-radius: var(--rpill); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: var(--rpill);
+  transition: width .2s ease; }
+
+/* =========================================================================================
+   Drop target
+   ========================================================================================= */
+.drop {
+  border: 1.5px dashed var(--line); border-radius: var(--r3); background: var(--panel2);
+  padding: var(--s6) var(--s5); text-align: center; cursor: pointer; color: var(--muted);
+  transition: border-color .14s, background .14s, color .14s;
+}
+.drop strong { display: block; color: var(--ink); font: 600 15px/1.3 var(--sans); margin-bottom: 4px; }
+.drop span { font-size: 13.5px; }
+.drop:hover, .drop.is-over { border-color: var(--accent); background: var(--accbg); color: var(--accent); }
+
+/* =========================================================================================
+   The roster search menu
+   ========================================================================================= */
+.menu {
+  position: fixed; z-index: 60; background: var(--panel);
+  border: 1px solid var(--line); border-radius: var(--r2);
+  box-shadow: 0 14px 40px var(--shade2); max-height: 240px; overflow-y: auto;
+  min-width: 220px; padding: 5px;
+}
+.menu div { padding: 8px 10px; font-size: 13.5px; cursor: pointer; border-radius: var(--r1);
+  display: flex; justify-content: space-between; gap: var(--s3); white-space: nowrap; }
+.menu div:hover, .menu div.on { background: var(--accent); color: var(--accink); }
+.menu div span { opacity: .6; font-size: 11px; }
+.menu .none { color: var(--muted); cursor: default; }
+.menu .newopt { font-weight: 700; }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 5px 0; }
+
+/* =========================================================================================
+   Utilities
+   ========================================================================================= */
+.hide { display: none !important; }
+.mono { font-family: var(--mono); }
+.muted { color: var(--muted); }
+.nowrap { white-space: nowrap; }
+.stack { display: flex; flex-direction: column; gap: var(--s4); }
+.stack--tight { gap: var(--s2); }
+.row { display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+
+details.disclosure { border: 1px solid var(--line); border-radius: var(--r2); background: var(--panel);
+  padding: var(--s3) var(--s4); }
+details.disclosure > summary { cursor: pointer; font: 600 13.5px/1 var(--sans); color: var(--ink2);
+  list-style: none; display: flex; align-items: center; gap: var(--s2); }
+details.disclosure > summary::-webkit-details-marker { display: none; }
+details.disclosure > summary::before { content: '▸'; color: var(--muted); font-size: 11px; }
+details.disclosure[open] > summary::before { content: '▾'; }
+details.disclosure[open] > summary { margin-bottom: var(--s3); }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+}
+
+/* =========================================================================================
+   Phone: the extract half is done one-handed in front of the game, so its controls grow
+   ========================================================================================= */
+@media (max-width: 700px) {
+  :root { --h: 42px; --hlg: 50px; }
+  :root { --topbar-h: 96px; }
+  .topbar__in { flex-wrap: wrap; row-gap: var(--s2); align-content: center; }
+  .nav { order: 3; width: 100%; }
+  .nav__item { flex: 1; justify-content: center; padding-inline: 6px; height: 36px; }
+  .page { padding-block: var(--s5) var(--s6); }
+  .pagehead h1 { font-size: 23px; }
+  .panel { padding: var(--s4); border-radius: var(--r2); }
+  .btn--block-sm { width: 100%; }
+  .toolbar { align-items: stretch; }
+  .toolbar .field, .toolbar .input, .toolbar .select, .toolbar input, .toolbar select { width: 100%; min-width: 0; }
+  .stats { grid-template-columns: repeat(auto-fit, minmax(108px, 1fr)); }
+  .stat { padding: var(--s3); }
+  .stat b { font-size: 18px; }
+  .viewtabs { gap: var(--s4); overflow-x: auto; }
 }

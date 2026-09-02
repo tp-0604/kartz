@@ -17,13 +17,14 @@ export default function MonthView() {
   useEffect(() => {
     if (!month) return;
     let live = true;
+    setData(null);
     monthView(month, alliance).then(j => live && setData(j)).catch(e => notify('✗ ' + e.message, 'bad'));
     return () => { live = false; };
   }, [month, alliance, notify]);
 
   const days = data ? [...new Set((data.rows || []).map(r => r.date))].sort() : [];
   let body = null;
-  if (data && !days.length) body = <Empty title={`Nothing saved for ${month}`} />;
+  if (data && !days.length) body = <div className="panel"><Empty title={`Nothing saved for ${month}`} /></div>;
   else if (data) {
     const label = {}; for (const r of data.rows) label[r.date] = r.label || ('Day ' + r.date.slice(8));
     const players = new Map();
@@ -40,41 +41,49 @@ export default function MonthView() {
     const totals = days.map(d => data.rows.filter(r => r.date === d).reduce((n, r) => n + r.points, 0));
     const cols = [
       { h: 'Player', get: p => p.name }, { h: 'Alliance', get: p => p.alliance || '' },
-      ...days.map(d => ({ h: label[d], get: p => p.by[d] ?? -1 })),
+      ...days.map(d => ({ h: label[d], num: true, get: p => p.by[d] ?? -1 })),
       ...(days.length > 1 ? [{ h: 'Trend' }, { h: 'Growth', get: p => growthOf(p) ?? -Infinity }] : []),
     ];
     const sorted = sort ? apply(list, cols) : list.slice().sort((a, b) => (b.by[last] ?? -1) - (a.by[last] ?? -1));
     body = (
-      <>
+      <div className="stack">
         <Stats items={[
           [list.length, 'players'], [days.length, days.length === 1 ? 'scoring day' : 'scoring days'],
-          [totals[totals.length - 1].toLocaleString(), 'total scored'], [alliance || 'all', 'alliance', true],
+          [totals[totals.length - 1].toLocaleString(), 'total scored'], [alliance || 'every alliance', 'alliance', true],
         ]} />
-        <div className="tablewrap"><table className="histtbl">
+        <div className="tablewrap"><table>
           <Head cols={cols} />
           <tbody>{sorted.map(p => (
             <tr key={p.name}>
-              <td>{p.name}</td>
+              <td className="name">{p.name}</td>
               <td><AllianceChip a={p.alliance} /></td>
-              {days.map(d => p.by[d] === undefined ? <td key={d} className="num flat">—</td> : <ScoreCell key={d} v={p.by[d]} max={max} />)}
+              {days.map(d => p.by[d] === undefined
+                ? <td key={d} className="num"><span className="flat">—</span></td>
+                : <ScoreCell key={d} v={p.by[d]} max={max} />)}
               {days.length > 1 && <><td><Sparkline values={days.map(d => p.by[d])} /></td><td><Delta d={growthOf(p)} /></td></>}
             </tr>
           ))}</tbody>
         </table></div>
-      </>
+      </div>
     );
   }
 
   return (
-    <>
-      <div className="viewbar">
-        <input type="month" value={month} onChange={e => setMonth(e.target.value)} />
-        <select value={alliance} onChange={e => setAlliance(e.target.value)}>
-          <option value="">every alliance</option>
-          {alls.map(a => <option key={a} value={a}>{a}</option>)}
-        </select>
+    <div className="stack">
+      <div className="toolbar">
+        <div className="field">
+          <label className="label" htmlFor="monthpick">Month</label>
+          <input id="monthpick" type="month" value={month} onChange={e => setMonth(e.target.value)} />
+        </div>
+        <div className="field">
+          <label className="label" htmlFor="monthalli">Alliance</label>
+          <select id="monthalli" value={alliance} onChange={e => setAlliance(e.target.value)}>
+            <option value="">every alliance</option>
+            {alls.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
       </div>
-      <div style={{ marginTop: 12 }}>{month ? (body || <div className="note">loading…</div>) : <div className="note">Pick a month.</div>}</div>
-    </>
+      {month ? (body || <div className="loading">Loading…</div>) : <p className="hint">Pick a month.</p>}
+    </div>
   );
 }
