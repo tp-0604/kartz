@@ -1,55 +1,135 @@
-# Kartz Extractor
+# Kartz
 
-Screen recording of the in-game **Ranking** list → rows you paste into the tracking sheet.
+Screen recording of the in-game **Ranking** list → rows in a database you can work in.
 Runs in a browser on any device. The recording never leaves your phone; only sampled frames
 go to the model.
-
-Live at `https://kartz.<your-subdomain>.workers.dev` (the old single page in `public/`), and the
-new app under `web/` — see **The app** below.
 
 ---
 
 ## The app
 
-The page is now a React application in `web/`, with a spreadsheet inside it. The workflow is
+Two destinations, because there are two jobs.
 
-    recording → Extract → review the rows → Open in sheet → edit, format, add columns → Save
-                                                              ↓
-                                            Cloudflare Worker (worker.js) → D1
+    EXTRACT                                   DATA
+    recording → rows → review → add     the roster, every board, edit, search,
+                         ↓               filter, sort, import, export, ask
+                    Cloudflare Worker → D1
 
-No CSV, no download, no Google Sheets in the middle. Four screens:
+**EXTRACT** is the recording coming in. Unchanged logic, in `web/src/extractor/`: the same frame
+sampling, the same prompt, the same roster matching, the same one-character rule, the same review
+table. What changed is the end of it. There is no clipboard step and no spreadsheet in the
+middle — the reviewed rows go into the database, with a preview first saying what is new and
+what is already there.
 
-| screen | what it is for |
+**DATA** is everything saved. A dataset is the roster or one board's scores, and it opens as a
+grid that fills the window: row numbers, a frozen header, multi-cell selection, editing,
+copy/cut/paste, insert, delete, duplicate, resize, reorder, sort, filter, search, hidden
+columns, undo and redo. Beside it are the views that cross boards — a month across its scoring
+days, one player over time, the extraction runs, the activity trail — and, where a model
+provider is configured, an analyst that answers questions by querying the database.
+
+The old app's four tabs are all still here; three of them were never screens, they were things:
+the Sheet was a board, the Roster was the roster, and History was a list of boards. `⌘K` opens
+everything at once.
+
+### The grid
+
+Editing is optimistic and batched. A keystroke lands in the rows immediately, becomes an
+operation in a queue, and the queue goes to the Worker a moment later as one batch — so pasting
+fifty rows is one request, not fifty. The version the copy was loaded at rides along, so a save
+made against somebody else's newer copy is refused rather than landing on top of it, and you are
+asked what to do about it.
+
+Nothing is thrown away quietly:
+
+| | |
 |---|---|
-| **Extract** | the recording in, the rows out — unchanged logic, now in `web/src/extractor/` |
-| **Sheet** | a workbook (Univer, Apache-2.0): formulas, formatting, sort, filter, undo/redo. Columns A–E are the record; anything to the right is kept with the sheet |
-| **History** | every board saved: by month and day, one month across its days, one player over time, and **Import** for backloading past months from the Kartz Tracking workbook |
-| **Roster** | the list of players, edited as a spreadsheet and kept in this app's database |
+| a cell the Worker refused | keeps what you typed, is outlined in red, and says why |
+| a queue that has not been sent | is written to this browser two seconds after the last change |
+| a conflict | offers *take theirs, then re-apply mine* or *throw mine away* |
+| a failed save | keeps the changes on screen and offers **Retry** |
 
-**Setup** holds the shared phrase the Worker asks for when the page is hosted away from it.
+Keyboard: arrows, shift-arrows, `Tab`, `Enter`, `Home`/`End`, `PageUp`/`PageDown`, `⌘/Ctrl`
+with arrows to jump to an edge, `⌘/Ctrl+A`, `C`, `X`, `V`, `Z`, `⇧Z`, `F` for find, `S` to flush
+the queue now, `Alt+Enter` for a new row, `Delete` to clear, `F2` or a double-click to edit, and
+typing over a cell replaces it. Right-click for the rest.
+
+### Marking cells up
+
+Fill, text colour, **bold**, *italic*, underline and alignment, on whatever is selected —
+`⌘/Ctrl+B`, `I` and `U`, or the toolbar's **Fill** menu for the rest. **Clear formatting** takes
+it all off, and undo covers it like any other edit.
+
+Two things about it are deliberate:
+
+*It belongs to the row, not to the position.* A yellow row stays yellow through a sort, a
+filter, a rank correction and a second extraction of the same day, because the marking is stored
+against the row's id.
+
+*A colour is a name, not a hex.* You pick from nine fills and eight text colours rather than
+from a picker, and the name is what is stored: the theme decides what "yellow" is, so a board
+marked up in daylight is still legible in dark mode. Every pair was checked on both surfaces —
+normal text reads at 10:1 or better on every fill. A picker would let anyone choose white on
+white, or a fill that disappears the moment the theme flips.
+
+Font family and size are not offered. Both change how tall a line wants to be, and the grid
+draws every row at the same height to stay fast at thirty thousand rows, so a larger font would
+be clipped rather than honoured. Weight, slant, colour and alignment all fit inside a fixed row.
+
+Marking a cell is not the same as correcting it: it does not set the row's *edited* flag, so a
+row you only highlighted is still replaced by a later extraction, while a row whose value you
+changed is not.
 
 ### The roster
 
-The roster is maintained **here**, on the Roster screen, as a spreadsheet. It used to live in a
-Google Sheet tab that the app pulled from, with the database holding only the differences
-against it; the sheet is out of the loop and these rows are the record. Add a player by typing a
-row, remove one by deleting the row, paste a block in from anywhere, and press Save — the whole
-list is written at once.
+The roster is the list of players, kept here and edited as a dataset like any other. Add a
+player by typing a row, remove one by deleting the row, paste a block in from anywhere. The
+identity every score points at is the **Player** column; **Name in video** is what a recording
+is matched against; **Alliance** is optional. Every other column is the roster's own and is kept
+without being read — including the ones that came over from Google Sheets.
 
-The sheet keeps **whatever columns it has, in whatever order it has them**. Three of them are the
-app's, and it finds those by heading: **Player** is the identity every score points at, so no two
-rows may share one; **Name in video** is what a recording is matched against; **Alliance** is
-optional. Every other column is the roster's own and is kept without being read.
+Two rows cannot share a player name, and the API refuses the one row rather than the whole save,
+naming the row it clashes with.
 
-**Replace from a table** takes a whole list from somewhere else — an .xlsx or .csv file, or a
-block of cells pasted straight out of a spreadsheet. It shows the columns it found, guesses which
-three are the app's, lets you correct that, warns about any repeated player name, and puts the
-table in the sheet. Nothing is written until you press Save.
+### Columns
 
-The one-time move brought 881 players over. Six of them shared a Player name with somebody else
-in the old sheet (`Cat`, `Goose`, `Killua`, `Lexi ALT`, `mav`, `Weezy` — two Gooses in two
-alliances, a Killua in each of 698C and 698W). A shared identity cannot be stored, so the second
-of each pair came in as `Goose (2)` and so on. **Rename those six** to whatever they should be.
+A board's five typed columns are the record: **Rank**, **Player**, **Name in video**,
+**Alliance**, **Kartz Points**. Everything to the right of them is yours — a note, a CP figure,
+a legacy column — stored on the row under its own heading and never interpreted. Add, rename,
+hide, resize and reorder from the **Columns** menu or by dragging a heading.
+
+An older version of this app kept those extra columns inside a spreadsheet snapshot that only
+one library could read. The first time a board is opened they are read out of that snapshot and
+into the rows, and the board is marked so it is only done once. Fills and bold from that
+snapshot come across too, each colour snapped to the nearest of the nine swatches by hue, so a
+board somebody had highlighted stays highlighted. The snapshot itself is left where it is.
+
+### Asking the data
+
+A question is answered by *querying* the database, never by sending it to a model:
+
+    question → the model picks tools → the Worker runs them against D1 → the model writes an
+    analysis in a fixed shape → the browser draws it with its own components
+
+The model gets a fixed set of tools — `list_datasets`, `get_dataset_metadata`, `query_records`,
+`aggregate_records`, `compare_datasets`, `get_trend`, `get_player_history`, `search_players`,
+`get_workspace_context` — and every argument is checked against columns that actually exist
+before a statement is built. It never writes SQL, and the only column names that reach a query
+are ones the Worker already knew about. Aggregation happens in SQLite: "average power by
+alliance" is one `GROUP BY` returning four rows, not fifteen thousand rows and a hope.
+
+The answer comes back as an object in a fixed shape — a title, a summary, and some combination
+of metrics, tables, lists, bar charts, line charts and comparisons — which is validated and then
+drawn by components this app owns. No HTML, no code, no markup of any kind crosses that line.
+Each answer says whether every figure came from a query, what it was computed from, and what it
+asked; **View source data** takes the workspace to those rows. Where the data does not exist it
+says so rather than estimating.
+
+It knows what is on screen: the dataset, the filters, the sort, the visible columns and how many
+rows are selected — so "the average level of these players" means the ones your filters left.
+
+The whole thing is optional. With no provider configured the bar says so and everything else
+works exactly as it did.
 
 ### Running it locally
 
@@ -60,21 +140,45 @@ The dev server proxies `/api` to the Worker, so the two share an origin exactly 
 production. The first time, create the local tables:
 
     npx wrangler d1 execute kartz-db --local --file=schema.sql
-    npx wrangler d1 execute kartz-db --local --file=migrate-002.sql
 
-`http://localhost:5173/kartz/?demo=1` loads a few made-up rows into the review table so the
-sheet and the save can be tried without a recording or a Gemini key.
+`http://localhost:5173/kartz/?demo=1` loads a few made-up rows into the review table, so the
+path from a recording to the database can be walked without a recording or a model key.
+
+**Without Cloudflare at all.** `test/serve.mjs` runs the real Worker over an in-memory SQLite
+database and serves the built app beside it, which is enough to use and test everything but the
+model calls:
+
+    cd web && BASE_PATH=/ npm run build
+    node test/serve.mjs                        # http://localhost:8788/
+
+### Tests
+
+    node test/run.mjs
+
+Runs the Worker's routing, the data layer, the version and conflict handling, the legacy
+snapshot recovery, the controlled query tools and the .xlsx writer — against a real SQLite
+database standing in for D1. No account, no network, no dependencies beyond Node.
+
+The two browser suites need the app built, `npm i playwright`, and the local server above:
+
+    node test/serve.mjs &
+    node test/browser.test.mjs                 # the workspace, the grid, editing, undo, paste
+    node test/stub-model.mjs &                 # a stand-in provider on :8799
+    AI_PROVIDER=openai OPENAI_API_KEY=x AI_GATEWAY=http://localhost:8799 node test/serve.mjs &
+    node test/browser-ai.test.mjs              # the analyst, the tools, the charts, the validation
+
+`PLAYWRIGHT_CHROME` points at a browser already on the machine if you have one.
 
 ### Backloading the old workbook
 
-**History → Import → Whole workbook.** Download the tracking sheet from Google (*File → Download →
-Microsoft Excel*) and drop the .xlsx on that screen. It is read in the browser — nothing is
-uploaded — and nothing is written until you press Import. From the current workbook that is
-**111 boards and about 15,600 scores across 14 months**.
+**Import → The whole tracking workbook.** Download the tracking sheet from Google (*File →
+Download → Microsoft Excel*) and drop the .xlsx on that screen. It is read in the browser —
+nothing is uploaded — and nothing is written until you press Import. From the current workbook
+that is **111 boards and about 15,600 scores across 14 months**.
 
 Every tab named for a month is read, including the ones named for an alliance as well
 (`North September 2025`) and the working copies (`north`, `central`, `FebNorth`). `InputRoster`
-is not, because the app reads the roster live.
+is not, because the app keeps the roster itself.
 
 **Dates.** A month tab records Day 1, Day 4 and the Final and never says which days those were.
 Three months are dated by the workbook itself, in the rows the extractor wrote into `north` and
@@ -92,22 +196,48 @@ both hold the same player the tab with the game's own ranks is believed.
 Parked alliances (`z1.Transferred`, `z3.?`) and boards of one or two stray cells are left out;
 both are listed under *What was left out* with the threshold to change.
 
-**History → Import → One tab** is still there for a single tab, by link or paste.
+**Import → A table into this dataset** takes a spreadsheet or a pasted block into whichever
+dataset is open, showing the columns it found, what it would map them to, how many rows it would
+create and what it thinks is wrong with them. A column this dataset does not have can be added as
+a column of its own rather than dropped.
+
+### Export
+
+**CSV** or **XLSX**, of what is on screen, of every row, or of the rows you have selected. The
+columns are the visible ones in their current order, so the file matches what you were looking
+at — and a column the app has never understood goes out under its own heading like any other.
+
+Nothing writes the .xlsx but this repository: it is a zip of five small XML files, and `fflate`
+— already here for reading — zips it.
 
 ### The database
 
-`migrate-003.sql` adds two things to an existing database and must be run once against the
-real one before the new app is deployed:
+Cloudflare D1, and it is the record. `schema.sql` is what a new database is; the migrations take
+an existing one there in order. **`migrate-006.sql` and `migrate-007.sql` must be run once
+against the real database, in that order, before this version is deployed:**
 
-    npx wrangler d1 execute kartz-db --remote --file=migrate-003.sql
+    npx wrangler d1 execute kartz-db --remote --file=migrate-006.sql
+    npx wrangler d1 execute kartz-db --remote --file=migrate-007.sql
 
-- `board_sheets` — one workbook snapshot per board (formatting, formulas, scratch columns),
-  saved in the same batch as the rows and dropped whenever the rows change any other way.
-- `boards.version` — bumped on every write; a save from a stale copy is refused with a 409
-  rather than silently overwriting another officer's work.
+Nothing is deleted by either. 006 rebuilds `scores` and `roster` to carry a stable row id and a
+bag of custom columns, with every existing row copied across; everything else it adds is new.
+007 adds the one column that holds a row's marking, and adds nothing else.
 
-The scores stay in typed columns (`boards`, `scores`) — that is what the month and player views
-query, and what the Apps Script pull reads. The snapshot is presentation, never the record.
+| table | what it holds |
+|---|---|
+| `boards` | one per alliance per day filmed, with a `version` bumped on every write |
+| `scores` | the rows: a stable `id`, the rank, the player, the drawn name, the alliance, the points, `extra` — the board's own columns, keyed by heading — and `style`, the marking |
+| `board_meta` | which columns a board carries past the record, and how they are laid out |
+| `roster` / `roster_meta` | the player list and its columns, in whatever order it keeps them |
+| `extraction_runs` | which recording produced which rows, and how many were already there |
+| `activity` | what changed, to what, when |
+| `saved_views` | a filter, a sort and a set of columns, under a name |
+| `board_sheets` | legacy. The old workbook snapshots, read once for their columns and then left alone |
+
+Why a row id. The grid edits rows, and a row's key used to be the thing being edited: a score
+was keyed by `(board_id, place)` and a player by their name, so correcting a rank or a spelling
+was a delete and an insert, and two rows swapping ranks could not be written at all. An id that
+nothing ever edits makes an edit an edit.
 
 ### Hosting the app
 
@@ -127,22 +257,37 @@ GitHub Actions, and give the Worker a `SHARED_PASS` (`npx wrangler secret put SH
 each officer types it once on the Setup screen. GitHub Pages on a private repository needs a
 paid plan; on the free plan the repository must be public.
 
-### API
-
-Everything the old page used still works. Added:
+### Secrets
 
 | | |
 |---|---|
-| `GET /api/boards/:id` | board, rows, and the sheet snapshot if there is one |
-| `POST /api/boards` | create; `409` if it exists, unless `replace: true` |
-| `PUT /api/boards/:id` | the sheet's save: rows as reviewed, the snapshot, and the `version` it was loaded at |
-| `PATCH` / `DELETE /api/boards/:id` | relabel or delete (the old `/board` routes, path-style) |
-| `POST /api/boards/:id/rows` | add or overwrite rows by rank |
-| `PATCH` / `DELETE /api/boards/:id/rows/:place` | correct or remove one row |
+| `GEMINI_KEY` | **required** — the extractor's model. Also answers analytics questions if nothing better is set |
+| `SHARED_PASS` | only needed when the page is hosted away from the Worker |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | optional — a stronger model for the analyst |
+| `AI_PROVIDER` | `anthropic`, `openai`, `google` or `workers-ai`. Otherwise inferred from whichever key is set |
+| `AI_MODEL` | overrides the provider's default |
+| `AI_GATEWAY` | a Cloudflare AI Gateway base URL, for routing and observability |
+| `SHEET_TOKEN` | optional — opens the read-only CSV route to a script that has no origin |
 
-Undo and redo live in the workbook and never reach the network; the database sees the sheet
-only when Save is pressed, as one atomic replacement of the board. A draft is kept in the
-browser two seconds after the last change, so a closed tab costs nothing.
+### API
+
+| | |
+|---|---|
+| `GET /api/datasets` | the roster and every board, for the navigator |
+| `GET /api/datasets/:key` | columns, rows and a version. `:key` is `roster` or `board:<id>` |
+| `POST /api/datasets/:key/ops` | a batch of operations against that version — insert, update, delete, columns, layout |
+| `POST /api/commit` | extraction → data. `mode: preview` writes nothing and says what would happen; `new`, `all` and `replace` commit |
+| `GET /api/runs` | the extraction runs |
+| `GET /api/activity` | what changed, and when |
+| `GET` / `POST` / `DELETE /api/views` | saved views |
+| `GET /api/ai/status` | whether a provider is configured, and which |
+| `POST /api/ai/ask` | a question, the workspace context, and the answer |
+
+Everything the old page used still works: `/api/boards`, `/api/boards/:id`, `/api/runs`,
+`/api/board`, `/api/score`, `/api/month`, `/api/player`, `/api/all`, `/api/roster/rows` and the
+read-only `/api/csv`. One route is gone: `/api/roster` held the *differences* against a Google
+Sheet, and answers `410` now that the roster is these rows — the single page in `public/` still
+extracts, but its roster half no longer applies.
 
 ---
 
@@ -155,12 +300,21 @@ browser two seconds after the last change, so a closed tab costs nothing.
 | **Step 3** | Check the date. It defaults to today. |
 | **Step 4** | Press **Extract**. About 15 seconds. |
 | **Step 5** | Glance at any rows marked *confirm* — tick the ones that look right, correct the rest. Usually a handful. |
-| **Step 6** | Press **Copy for sheet**. |
-| **Step 7** | Paste into the alliance tab. Four columns: Date, Rank, Game Name, Kartz Points. |
+| **Step 6** | Press **Add … to the data**. It says how many are new and how many are already there. |
+| **Step 7** | Choose. Then the board is open in Data, and you are already looking at it. |
 
-There is no CSV download step, no Split Text to Columns, and no name-fixing pass. The old
-Step 8 — *"fix the name in column M, this step will take the most time"* — is what the roster
-matching replaced.
+The recording has to be one this browser can decode, which in practice means H.264 in .mov or
+.mp4 — what a phone records. A file it cannot open now says so straight away instead of sitting
+on *decoding video…* for ever, and says what to do about it.
+
+There is no copy, no spreadsheet tab, no CSV download, no Split Text to Columns and no
+name-fixing pass. The old Step 8 — *"fix the name in column M, this step will take the most
+time"* — is what the roster matching replaced; the old Steps 6 and 7 are what the database
+replaced.
+
+Four recordings at once is the same thing with the choosing done in advance: drop them all in,
+pick an alliance for each, and every board is written before the next is decoded, so a failure
+halfway leaves the earlier ones saved.
 
 ---
 
@@ -177,9 +331,11 @@ matching replaced.
 
 Pushing to `main` redeploys.
 
-**Once per device**, on the page: paste the link to your **Alliance Rosters** tab, press
-**Pull roster**, press **Save setup**. The badge turns green with the roster count. The sheet
-must be link-readable (*Share → General access → Anyone with the link → Viewer*).
+**Once per device**, only when the page is hosted away from the Worker: type the shared phrase
+on the Setup screen. The badge turns green.
+
+There is no roster to set up. It is kept in this app's own database and edited in Data; nothing
+is pulled from a Google Sheet.
 
 ---
 
@@ -316,7 +472,7 @@ and all. The ✕ at the far right throws a row out and turns into ↺ to bring i
 whatever name you had chosen.
 
 **Buttons say what they did.** Every action reported itself in the log at the top of the page,
-which is nowhere near a button at the foot of it — *Copy for sheet* worked perfectly and looked
+which is nowhere near a button at the foot of it — the copy button worked perfectly and looked
 exactly like nothing happening. Buttons now dip when pressed, and one that finishes something
 turns green and says so for a second and a half: *Copied 132 rows ✓*, *Remembered 3 ✓*,
 *Saved ✓*.

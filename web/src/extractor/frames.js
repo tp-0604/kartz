@@ -87,11 +87,45 @@ const gridDiff = (a, b) => {
   return s / a.length;
 };
 
+// A browser that cannot decode the file fires `error` and never fires `loadedmetadata`, so
+// waiting only for the latter waits for ever: the run sat on "decoding video…" with no message
+// and no way out. Two real cases reach it — an HEVC recording from a recent iPhone opened in a
+// browser without HEVC, and a file that is damaged or is not a video at all — and both deserve
+// a sentence rather than a spinner.
+const OPEN_TIMEOUT_MS = 30000;
+const DECODE_FAILED = {
+  1: 'opening that recording was interrupted. Try choosing it again.',
+  2: 'that recording could not be read off the disk. Try choosing it again.',
+  3: 'that recording is damaged, or is in a format this browser cannot decode.',
+  4: 'this browser cannot play that recording. Safari and Chrome on the phone that made it can; '
+   + 'otherwise re-record it, or convert it to H.264 .mp4.',
+};
+
 async function openVideo(file) {
   const video = document.createElement('video');
   video.preload = 'auto'; video.muted = true; video.playsInline = true;
   video.src = URL.createObjectURL(file);
-  await once(video, 'loadedmetadata');
+  try {
+    await new Promise((resolve, reject) => {
+      const finish = act => {
+        clearTimeout(timer);
+        video.removeEventListener('loadedmetadata', ok);
+        video.removeEventListener('error', bad);
+        act();
+      };
+      const ok = () => finish(resolve);
+      const bad = () => finish(() => reject(new Error(
+        DECODE_FAILED[video.error && video.error.code] || DECODE_FAILED[3])));
+      const timer = setTimeout(() => finish(() => reject(new Error(
+        'that recording did not open within 30 seconds. It may be damaged, or in a format this '
+        + 'browser cannot decode.'))), OPEN_TIMEOUT_MS);
+      video.addEventListener('loadedmetadata', ok, { once: true });
+      video.addEventListener('error', bad, { once: true });
+    });
+  } catch (e) {
+    URL.revokeObjectURL(video.src);
+    throw e;
+  }
   // iOS refuses to paint into a canvas until the pipeline has decoded at least once
   try { await video.play(); video.pause(); } catch {}
   return video;

@@ -39,6 +39,31 @@ const json = (method, body) => ({
   method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 
+// ---- datasets: what the workspace opens, and the operations it sends back ----------------
+//
+// A dataset is the roster or one board. Reading gives columns, rows and a version; writing is a
+// batch of operations against that version, so a save made on a stale copy is refused rather
+// than landing on top of somebody else's.
+export const listDatasets = () => api('/datasets');
+export const loadDataset = key => api('/datasets/' + encodeURIComponent(key));
+export const applyOps = (key, body) => api('/datasets/' + encodeURIComponent(key) + '/ops', json('POST', body));
+
+// ---- extraction into the database -----------------------------------------------------------
+// mode 'preview' writes nothing and says what would happen; the rest commit.
+export const commit = body => api('/commit', json('POST', body));
+export const listRuns = () => api('/runs');
+
+// ---- the trail, and saved views ---------------------------------------------------------------
+export const activity = (limit = 80) => api('/activity?limit=' + limit);
+export const listViews = dataset => api('/views' + (dataset ? '?dataset=' + encodeURIComponent(dataset) : ''));
+export const saveView = body => api('/views', json('POST', body));
+export const deleteView = id => api('/views/' + encodeURIComponent(id), { method: 'DELETE' });
+
+// ---- the analyst ---------------------------------------------------------------------------------
+// Both of these are allowed to be unavailable. Nothing else in the app depends on them.
+export const aiStatus = () => api('/ai/status');
+export const aiAsk = body => api('/ai/ask', json('POST', body));
+
 // ---- boards -----------------------------------------------------------------------------
 export const listBoards  = () => api('/boards');
 export const loadBoard   = id => api('/boards/' + encodeURIComponent(id));
