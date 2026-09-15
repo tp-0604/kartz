@@ -9,7 +9,9 @@ compatibility_date = "2026-01-01"
 directory = "./public"
 binding = "ASSETS"
 
-# Lets the Worker call Cloudflare's own models as env.AI, with no token in the browser.
+# Lets the Worker call Cloudflare's own models as env.AI, with no token in the browser. It is
+# also the last provider the analytics layer falls back to, so a deployment with no model key at
+# all still has one.
 [ai]
 binding = "AI"
 

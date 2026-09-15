@@ -1,0 +1,115 @@
+/* =========================================================================================
+   The grid.
+
+   It is the application's main surface, so it gets the window: it scrolls inside itself, its
+   header and row numbers stay put, and the page behind it never moves. Row height, type size
+   and padding are set for an hour at a desk — dense enough that a hundred and fifty rows are a
+   few scrolls, loose enough to read.
+   ========================================================================================= */
+.grid {
+  position: relative; overflow: auto; outline: none;
+  background: var(--panel); border-top: 1px solid var(--line);
+  height: 100%; width: 100%;
+  overscroll-behavior: contain;
+  font-variant-numeric: tabular-nums;
+  --gut: 52px;
+}
+.grid__canvas { position: relative; min-width: 100%; }
+
+/* ---- header ------------------------------------------------------------------------------ */
+.grid__head {
+  position: sticky; top: 0; z-index: 3; display: flex;
+  height: 30px; background: var(--panel2);
+  border-bottom: 1px solid var(--line3);
+  box-shadow: 0 1px 0 var(--line);
+}
+.grid__corner {
+  position: sticky; left: 0; z-index: 4; flex: none; width: var(--gut);
+  background: var(--panel2); border-right: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--faint); font: 600 10px/1 var(--mono);
+}
+.grid__th {
+  position: relative; flex: none; display: flex; align-items: center; gap: 5px;
+  padding: 0 8px; min-width: 0; cursor: pointer; user-select: none;
+  color: var(--muted); font: 600 10.5px/1 var(--mono);
+  text-transform: uppercase; letter-spacing: .08em;
+  border-right: 1px solid var(--line2);
+}
+.grid__th:hover { color: var(--ink); background: var(--panel3); }
+.grid__th.is-sorted { color: var(--accent); }
+.grid__th.is-dragging { opacity: .4; }
+.grid__th.is-drop-before::before,
+.grid__th.is-drop-after::after {
+  content: ''; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent);
+}
+.grid__th.is-drop-before::before { left: -1px; }
+.grid__th.is-drop-after::after { right: -1px; }
+.grid__th span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.grid__th .dir { font-size: 8px; opacity: .8; flex: none; }
+.grid__grip {
+  position: absolute; top: 0; right: -3px; bottom: 0; width: 7px; cursor: col-resize; z-index: 5;
+}
+.grid__grip:hover::after, .grid__grip.is-on::after {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 2px; width: 2px; background: var(--accent);
+}
+
+/* ---- body -------------------------------------------------------------------------------- */
+.grid__body { position: relative; }
+.grid__row { position: absolute; left: 0; display: flex; will-change: transform; }
+.grid__row:hover .grid__cell { background: color-mix(in srgb, var(--accent) 3%, transparent); }
+.grid__row.is-rowsel .grid__gutter { background: var(--accbg); color: var(--accent); }
+
+.grid__gutter {
+  position: sticky; left: 0; z-index: 2; flex: none; width: var(--gut);
+  display: flex; align-items: center; justify-content: flex-end; gap: 4px;
+  padding-right: 8px; background: var(--panel); cursor: pointer;
+  border-right: 1px solid var(--line); border-bottom: 1px solid var(--line2);
+  color: var(--faint); font: 500 11px/1 var(--mono); user-select: none;
+}
+.grid__gutter:hover { background: var(--panel3); color: var(--ink2); }
+.grid__gutter i { width: 4px; height: 4px; border-radius: 50%; background: var(--warn); flex: none; }
+
+.grid__cell {
+  flex: none; display: flex; align-items: center; padding: 0 8px; min-width: 0;
+  border-right: 1px solid var(--line2); border-bottom: 1px solid var(--line2);
+  background: var(--panel); white-space: nowrap; overflow: hidden;
+  font-size: 13px; color: var(--ink);
+}
+.grid__cell > span { overflow: hidden; text-overflow: ellipsis; }
+.grid__cell--num { justify-content: flex-end; font-family: var(--mono); font-size: 12.5px; }
+.grid__cell--muted { color: var(--faint); }
+
+/* Selection. A wash for the range, a ring for the one cell the keyboard is on. */
+.grid__cell.is-sel { background: color-mix(in srgb, var(--accent) 11%, var(--panel)); }
+.grid__row:hover .grid__cell.is-sel { background: color-mix(in srgb, var(--accent) 13%, var(--panel)); }
+.grid__cell.is-focus { box-shadow: inset 0 0 0 2px var(--accent); background: var(--panel); }
+.grid__row:hover .grid__cell.is-focus { background: var(--panel); }
+.grid__cell.is-hit { background: color-mix(in srgb, var(--warn) 22%, var(--panel)); }
+.grid__cell.is-unsaved { box-shadow: inset 0 0 0 1px var(--bad); }
+.grid__cell.is-readonly { color: var(--muted); background: var(--panel2); }
+
+/* A cell being typed into is an input laid exactly over the cell it replaces. */
+.grid__editor {
+  position: absolute; z-index: 6; margin: 0; padding: 0 7px;
+  border: 2px solid var(--accent); border-radius: 0;
+  background: var(--panel); color: var(--ink);
+  font: 500 13px/1 var(--sans); box-shadow: 0 4px 14px var(--shade);
+}
+.grid__editor--num { text-align: right; font-family: var(--mono); font-size: 12.5px; }
+.grid__editor:focus { outline: none; box-shadow: 0 4px 14px var(--shade); }
+
+/* The row a person has corrected carries a mark, so a re-extraction cannot quietly undo it. */
+.grid__row.is-edited .grid__gutter { color: var(--warn); }
+
+.grid__empty { position: absolute; inset: 40px 0 auto; text-align: center; color: var(--muted);
+  font-size: 13px; padding: var(--s6) var(--s4); }
+
+/* The add-a-row strip that follows the last row. */
+.grid__add {
+  position: absolute; left: 0; display: flex; align-items: center; gap: 7px;
+  height: var(--row-h); padding-left: 60px; width: 100%;
+  color: var(--faint); font-size: 12.5px; cursor: pointer; background: none; border: 0;
+  border-bottom: 1px solid var(--line2);
+}
+.grid__add:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 4%, transparent); }

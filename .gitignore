@@ -6,3 +6,6 @@ _sheet.txt
 .wrangler/
 node_modules/
 web/dist/
+
+# what the browser suites draw
+shots/

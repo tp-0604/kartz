@@ -19,9 +19,8 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
-    chunkSizeWarningLimit: 6000,
-    // The workbook is by far the largest thing here and it is only needed on the Sheet tab.
-    // SheetScreen is React.lazy, so Vite already puts Univer in a chunk of its own — and its
-    // hyphenation dictionaries in lazy chunks of their own, which forcing one manual chunk undid.
+    // The Data workspace is the larger half and the extractor is what a phone opens, so it is
+    // React.lazy and Vite puts it in a chunk of its own. The .xlsx reader and writer are a
+    // dynamic import inside that, for the same reason again.
   },
 });

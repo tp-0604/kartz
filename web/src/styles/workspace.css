@@ -1,0 +1,162 @@
+/* =========================================================================================
+   The Data workspace.
+
+   Three columns: what you are looking at, the thing itself, and — when it is asked for — what
+   the analyst made of it. The middle one gets everything left over, in both directions.
+   ========================================================================================= */
+.ws {
+  display: grid; height: 100%; min-height: 0;
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
+  background: var(--panel);
+}
+.ws.is-railed-off { grid-template-columns: 0 minmax(0, 1fr); }
+.ws.has-panel { grid-template-columns: var(--rail-w) minmax(0, 1fr) auto; }
+.ws.is-railed-off.has-panel { grid-template-columns: 0 minmax(0, 1fr) auto; }
+
+/* ---- the rail --------------------------------------------------------------------------- */
+.rail {
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  background: var(--panel2); border-right: 1px solid var(--line);
+}
+.ws.is-railed-off .rail { display: none; }
+.rail__search { padding: var(--s3) var(--s3) var(--s2); }
+.rail__search input { height: 30px; font-size: 12.5px; border-radius: var(--r1); }
+.rail__list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--s2) var(--s3); }
+.rail__group {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 10px 8px 5px; background: none; border: 0;
+  font: 600 9.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--faint);
+}
+.rail__group span { margin-left: auto; font-size: 10px; }
+.rail__item {
+  display: flex; align-items: center; gap: var(--s2); width: 100%;
+  padding: 6px 8px; border: 0; border-radius: var(--r1); background: none;
+  font: 500 13px/1.35 var(--sans); color: var(--ink2); text-align: left; cursor: pointer;
+}
+.rail__item:hover { background: var(--panel3); color: var(--ink); }
+.rail__item.is-on { background: var(--accbg); color: var(--accent); font-weight: 650; }
+.rail__item.is-on .rail__n { color: var(--accent); }
+.rail__main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.rail__main b { font-weight: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail__sub { font: 500 10.5px/1 var(--mono); color: var(--faint); }
+.rail__n { font: 500 11px/1 var(--mono); color: var(--faint); flex: none; }
+.rail__foot { border-top: 1px solid var(--line); padding: var(--s2); display: flex; gap: 4px; }
+
+/* ---- the main column --------------------------------------------------------------------- */
+.ws__main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+/* Everything in the main column is its own height; the grid is what is left over. A fixed
+   number of grid tracks could not be right for both a dataset, which has a toolbar and a status
+   bar, and a view, which has neither. */
+.ws__fill { flex: 1; min-height: 0; display: flex; }
+.ws__fill > * { flex: 1; min-width: 0; }
+
+.ws__head {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: 7px var(--s3) 7px var(--s3); border-bottom: 1px solid var(--line2);
+  min-height: 46px;
+}
+.ws__title { display: flex; align-items: center; gap: var(--s2); min-width: 0; flex: none; max-width: 40%; }
+.ws__title h1 { font: 650 14.5px/1.2 var(--sans); letter-spacing: -.01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws__title .hint { white-space: nowrap; }
+
+.ws__savestate {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  font: 500 12px/1 var(--sans); color: var(--muted); white-space: nowrap;
+  padding: 0 var(--s2);
+}
+.ws__savestate.is-bad { color: var(--bad); }
+.ws__savestate.is-dirty { color: var(--warn); }
+
+/* ---- the toolbar ---------------------------------------------------------------------------- */
+.ws__tools {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px var(--s3); border-bottom: 1px solid var(--line);
+  background: var(--panel2);
+}
+.ws__tools .btn { height: 30px; }
+.ws__tools .btn--icon { width: 30px; }
+.ws__sep { width: 1px; height: 20px; background: var(--line); flex: none; margin-inline: 3px; }
+
+.findbox { position: relative; display: flex; align-items: center; flex: 0 1 260px; min-width: 150px; }
+.findbox input { height: 30px; padding-left: 28px; padding-right: 58px; font-size: 13px; border-radius: var(--r1); }
+.findbox__icon { position: absolute; left: 9px; color: var(--faint); font-size: 12px; pointer-events: none; }
+.findbox__n { position: absolute; right: 8px; font: 500 11px/1 var(--mono); color: var(--faint); }
+
+/* ---- filters ---------------------------------------------------------------------------------- */
+.filters {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px var(--s3); border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--warn) 6%, var(--panel));
+}
+.filters__label { font: 600 9.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em;
+  color: var(--warn); flex: none; }
+.filterchip {
+  display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 4px 0 9px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--rpill);
+  font-size: 12px; white-space: nowrap;
+}
+.filterchip b { font-weight: 650; }
+.filterchip em { font-style: normal; color: var(--muted); }
+.filterrow { display: grid; grid-template-columns: minmax(120px, 1fr) 130px minmax(120px, 1fr) auto;
+  gap: var(--s2); align-items: center; }
+@media (max-width: 720px) { .filterrow { grid-template-columns: 1fr 1fr; } }
+
+/* ---- the status bar ----------------------------------------------------------------------------- */
+.ws__status {
+  display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
+  padding: 5px var(--s3); border-top: 1px solid var(--line);
+  background: var(--panel2); color: var(--muted);
+  font: 500 11.5px/1 var(--sans); min-height: 28px;
+}
+.ws__status b { color: var(--ink2); font-weight: 650; font-variant-numeric: tabular-nums; }
+.ws__status .spacer { flex: 1; }
+
+.ws__notice { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); }
+
+/* ---- the read-only views that live in the rail ---------------------------------------------------- */
+.viewpane { overflow: auto; height: 100%; padding: var(--s4); }
+.viewpane__head { display: flex; align-items: flex-end; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s4); }
+.viewpane__head h2 { font: 650 16px/1.2 var(--sans); letter-spacing: -.012em; }
+
+/* ---- import ------------------------------------------------------------------------------------- */
+.mapping { display: grid; grid-template-columns: auto 1fr; gap: var(--s3) var(--s4); align-items: center; font-size: 13px; }
+.mapping__role { font: 600 9.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
+.maprow { display: grid; grid-template-columns: 140px minmax(150px, 240px) 1fr; gap: var(--s3); align-items: center; }
+@media (max-width: 700px) { .maprow { grid-template-columns: 1fr; gap: 5px; } }
+.previewrow {
+  display: grid; grid-template-columns: auto 1fr auto auto; gap: var(--s3); align-items: center;
+  padding: 6px 11px; border: 1px solid var(--line2); border-radius: var(--r1);
+  background: var(--panel2); font-size: 12.5px;
+}
+.previewrow__st { font: 500 11px/1 var(--mono); color: var(--muted); white-space: nowrap; }
+.previewrow__st.is-ok { color: var(--ok); } .previewrow__st.is-bad { color: var(--bad); }
+.previewlist { display: flex; flex-direction: column; gap: 4px; }
+.monthrow {
+  display: grid; gap: var(--s3); align-items: center;
+  grid-template-columns: 24px minmax(110px, 1fr) 146px 160px auto;
+  padding: 6px var(--s3); border: 1px solid var(--line); border-radius: var(--r2); background: var(--panel);
+}
+.monthrow__name { font: 600 13px/1 var(--sans); }
+.monthrow__count { color: var(--muted); font: 500 11.5px/1 var(--mono); text-align: right; white-space: nowrap; }
+.monthrow input[type="date"] { height: 30px; font-size: 12.5px; }
+@media (max-width: 940px) {
+  .monthrow { grid-template-columns: 24px 1fr auto; row-gap: var(--s2); }
+  .monthrow__count { grid-column: 2 / -1; text-align: left; }
+}
+.boardsub { display: flex; flex-direction: column; gap: 3px; margin: 5px 0 var(--s2) 34px; }
+.thinlist { margin: var(--s2) 0 var(--s3); padding-left: 18px; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+
+/* ---- the activity trail ------------------------------------------------------------------------------ */
+.trail { display: flex; flex-direction: column; }
+.trail__item { display: flex; gap: var(--s3); padding: 8px 0; border-bottom: 1px solid var(--line2); font-size: 12.5px; }
+.trail__item:last-child { border-bottom: 0; }
+.trail__when { flex: none; width: 120px; color: var(--faint); font: 500 11px/1.5 var(--mono); }
+.trail__what { flex: 1; min-width: 0; }
+.trail__where { color: var(--muted); font-size: 11.5px; }
+
+@media (max-width: 1080px) {
+  .ws, .ws.has-panel { grid-template-columns: minmax(0, 1fr); }
+  .rail { display: none; }
+  .ws.has-panel .aipanel { position: fixed; inset: var(--topbar-h) 0 0 auto; width: min(420px, 100%); z-index: 50; }
+}

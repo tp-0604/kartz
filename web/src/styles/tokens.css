@@ -1,0 +1,93 @@
+/* =========================================================================================
+   Kartz — the design system.
+
+   This is a desk application that happens to run in a browser. It is used two ways: standing
+   in front of the game with a phone, extracting a recording, and sitting down afterwards with
+   three years of boards on a large monitor. The system serves both from one set of decisions.
+
+   THE DATA IS THE INTERFACE. There is no hero, no card wrapping a card, no decorative panel.
+   The window is a frame; what fills it is rows. Chrome is a hairline and a label, and it earns
+   its height in pixels by being useful at that height.
+
+   ONE SCALE. Every control snaps to a height, every gap to the spacing scale, every corner to
+   one of three radii. A toolbar looks assembled rather than accumulated because nothing in it
+   was sized by eye.
+
+   COLOUR IS AN IDENTITY, NEVER DECORATION. An alliance owns a hue and wears it wherever it is
+   named. The scales — alliance, resolution state, movement, save state — never share a hue, so
+   a green mark cannot mean both "698N" and "saved".
+   ========================================================================================= */
+
+:root {
+  color-scheme: light;
+
+  /* ---- neutrals: cool, biased a few degrees toward the accent so nothing reads as default */
+  --bg:      #f3f5f7;
+  --panel:   #ffffff;
+  --panel2:  #f7f9fb;
+  --panel3:  #eef1f5;
+  --panel4:  #e4e9ef;
+  --ink:     #10151b;
+  --ink2:    #3b4552;
+  --muted:   #6b7787;
+  --faint:   #98a2b0;
+  --line:    #dfe4ea;
+  --line2:   #ebeff4;
+  --line3:   #cfd6de;
+
+  /* ---- accent */
+  --accent:   #1c6d66;
+  --accent2:  #26877f;
+  --accink:   #ffffff;
+  --accbg:    #e2efed;
+  --accline:  #b6d6d1;
+
+  /* ---- state */
+  --ok:   #2a7a50;  --okbg:   #e3f0e9;  --okline:  #b9dbc6;
+  --warn: #8a5b0b;  --warnbg: #f8efdb;  --warnline:#e5d2a4;
+  --bad:  #a53129;  --badbg:  #f9e7e5;  --badline: #edc4bf;
+  --info: #2c5f96;  --infobg: #e5edf7;  --infoline:#c2d5ec;
+
+  /* ---- alliances, by position in MAIN_ALLIANCES: 698W, 698S, 698N, 698C. Held at roughly
+         equal lightness and well below the accent's chroma: they are labels, and a label must
+         not shout over the controls. */
+  --a0: #6a58a3;  --a1: #2f6f96;  --a2: #3a6f4a;  --a3: #946129;  --aX: #6f7886;
+
+  /* ---- type */
+  --sans: Barlow, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* ---- spacing: seven steps, and nothing between them */
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
+
+  /* ---- radii: three, and nothing between them */
+  --r1: 5px; --r2: 8px; --r3: 12px; --rpill: 999px;
+
+  /* ---- controls: one height per density, so a button and a field on a row agree */
+  --h: 34px; --hlg: 44px; --hsm: 28px;
+
+  /* ---- the frame */
+  --topbar-h: 48px;
+  --rail-w: 264px;
+  --row-h: 30px;
+  --gutter: clamp(16px, 2.2vw, 32px);
+  --shade:  rgba(14, 22, 33, .08);
+  --shade2: rgba(14, 22, 33, .18);
+  --ring: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg:#0b0e12; --panel:#13181e; --panel2:#181e26; --panel3:#212831; --panel4:#2b333e;
+    --ink:#e7ebf1; --ink2:#b4bdc9; --muted:#8994a3; --faint:#6a7482;
+    --line:#252c36; --line2:#1c222a; --line3:#333c47;
+    --accent:#4cb2a7; --accent2:#5fc6ba; --accink:#04211f; --accbg:#11302d; --accline:#1c443f;
+    --ok:#5cc389; --okbg:#112619; --okline:#1d3d2a;
+    --warn:#d8a85b; --warnbg:#292213; --warnline:#44391e;
+    --bad:#df7f78; --badbg:#2c1b19; --badline:#492b27;
+    --info:#6fa6e0; --infobg:#141f2e; --infoline:#243953;
+    --a0:#9b8ee0; --a1:#5aa9c9; --a2:#6fbf83; --a3:#d7a05a; --aX:#8b95a3;
+    --shade: rgba(0,0,0,.4); --shade2: rgba(0,0,0,.6);
+  }
+}
