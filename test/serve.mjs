@@ -42,6 +42,9 @@ for (const [date, label] of [['2026-08-24', 'Day 1'], ['2026-08-27', 'Day 4'], [
 
 const env = {
   DB,
+  // Passed through from the environment, never stored here: with a key set, this harness runs a
+  // real extraction against the real model.
+  GEMINI_KEY: process.env.GEMINI_KEY,
   AI_PROVIDER: process.env.AI_PROVIDER,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   AI_MODEL: process.env.AI_MODEL,

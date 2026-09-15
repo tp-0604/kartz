@@ -95,6 +95,48 @@ ok('bad number rejected, good field written', r.json.rejected.length === 1
    && r.json.rejected[0].field === 'points', r.json);
 version = r.json.version;
 
+console.log('\n# marking cells up');
+r = await call('GET', '/datasets/' + encodeURIComponent('board:' + boardId));
+const mark = r.json.rows[0];
+const markedBefore = mark.edited;          // this row was corrected earlier in the run
+version = r.json.version;
+r = await call('POST', `/datasets/${encodeURIComponent('board:' + boardId)}/ops`, {
+  version,
+  ops: [{ op: 'update', id: mark.id, style: { points: { bg: 'yellow', b: 1 }, __row: { fg: 'red' } } }],
+});
+ok('a style op is accepted', r.json.rejected.length === 0, r.json);
+version = r.json.version;
+r = await call('GET', '/datasets/' + encodeURIComponent('board:' + boardId));
+const marked = r.json.rows.find(x => x.id === mark.id);
+ok('the fill comes back', marked.__style.points.bg === 'yellow' && marked.__style.points.b === 1, marked.__style);
+ok('a whole-row mark comes back', marked.__style.__row.fg === 'red', marked.__style);
+ok('marking a cell is not correcting it', marked.edited === markedBefore,
+   { before: markedBefore, after: marked.edited });
+
+r = await call('POST', `/datasets/${encodeURIComponent('board:' + boardId)}/ops`, {
+  version,
+  ops: [{ op: 'update', id: mark.id, style: { points: { bg: '#ff0000', fg: 'chartreuse', b: 1 } } }],
+});
+version = r.json.version;
+r = await call('GET', '/datasets/' + encodeURIComponent('board:' + boardId));
+const after2 = r.json.rows.find(x => x.id === mark.id);
+ok('a colour it was not offered is refused, the rest kept',
+   after2.__style.points.b === 1 && !after2.__style.points.bg && !after2.__style.points.fg,
+   after2.__style);
+
+r = await call('POST', `/datasets/${encodeURIComponent('board:' + boardId)}/ops`, {
+  version, ops: [{ op: 'update', id: mark.id, style: { nosuchcolumn: { bg: 'red' } } }] });
+ok('a mark on a column that does not exist is refused', r.json.rejected.length === 1
+   && r.json.rejected[0].field === 'nosuchcolumn', r.json.rejected);
+version = r.json.version;
+
+r = await call('POST', `/datasets/${encodeURIComponent('board:' + boardId)}/ops`, {
+  version, ops: [{ op: 'update', id: mark.id, style: { points: null, __row: null } }] });
+version = r.json.version;
+r = await call('GET', '/datasets/' + encodeURIComponent('board:' + boardId));
+ok('clearing removes the bag entirely',
+   !r.json.rows.find(x => x.id === mark.id).__style, r.json.rows.find(x => x.id === mark.id).__style);
+
 console.log('\n# roster');
 r = await call('PUT', '/roster/rows', {
   version: 0,

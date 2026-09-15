@@ -11,6 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../state/AppContext.jsx';
 import { useDataset, cellId } from '../data/useDataset.js';
 import { problems, shape } from '../data/model.js';
+import { commonStyle } from '../data/format.js';
 import DataGrid from '../grid/DataGrid.jsx';
 import DatasetNav, { VIEWS } from './DatasetNav.jsx';
 import Toolbar from './Toolbar.jsx';
@@ -91,6 +92,30 @@ export default function DataWorkspace({ active }) {
   // ---- actions ----------------------------------------------------------------------------------
   // Where a new row goes is named by the row it follows, not by a number: the grid's positions
   // are into what it is showing, which a sort or a filter has already rearranged.
+  // What the format buttons act on, and what they should show as already on: the cells the
+  // selection covers, and the marking they have in common.
+  const selectedCells = useMemo(() => {
+    if (!selection) return [];
+    const out = [];
+    for (const row of rows.slice(selection.r0, selection.r1 + 1))
+      for (const key of selection.columns) out.push({ id: row.id, key });
+    return out;
+  }, [selection, rows]);
+
+  // Marking up from the toolbar hands the focus straight back, so the next Ctrl+B lands on the
+  // grid rather than on the button that was just clicked.
+  const focusGrid = useRef(null);
+  const backToGrid = () => { if (focusGrid.current) focusGrid.current(); };
+
+  const format = useMemo(() => ({
+    cells: selectedCells.length,
+    current: selection
+      ? commonStyle(rows.slice(selection.r0, selection.r1 + 1), selection.columns) : null,
+    dark: typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches,
+    onFormat: patch => { ds.setFormat(selectedCells, patch); backToGrid(); },
+    onClear: () => { ds.clearFormat(selectedCells); backToGrid(); },
+  }), [selectedCells, selection, rows, ds]);
+
   const addRow = useCallback(() => {
     const after = selection && rows[selection.r1] ? rows[selection.r1].id : null;
     ds.insertRows(after, 1);
@@ -267,7 +292,7 @@ export default function DataWorkspace({ active }) {
               onToggleColumn={ds.toggleColumn} onShowAllColumns={ds.showAllColumns}
               onAddColumn={ds.addColumn} onRenameColumn={ds.renameColumn} onRemoveColumn={ds.removeColumn}
               onUndo={ds.undo} onRedo={ds.redo} canUndo={ds.canUndo} canRedo={ds.canRedo}
-              onReload={() => ds.reload()}
+              onReload={() => ds.reload()} format={format}
               onDelete={ds.dataset && ds.dataset.kind === 'board' ? removeBoard : null}
               readOnly={false} />
 
@@ -293,6 +318,8 @@ export default function DataWorkspace({ active }) {
                     onMoveColumn={ds.moveColumn}
                     onSelectionChange={setSelection}
                     rowFlags={rowFlags} findHit={findHit}
+                    onFormat={patch => ds.setFormat(selectedCells, patch)}
+                    focusRef={focusGrid}
                     emptyText={query || filters.length
                       ? 'No row matches. Clear the search or the filters to see the rest.'
                       : 'Nothing here yet — add a row, import a spreadsheet, or extract a recording.'}
@@ -309,6 +336,9 @@ export default function DataWorkspace({ active }) {
                         run: () => ds.duplicateRows(rows.slice(box.r0, box.r1 + 1).map(r => r.id)) },
                       { label: box.r0 === box.r1 ? 'Delete row' : `Delete ${box.r1 - box.r0 + 1} rows`,
                         run: () => ds.deleteRows(rows.slice(box.r0, box.r1 + 1).map(r => r.id)) },
+                      { sep: true },
+                      { label: 'Clear formatting',
+                        run: () => ds.clearFormat(selectedCells) },
                       { sep: true },
                       { label: `Filter by this value`, disabled: !column,
                         run: () => setFilters(f => [...f, { key: column.key, op: 'eq',

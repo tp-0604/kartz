@@ -104,17 +104,26 @@ console.log('\n# legacy workbook snapshot recovered into rows');
 const DB2 = makeDb(readSchema());
 DB2._raw.exec(`INSERT INTO boards (id,event,date,alliance,label,saved_at,version) VALUES ('kartz|2026-05-25|698N','kartz','2026-05-25','698N','Day 1','x',1)`);
 DB2._raw.exec(`INSERT INTO scores (id,board_id,place,search,ingame,alliance,points,edited,extra,sort) VALUES ('z1','kartz|2026-05-25|698N',1,'Old','Old','698N',100,0,NULL,1)`);
-const snapshot = { sheetOrder: ['s1'], sheets: { s1: { id: 's1', cellData: {
+const snapshot = { sheetOrder: ['s1'], styles: { st1: { bg: { rgb: '#fff2cc' }, bl: 1 } },
+  sheets: { s1: { id: 's1', cellData: {
   0: { 0: { v: 'Rank' }, 1: { v: 'Player' }, 2: { v: 'Name in video' }, 3: { v: 'Alliance' }, 4: { v: 'Kartz Points' }, 5: { v: 'CP' }, 6: { v: 'Comment' } },
-  1: { 0: { v: 1 }, 1: { v: 'Old' }, 4: { v: 100 }, 5: { v: '9.4M' }, 6: { v: 'was away' } },
+  1: { 0: { v: 1 }, 1: { v: 'Old', s: 'st1' }, 4: { v: 100, s: { bg: { rgb: '#d9ead3' } } },
+       5: { v: '9.4M' }, 6: { v: 'was away' } },
 } } } };
 DB2._raw.exec(`INSERT INTO board_sheets (board_id,snapshot,updated_at) VALUES ('kartz|2026-05-25|698N','${JSON.stringify(snapshot).replace(/'/g, "''")}','x')`);
 const out = await readDataset({ DB: DB2 }, 'board:kartz|2026-05-25|698N');
 ok('legacy columns become real columns',
    out.columns.filter(c => c.role === 'extra').map(c => c.header).join(',') === 'CP,Comment', out.columns);
 ok('legacy values land on the row', out.rows[0]['x:CP'] === '9.4M' && out.rows[0]['x:Comment'] === 'was away', out.rows);
+ok('a fill set in the old workbook comes across, snapped to a swatch',
+   out.rows[0].__style && out.rows[0].__style.search.bg === 'yellow', out.rows[0].__style);
+ok('bold comes across too', out.rows[0].__style.search.b === 1, out.rows[0].__style);
+ok('a second colour lands on its own column',
+   out.rows[0].__style.points.bg === 'green', out.rows[0].__style);
 const again = await readDataset({ DB: DB2 }, 'board:kartz|2026-05-25|698N');
 ok('reading twice is stable', again.rows[0]['x:CP'] === '9.4M', again.rows);
+ok('and the recovered marking is stable too',
+   again.rows[0].__style.search.bg === 'yellow', again.rows[0].__style);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { fromTsv, toTsv, writeClipboard } from './clipboard.js';
+import { cssFor, styleFor } from '../data/format.js';
 
 const OVERSCAN = 8;
 const MIN_W = 56, MAX_W = 640;
@@ -27,10 +28,24 @@ export default function DataGrid({
   onEdit, onPaste, onInsert, onDelete, onDuplicate, onClear,
   onResize, onMoveColumn, onAddRow,
   menuItems, onSelectionChange,
-  rowFlags, findHit,
+  rowFlags, findHit, onFormat, focusRef,
   readOnly = false, emptyText = 'No rows',
 }) {
+  // The swatch a cell wears is a name; which half of the pair it resolves to is the theme's
+  // business, watched here so a mark made in daylight is still legible at night.
+  const [dark, setDark] = useState(() =>
+    typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
+  useEffect(() => {
+    if (typeof matchMedia !== 'function') return;
+    const mq = matchMedia('(prefers-color-scheme: dark)');
+    const on = e => setDark(e.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
   const hostRef = useRef(null);
+  // A toolbar button takes the focus with it when it is clicked, and a grid that has lost the
+  // focus no longer hears Ctrl+B. Whoever draws the toolbar gets a way to hand the focus back.
+  if (focusRef) focusRef.current = () => hostRef.current && hostRef.current.focus();
   const [view, setView] = useState({ top: 0, height: 600, width: 900 });
   const [sel, setSel] = useState({ ar: 0, ac: 0, fr: 0, fc: 0 });
   const [editing, setEditing] = useState(null);      // { r, c, value, replace }
@@ -170,6 +185,11 @@ export default function DataGrid({
     if (!editing.replace) editRef.current.select();
   }, [editingAt]);
 
+  // A toggle inverts what the focused cell has, which is how every editor decides whether
+  // Ctrl+B is switching bold on or off.
+  const currentStyle = useCallback(
+    () => styleFor(rows[sel.fr], cols[sel.fc] && cols[sel.fc].key), [rows, cols, sel]);
+
   // ---- clipboard -------------------------------------------------------------------------------
   const selectionMatrix = useCallback(() => {
     const b = norm(sel);
@@ -239,6 +259,12 @@ export default function DataGrid({
 
     if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); setSel({ ar: 0, ac: 0, fr: lastRow, fc: lastCol }); return; }
     if (mod && (e.key === 'c' || e.key === 'x' || e.key === 'v')) return;   // the document handlers have these
+    if (mod && !readOnly && onFormat && 'biu'.includes(e.key.toLowerCase())) {
+      e.preventDefault();
+      const k = { b: 'b', i: 'i', u: 'u' }[e.key.toLowerCase()];
+      onFormat({ [k]: !(currentStyle() || {})[k] });
+      return;
+    }
 
     switch (e.key) {
       case 'ArrowUp':    e.preventDefault(); mod ? goto(0, sel.fc, e.shiftKey) : move(-1, 0, e.shiftKey); return;
@@ -406,15 +432,17 @@ export default function DataGrid({
                   const unsaved = flags && flags.unsaved && flags.unsaved.has(c.key);
                   const hit = findHit && findHit(row, c);
                   const v = cellValue(row, c);
+                  const marked = cssFor(styleFor(row, c.key), dark);
                   return (
                     <div key={c.key}
                          className={'grid__cell'
                            + (c.type === 'int' ? ' grid__cell--num' : '')
                            + (v === '' ? ' grid__cell--muted' : '')
+                           + (marked ? ' is-marked' : '')
                            + (selected ? ' is-sel' : '') + (focused ? ' is-focus' : '')
                            + (unsaved ? ' is-unsaved' : '') + (hit ? ' is-hit' : '')
                            + (c.readOnly ? ' is-readonly' : '')}
-                         style={{ width: widths[i], height: rowHeight }}
+                         style={{ width: widths[i], height: rowHeight, ...marked }}
                          title={String(v)}
                          onMouseDown={e => cellDown(e, r, i)}
                          onMouseEnter={() => cellEnter(r, i)}

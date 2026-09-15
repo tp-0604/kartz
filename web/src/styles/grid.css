@@ -113,3 +113,8 @@
   border-bottom: 1px solid var(--line2);
 }
 .grid__add:hover { color: var(--accent); background: color-mix(in srgb, var(--accent) 4%, transparent); }
+
+/* A marked cell keeps its fill under the selection wash, so you can still see what you painted
+   while you are painting more of it. */
+.grid__cell.is-marked.is-sel { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--accent) 12%, transparent); }
+.grid__row:hover .grid__cell.is-marked { filter: brightness(1.02); }

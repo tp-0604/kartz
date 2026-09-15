@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import * as API from '../services/api.js';
 import { store } from '../utils/storage.js';
 import { blankRow, coerce, isExtra, sortBetween } from './model.js';
+import { mergeStyle } from './format.js';
 
 const FLUSH_MS = 700;                 // long enough to gather a burst of typing, short enough to feel saved
 const DRAFT_MS = 2000;
@@ -28,6 +29,10 @@ const EMPTY = { dataset: null, columns: [], rows: [], version: null };
 
 export function useDataset(key, { notify, onSaved } = {}) {
   const [data, setData] = useState(EMPTY);
+  // What the rows are right now, for the callbacks that have to read them without
+  // becoming a dependency of every one of them.
+  const dataRef = useRef(data);
+  dataRef.current = data;
   const [loading, setLoading] = useState(!!key);
   const [error, setError] = useState(null);
   const [save, setSave] = useState({ status: 'saved', pending: 0, error: null, at: null });
@@ -104,12 +109,15 @@ export function useDataset(key, { notify, onSaved } = {}) {
       if (pending.current.has(insertKey)) {
         const was = pending.current.get(insertKey);
         pending.current.set(insertKey, { ...was, values: { ...was.values, ...op.values },
+                                         style: { ...was.style, ...op.style },
                                          sort: op.sort ?? was.sort });
         continue;
       }
       if (op.op === 'insert') { pending.current.set(insertKey, op); continue; }
       const was = pending.current.get(updateKey);
-      pending.current.set(updateKey, was ? { ...was, values: { ...was.values, ...op.values } } : op);
+      pending.current.set(updateKey, was
+        ? { ...was, values: { ...was.values, ...op.values }, style: { ...was.style, ...op.style } }
+        : op);
     }
     setSave(s => ({ ...s, status: 'dirty', pending: pending.current.size, error: null }));
     scheduleFlush();
@@ -183,7 +191,7 @@ export function useDataset(key, { notify, onSaved } = {}) {
       const index = new Map(d.rows.map((r, i) => [r.id, i]));
       let rows = d.rows;
       const ops = [];
-      const inverse = { edits: [], inserts: [], deletes: [] };
+      const inverse = { edits: [], inserts: [], deletes: [], styles: [] };
 
       if (change.edits && change.edits.length) {
         const patch = new Map();
@@ -202,6 +210,32 @@ export function useDataset(key, { notify, onSaved } = {}) {
         if (patch.size) {
           rows = rows.map(r => (patch.has(r.id) ? { ...r, ...patch.get(r.id) } : r));
           for (const [id, values] of patch) ops.push({ op: 'update', id, values });
+        }
+      }
+
+      // Marking up: a fill, a colour, a weight. It rides the same queue as an edit and is undone
+      // the same way, but it is not a correction — the server does not mark the row edited for it.
+      if (change.styles && change.styles.length) {
+        const patch = new Map();
+        for (const st of change.styles) {
+          const i = index.get(st.id);
+          if (i === undefined) continue;
+          const was = (rows[i].__style && rows[i].__style[st.key]) || null;
+          if (JSON.stringify(was) === JSON.stringify(st.style)) continue;
+          inverse.styles.push({ id: st.id, key: st.key, style: was });
+          if (!patch.has(st.id)) patch.set(st.id, {});
+          patch.get(st.id)[st.key] = st.style;
+        }
+        if (patch.size) {
+          rows = rows.map(r => {
+            if (!patch.has(r.id)) return r;
+            const bag = { ...(r.__style || {}) };
+            for (const [k, v] of Object.entries(patch.get(r.id))) { if (v) bag[k] = v; else delete bag[k]; }
+            const next = { ...r };
+            if (Object.keys(bag).length) next.__style = bag; else delete next.__style;
+            return next;
+          });
+          for (const [id, style] of patch) ops.push({ op: 'update', id, style });
         }
       }
 
@@ -247,6 +281,30 @@ export function useDataset(key, { notify, onSaved } = {}) {
   const clear = useCallback(cells =>
     apply({ edits: cells.map(c => ({ ...c, value: null })), label: 'clear' }), [apply]);
   const deleteRows = useCallback(ids => apply({ deletes: ids, label: 'delete rows' }), [apply]);
+
+  /**
+   * Format cells. `cells` are {id, key} pairs — key may be the row marker — and `patch` is the
+   * difference to make: { bg: 'yellow' } to fill, { bg: null } to clear the fill, { b: 1 } to
+   * embolden. Everything is resolved against what each cell already wears, so bolding a mixed
+   * selection bolds all of it rather than replacing what was there.
+   */
+  const setFormat = useCallback((cells, patch) => {
+    const byId = new Map(dataRef.current.rows.map(r => [r.id, r]));
+    const styles = [];
+    for (const c of cells) {
+      const row = byId.get(c.id);
+      if (!row) continue;
+      styles.push({ id: c.id, key: c.key,
+                    style: mergeStyle((row.__style && row.__style[c.key]) || null, patch) });
+    }
+    if (styles.length) apply({ styles, label: 'format' });
+  }, [apply]);
+
+  /** Strip every mark from these cells. */
+  const clearFormat = useCallback(cells => {
+    if (cells.length) apply({ styles: cells.map(c => ({ id: c.id, key: c.key, style: null })),
+                              label: 'clear formatting' });
+  }, [apply]);
 
   /**
    * New rows, placed relative to a row the user pointed at rather than to a position.
@@ -417,12 +475,18 @@ export function useDataset(key, { notify, onSaved } = {}) {
     setHistory(h => {
       const last = h[from][h[from].length - 1];
       if (!last) return h;
-      const back = { edits: [], inserts: [], deletes: [] };
+      const back = { edits: [], inserts: [], deletes: [], styles: [] };
       const rows = dataRef.current.rows;
       const index = new Map(rows.map((r, i) => [r.id, i]));
       for (const e of last.inverse.edits) {
         const i = index.get(e.id);
         if (i !== undefined) back.edits.push({ id: e.id, key: e.key, value: rows[i][e.key] ?? null });
+      }
+      for (const st of last.inverse.styles || []) {
+        const i = index.get(st.id);
+        if (i !== undefined)
+          back.styles.push({ id: st.id, key: st.key,
+                             style: (rows[i].__style && rows[i].__style[st.key]) || null });
       }
       for (const id of last.inverse.deletes) {
         const i = index.get(id);
@@ -434,8 +498,6 @@ export function useDataset(key, { notify, onSaved } = {}) {
     });
   }, [apply]);
 
-  const dataRef = useRef(data);
-  dataRef.current = data;
   const undo = useCallback(() => step('undo', 'redo'), [step]);
   const redo = useCallback(() => step('redo', 'undo'), [step]);
 
@@ -452,7 +514,7 @@ export function useDataset(key, { notify, onSaved } = {}) {
     key, ...data, loading, error,
     save, rejected, draft,
     reload: load, flush: flushNow, resolveConflict, restoreDraft, discardDraft,
-    edit, clear, paste, insertRows, duplicateRows, deleteRows,
+    edit, clear, paste, insertRows, duplicateRows, deleteRows, setFormat, clearFormat,
     addColumn, renameColumn, removeColumn, toggleColumn, showAllColumns,
     moveColumn, resizeColumn, commitWidths,
     undo, redo, canUndo: history.undo.length > 0, canRedo: history.redo.length > 0,

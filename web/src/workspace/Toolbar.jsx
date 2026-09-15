@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import Dropdown from '../components/shared/Dropdown.jsx';
 import { FILTER_OPS } from '../data/model.js';
+import FormatMenu from './FormatMenu.jsx';
 
 const MODKEY = typeof navigator !== 'undefined'
   && /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent || '') ? '⌘' : 'Ctrl+';
@@ -16,7 +17,7 @@ export default function Toolbar({
   columns, rows, filters, setFilters, query, setQuery, matches, sort, setSort,
   onAddRow, onImport, onExport, onToggleColumn, onShowAllColumns, onAddColumn, onRenameColumn,
   onRemoveColumn, onUndo, onRedo, canUndo, canRedo, onReload, onDelete, readOnly, extra,
-  findRef,
+  findRef, format,
 }) {
   const hidden = columns.filter(c => c.hidden).length;
   const visible = columns.filter(c => !c.hidden);
@@ -66,6 +67,13 @@ export default function Toolbar({
       </Dropdown>
 
       <div className="ws__sep" />
+
+      {format && (
+        <>
+          <FormatMenu {...format} disabled={readOnly || !format.cells} />
+          <div className="ws__sep" />
+        </>
+      )}
 
       <button className="btn btn--sm" onClick={() => onAddRow()} disabled={readOnly}
               title={`Add a row (Alt+Enter)`}>+ Row</button>

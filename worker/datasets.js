@@ -69,22 +69,69 @@ function univerGrid(snapshot) {
     for (const [c, cell] of Object.entries(row || {})) {
       const ci = Number(c);
       if (!Number.isFinite(ci) || ci < 0 || ci > 200) continue;
-      const v = cell && typeof cell === 'object' ? (cell.v ?? '') : cell;
-      out[ci] = v === null || v === undefined ? '' : v;
+      // The cell object is kept, not just its value: the formatting is on it.
+      out[ci] = cell && typeof cell === 'object' ? cell : { v: cell ?? '' };
     }
   }
   return grid.length ? grid : null;
 }
 
+// The old workbook stored a colour as a hex; this app stores a swatch name, so a recovered fill
+// has to be snapped to one. Comparing the raw numbers does not work: a workbook's fills are pale
+// tints, the swatches are mid-tones, and by straight distance #fff2cc — a plain pale yellow —
+// comes out closer to grey than to yellow. What survives tinting is the hue, so that is what is
+// compared, with anything nearly colourless taken as grey.
+const SWATCH_HUE = { red: 2, orange: 30, yellow: 52, green: 130, teal: 172, blue: 212, purple: 272, pink: 330 };
+
+function nearestSwatch(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  const l = (max + min) / 2;
+  // White, near-white and near-black are "no fill": a workbook is mostly cells nobody coloured.
+  if (l > 0.955 || l < 0.05) return null;
+  const sat = d === 0 ? 0 : d / (1 - Math.abs(2 * l - 1));
+  if (sat < 0.12) return 'grey';
+  let h = 0;
+  if (max === r) h = 60 * (((g - b) / d) % 6);
+  else if (max === g) h = 60 * ((b - r) / d + 2);
+  else h = 60 * ((r - g) / d + 4);
+  if (h < 0) h += 360;
+  let best = 'grey', bestD = Infinity;
+  for (const [name, hue] of Object.entries(SWATCH_HUE)) {
+    const gap = Math.abs(((h - hue + 540) % 360) - 180);   // 0 is the same hue
+    if (gap < bestD) { bestD = gap; best = name; }
+  }
+  return best;
+}
+
+// Univer keeps a style either inline on the cell or by id in a workbook-level table.
+function univerStyle(snapshot, cell) {
+  const raw = cell && (typeof cell.s === 'object' ? cell.s
+    : (typeof cell.s === 'string' && snapshot.styles ? snapshot.styles[cell.s] : null));
+  if (!raw || typeof raw !== 'object') return null;
+  const out = {};
+  const bg = raw.bg && (raw.bg.rgb || raw.bg.color);
+  const fill = nearestSwatch(bg);
+  if (fill) out.bg = fill;
+  if (raw.bl) out.b = 1;
+  if (raw.it) out.i = 1;
+  if (raw.ul && (raw.ul.s === undefined || raw.ul.s)) out.u = 1;
+  return Object.keys(out).length ? out : null;
+}
+
 async function recoverLegacyColumns(env, boardId) {
   const row = await env.DB.prepare('SELECT snapshot FROM board_sheets WHERE board_id = ?')
     .bind(boardId).first();
-  const grid = row ? univerGrid(parseJson(row.snapshot, null)) : null;
+  const snapshot = row ? parseJson(row.snapshot, null) : null;
+  const grid = snapshot ? univerGrid(snapshot) : null;
   const head = grid ? (grid[0] || []) : [];
   const columns = [];
   const at = [];
   for (let c = RECORD_COLUMNS.length; c < head.length; c++) {
-    const h = str(head[c]);
+    const h = str(head[c] && head[c].v);
     if (!h || columns.includes(h)) continue;
     columns.push(h);
     at.push({ col: c, header: h });
@@ -101,11 +148,12 @@ async function recoverLegacyColumns(env, boardId) {
     // also identifies a stored row.
     const byPlace = new Map();
     for (let r = 1; r < grid.length; r++) {
-      const place = toInt((grid[r] || [])[0], null);
+      const line = grid[r] || [];
+      const place = toInt(line[0] && line[0].v, null);
       if (place === null) continue;
       const extra = {};
       for (const { col, header } of at) {
-        const v = str((grid[r] || [])[col]);
+        const v = str(line[col] && line[col].v);
         if (v) extra[header] = v;
       }
       if (Object.keys(extra).length) byPlace.set(place, extra);
@@ -113,6 +161,29 @@ async function recoverLegacyColumns(env, boardId) {
     if (byPlace.size) {
       const up = env.DB.prepare('UPDATE scores SET extra = ? WHERE board_id = ? AND place = ? AND extra IS NULL');
       for (const [place, extra] of byPlace) stmts.push(up.bind(JSON.stringify(extra), boardId, place));
+    }
+  }
+
+  // Whatever was filled, bolded or coloured in the old workbook comes across with it. The
+  // columns are matched by position, which is what they were: A to E the record, then the rest.
+  if (grid) {
+    const keyAt = i => (i < RECORD_COLUMNS.length ? RECORD_COLUMNS[i].key : extraKey(str(head[i] && head[i].v)));
+    const marks = new Map();
+    for (let r = 1; r < grid.length; r++) {
+      const line = grid[r] || [];
+      const place = toInt(line[0] && line[0].v, null);
+      if (place === null) continue;
+      const bag = {};
+      for (let c = 0; c < line.length; c++) {
+        const st = univerStyle(snapshot, line[c]);
+        const key = keyAt(c);
+        if (st && key && !key.endsWith(':')) bag[key] = st;
+      }
+      if (Object.keys(bag).length) marks.set(place, bag);
+    }
+    if (marks.size) {
+      const up = env.DB.prepare('UPDATE scores SET style = ? WHERE board_id = ? AND place = ? AND style IS NULL');
+      for (const [place, bag] of marks) stmts.push(up.bind(JSON.stringify(bag), boardId, place));
     }
   }
   for (const part of chunk(stmts, 50)) await env.DB.batch(part);
@@ -143,7 +214,8 @@ const applyLayout = (columns, layout) => {
 // place between them. It is not a column and nothing draws it.
 const flatten = (row, columns) => {
   const extra = parseJson(row.extra, {});
-  const out = { id: row.id, __sort: row.sort ?? 0 };
+  const style = parseJson(row.style, null);
+  const out = { id: row.id, __sort: row.sort ?? 0, ...(style ? { __style: style } : {}) };
   for (const c of columns) {
     if (c.role === 'record') out[c.key] = row[c.key] ?? null;
     else out[c.key] = extra[extraName(c.key)] ?? null;
@@ -179,7 +251,7 @@ export async function readDataset(env, key) {
     const { columns, mapping } = rosterColumns(meta);
     const shown = applyLayout(columns, parseJson(meta && meta.layout, {}));
     const { results } = await env.DB.prepare(
-      'SELECT id, search, ingame, alliance, extra, sort FROM roster ORDER BY sort, search COLLATE NOCASE').all();
+      'SELECT id, search, ingame, alliance, extra, style, sort FROM roster ORDER BY sort, search COLLATE NOCASE').all();
     return {
       dataset: { key: 'roster', kind: 'roster', title: 'Roster', mapping,
                  rows: (results || []).length, savedAt: meta ? meta.saved_at : null },
@@ -197,7 +269,7 @@ export async function readDataset(env, key) {
     ...meta.columns.map(h => ({ key: extraKey(h), header: h, type: 'text', width: 140, role: 'extra' })),
   ], meta.layout);
   const { results } = await env.DB.prepare(
-    `SELECT id, place, search, ingame, alliance, points, edited, extra, sort FROM scores
+    `SELECT id, place, search, ingame, alliance, points, edited, extra, style, sort FROM scores
       WHERE board_id = ? ORDER BY sort, place`).bind(target.id).all();
   return {
     dataset: {
@@ -281,11 +353,48 @@ function planRowOps(ops, columns, existing) {
       else extra[extraName(col.key)] = out.value;
     }
     if (stop && op === 'insert') continue;       // a new row that cannot be written at all
-    writes.push({ kind: op, id, record, extra,
+    // A style patch names columns, and a column named with null clears that cell's marking.
+    // It is checked against the same column list as a value, so nothing can mark a column that
+    // does not exist.
+    const style = {};
+    for (const [k, v] of Object.entries(raw.style || {})) {
+      if (k !== ROW_STYLE && !byKey.has(k)) { rejected.push({ id, field: k, reason: `there is no column “${k}”.` }); continue; }
+      style[k] = v === null ? null : cleanStyle(v);
+    }
+    writes.push({ kind: op, id, record, extra, style,
                   sort: Number.isFinite(Number(raw.sort)) ? Number(raw.sort) : null });
   }
   return { writes, deletes, rejected };
 }
+
+// The swatches a style may name, and the properties it may carry. Anything else is dropped —
+// the browser chooses from a palette, it does not send colours, so a colour arriving here is
+// either an old client or something that should not be trusted with the row.
+const ROW_STYLE = '__row';
+const FILLS = new Set(['grey', 'red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink']);
+const INKS = new Set(['grey', 'red', 'orange', 'green', 'teal', 'blue', 'purple', 'pink']);
+const ALIGN = new Set(['left', 'center', 'right']);
+
+function cleanStyle(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const out = {};
+  if (FILLS.has(raw.bg)) out.bg = raw.bg;
+  if (INKS.has(raw.fg)) out.fg = raw.fg;
+  if (raw.b) out.b = 1;
+  if (raw.i) out.i = 1;
+  if (raw.u) out.u = 1;
+  if (ALIGN.has(raw.a)) out.a = raw.a;
+  return Object.keys(out).length ? out : null;
+}
+
+const mergeStyleBag = (current, patch) => {
+  const out = { ...current };
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === null) delete out[k];
+    else out[k] = v;
+  }
+  return Object.keys(out).length ? JSON.stringify(out) : null;
+};
 
 const mergeExtra = (current, patch) => {
   const out = { ...current };
@@ -350,7 +459,7 @@ async function boardOps(env, boardId, ops, body) {
   const existing = new Map();
   for (const part of chunk(touchedIds, 90)) {
     const { results } = await env.DB.prepare(
-      `SELECT id, place, extra FROM scores WHERE board_id = ? AND id IN (${part.map(() => '?').join(',')})`)
+      `SELECT id, place, extra, style FROM scores WHERE board_id = ? AND id IN (${part.map(() => '?').join(',')})`)
       .bind(boardId, ...part).all();
     for (const r of results || []) existing.set(r.id, r);
   }
@@ -363,15 +472,16 @@ async function boardOps(env, boardId, ops, body) {
   for (const w of writes) {
     const was = existing.get(w.id);
     const extra = mergeExtra(parseJson(was && was.extra, {}), w.extra);
+    const style = mergeStyleBag(parseJson(was && was.style, {}), w.style);
     if (w.kind === 'insert' && !was) {
       const place = w.record.place ?? 0;
       stmts.push(env.DB.prepare(
-        `INSERT INTO scores (id, board_id, place, search, ingame, alliance, points, edited, extra, sort)
-         VALUES (?,?,?,?,?,?,?,1,?,?)`)
+        `INSERT INTO scores (id, board_id, place, search, ingame, alliance, points, edited, extra, style, sort)
+         VALUES (?,?,?,?,?,?,?,1,?,?,?)`)
         .bind(w.id, boardId, place === null ? 0 : place, w.record.search ?? null,
               w.record.ingame ?? '', w.record.alliance ?? null,
               w.record.points === null || w.record.points === undefined ? 0 : w.record.points,
-              extra, w.sort === null ? (place === null ? 0 : place) : w.sort));
+              extra, style, w.sort === null ? (place === null ? 0 : place) : w.sort));
       inserted++;
       continue;
     }
@@ -383,9 +493,12 @@ async function boardOps(env, boardId, ops, body) {
       sets.push(k + ' = ?'); binds.push(value);
     }
     if (Object.keys(w.extra).length) { sets.push('extra = ?'); binds.push(extra); }
+    if (Object.keys(w.style).length) { sets.push('style = ?'); binds.push(style); }
     if (w.sort !== null) { sets.push('sort = ?'); binds.push(w.sort); }
     if (!sets.length) continue;
-    sets.push('edited = 1');
+    // Marking a cell up is not correcting it, so it does not claim the row against a later
+    // re-extraction. Only a changed value does that.
+    if (Object.keys(w.record).length || Object.keys(w.extra).length) sets.push('edited = 1');
     stmts.push(env.DB.prepare(`UPDATE scores SET ${sets.join(', ')} WHERE id = ? AND board_id = ?`)
       .bind(...binds, w.id, boardId));
     updated++;
@@ -460,7 +573,7 @@ async function rosterOps(env, ops, body) {
   const existing = new Map();
   for (const part of chunk(touchedIds, 95)) {
     const { results } = await env.DB.prepare(
-      `SELECT id, search, extra FROM roster WHERE id IN (${part.map(() => '?').join(',')})`)
+      `SELECT id, search, extra, style FROM roster WHERE id IN (${part.map(() => '?').join(',')})`)
       .bind(...part).all();
     for (const r of results || []) existing.set(r.id, r);
   }
@@ -499,11 +612,12 @@ async function rosterOps(env, ops, body) {
   for (const w of ok) {
     const was = existing.get(w.id);
     const extra = mergeExtra(parseJson(was && was.extra, {}), w.extra);
+    const style = mergeStyleBag(parseJson(was && was.style, {}), w.style);
     if (w.kind === 'insert' && !was) {
       stmts.push(env.DB.prepare(
-        'INSERT INTO roster (id, search, ingame, alliance, extra, sort, updated_at) VALUES (?,?,?,?,?,?,?)')
+        'INSERT INTO roster (id, search, ingame, alliance, extra, style, sort, updated_at) VALUES (?,?,?,?,?,?,?,?)')
         .bind(w.id, w.record.search ?? '', w.record.ingame || w.record.search || '',
-              w.record.alliance ?? null, extra, w.sort === null ? 1e9 : w.sort, stamp));
+              w.record.alliance ?? null, extra, style, w.sort === null ? 1e9 : w.sort, stamp));
       inserted++;
       continue;
     }
@@ -513,6 +627,7 @@ async function rosterOps(env, ops, body) {
       sets.push(k + ' = ?'); binds.push(value);
     }
     if (Object.keys(w.extra).length) { sets.push('extra = ?'); binds.push(extra); }
+    if (Object.keys(w.style).length) { sets.push('style = ?'); binds.push(style); }
     if (w.sort !== null) { sets.push('sort = ?'); binds.push(w.sort); }
     if (!sets.length) continue;
     sets.push('updated_at = ?'); binds.push(stamp);

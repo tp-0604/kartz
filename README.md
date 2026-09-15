@@ -54,6 +54,32 @@ with arrows to jump to an edge, `⌘/Ctrl+A`, `C`, `X`, `V`, `Z`, `⇧Z`, `F` fo
 the queue now, `Alt+Enter` for a new row, `Delete` to clear, `F2` or a double-click to edit, and
 typing over a cell replaces it. Right-click for the rest.
 
+### Marking cells up
+
+Fill, text colour, **bold**, *italic*, underline and alignment, on whatever is selected —
+`⌘/Ctrl+B`, `I` and `U`, or the toolbar's **Fill** menu for the rest. **Clear formatting** takes
+it all off, and undo covers it like any other edit.
+
+Two things about it are deliberate:
+
+*It belongs to the row, not to the position.* A yellow row stays yellow through a sort, a
+filter, a rank correction and a second extraction of the same day, because the marking is stored
+against the row's id.
+
+*A colour is a name, not a hex.* You pick from nine fills and eight text colours rather than
+from a picker, and the name is what is stored: the theme decides what "yellow" is, so a board
+marked up in daylight is still legible in dark mode. Every pair was checked on both surfaces —
+normal text reads at 10:1 or better on every fill. A picker would let anyone choose white on
+white, or a fill that disappears the moment the theme flips.
+
+Font family and size are not offered. Both change how tall a line wants to be, and the grid
+draws every row at the same height to stay fast at thirty thousand rows, so a larger font would
+be clipped rather than honoured. Weight, slant, colour and alignment all fit inside a fixed row.
+
+Marking a cell is not the same as correcting it: it does not set the row's *edited* flag, so a
+row you only highlighted is still replaced by a later extraction, while a row whose value you
+changed is not.
+
 ### The roster
 
 The roster is the list of players, kept here and edited as a dataset like any other. Add a
@@ -74,8 +100,9 @@ hide, resize and reorder from the **Columns** menu or by dragging a heading.
 
 An older version of this app kept those extra columns inside a spreadsheet snapshot that only
 one library could read. The first time a board is opened they are read out of that snapshot and
-into the rows, and the board is marked so it is only done once. The snapshot itself is left
-where it is.
+into the rows, and the board is marked so it is only done once. Fills and bold from that
+snapshot come across too, each colour snapped to the nearest of the nine swatches by hue, so a
+board somebody had highlighted stays highlighted. The snapshot itself is left where it is.
 
 ### Asking the data
 
@@ -186,18 +213,20 @@ Nothing writes the .xlsx but this repository: it is a zip of five small XML file
 ### The database
 
 Cloudflare D1, and it is the record. `schema.sql` is what a new database is; the migrations take
-an existing one there in order. **`migrate-006.sql` must be run once against the real database
-before this version is deployed:**
+an existing one there in order. **`migrate-006.sql` and `migrate-007.sql` must be run once
+against the real database, in that order, before this version is deployed:**
 
     npx wrangler d1 execute kartz-db --remote --file=migrate-006.sql
+    npx wrangler d1 execute kartz-db --remote --file=migrate-007.sql
 
-Nothing is deleted by it. `scores` and `roster` are rebuilt to carry a stable row id and a bag
-of custom columns, with every existing row copied across; everything else it adds is new.
+Nothing is deleted by either. 006 rebuilds `scores` and `roster` to carry a stable row id and a
+bag of custom columns, with every existing row copied across; everything else it adds is new.
+007 adds the one column that holds a row's marking, and adds nothing else.
 
 | table | what it holds |
 |---|---|
 | `boards` | one per alliance per day filmed, with a `version` bumped on every write |
-| `scores` | the rows: a stable `id`, the rank, the player, the drawn name, the alliance, the points, and `extra` — the board's own columns, keyed by heading |
+| `scores` | the rows: a stable `id`, the rank, the player, the drawn name, the alliance, the points, `extra` — the board's own columns, keyed by heading — and `style`, the marking |
 | `board_meta` | which columns a board carries past the record, and how they are laid out |
 | `roster` / `roster_meta` | the player list and its columns, in whatever order it keeps them |
 | `extraction_runs` | which recording produced which rows, and how many were already there |

@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS scores (
   points   INTEGER NOT NULL,
   edited   INTEGER NOT NULL DEFAULT 0,  -- a person corrected this row; a re-save must not undo it
   extra    TEXT,                        -- JSON, keyed by column heading
+  style    TEXT,                        -- JSON: fills, bold, colour, keyed by column. Swatch
+                                        -- names, never hex, so the theme can resolve them
   sort     INTEGER NOT NULL DEFAULT 0   -- the order the rows were left in
 );
 
@@ -85,6 +87,7 @@ CREATE TABLE IF NOT EXISTS roster (
   ingame     TEXT NOT NULL,               -- the name as the game draws it
   alliance   TEXT,
   extra      TEXT,                        -- JSON, keyed by column heading: CP, march types, notes
+  style      TEXT,                        -- JSON: fills, bold, colour, keyed by column
   sort       INTEGER NOT NULL DEFAULT 0,  -- the order the rows were left in
   updated_at TEXT NOT NULL
 );

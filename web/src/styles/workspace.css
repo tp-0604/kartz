@@ -160,3 +160,29 @@
   .rail { display: none; }
   .ws.has-panel .aipanel { position: fixed; inset: var(--topbar-h) 0 0 auto; width: min(420px, 100%); z-index: 50; }
 }
+
+/* ---- marking up ------------------------------------------------------------------------------
+   Swatches rather than a colour picker: a picker lets anyone choose white on white, or a fill
+   that disappears when the theme flips. These are named colours the theme resolves. */
+.swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; padding: 2px 8px 8px; }
+.swatch {
+  height: 26px; border: 1px solid var(--line3); border-radius: var(--r1); cursor: pointer;
+  background: var(--panel); padding: 0; position: relative;
+  font: 700 13px/1 var(--sans);
+}
+.swatch:hover { border-color: var(--ink2); }
+.swatch.is-on { box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); }
+/* "none" is drawn as a struck-through empty square, the way every editor draws it */
+.swatch--none { background: var(--panel); }
+.swatch--none::after {
+  content: ''; position: absolute; inset: 4px;
+  background: linear-gradient(to bottom right, transparent 45%, var(--bad) 45%,
+              var(--bad) 55%, transparent 55%);
+}
+.swatch--ink { background: var(--panel); }
+
+.fmtbtn { display: inline-flex; align-items: center; gap: 6px; }
+.fmtbtn__chip {
+  width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line3);
+  background: repeating-linear-gradient(45deg, var(--panel3) 0 3px, var(--panel) 3px 6px);
+}

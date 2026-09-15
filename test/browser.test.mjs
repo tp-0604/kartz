@@ -134,6 +134,48 @@ await page.keyboard.press('Escape');
 ok('a new column appears', (await page.locator('.grid__th').allInnerTexts()).some(t => /notes/i.test(t)),
    await page.locator('.grid__th').allInnerTexts());
 
+console.log('\n# marking cells up');
+const bgOf = loc => loc.evaluate(el => getComputedStyle(el).backgroundColor);
+const YELLOW = /250,\s*240,\s*200/;                     // the light half of the yellow swatch
+const marks = () => page.locator('.grid__cell.is-marked');
+const points = r => page.locator('.grid__row').nth(r).locator('.grid__cell').nth(4);
+await points(0).click();
+await page.keyboard.press('Shift+ArrowDown');
+await page.getByRole('button', { name: /Fill/ }).click();
+await page.waitForTimeout(200);
+await page.locator('.swatch[title="yellow"]').click();
+await page.waitForTimeout(1200);
+ok('the fill lands on both selected cells', (await marks().count()) === 2, await marks().count());
+const filled = await bgOf(points(1));
+ok('and it is actually yellow', YELLOW.test(filled), filled);
+ok('a neighbouring cell is left alone', !YELLOW.test(await bgOf(points(2))));
+
+// The menu took the focus when it was clicked; the grid has to have it back for this to land.
+await page.keyboard.press('Control+b');
+await page.waitForTimeout(1200);
+ok('Ctrl+B bolds the selection',
+   (await points(0).evaluate(el => getComputedStyle(el).fontWeight)) === '700',
+   await points(0).evaluate(el => getComputedStyle(el).fontWeight));
+
+// A reload drops the sort, so the marked rows come back wherever the stored order puts them —
+// which is the point: the marking is on the row, not on the position.
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForSelector('.grid__row', { timeout: 8000 });
+await page.waitForTimeout(500);
+ok('the marking survived a reload', (await marks().count()) === 2, await marks().count());
+ok('and it came back yellow', YELLOW.test(await bgOf(marks().first())), await bgOf(marks().first()));
+await page.screenshot({ path: shot('03b-marked') });
+
+await marks().first().click();
+await page.getByRole('button', { name: /Fill/ }).click();
+await page.waitForTimeout(200);
+await page.getByRole('button', { name: 'Clear formatting' }).click();
+await page.waitForTimeout(1200);
+ok('clearing takes the marking off that cell', (await marks().count()) === 1, await marks().count());
+await page.keyboard.press('Control+z');
+await page.waitForTimeout(1200);
+ok('and undo puts it back', (await marks().count()) === 2, await marks().count());
+
 console.log('\n# the command palette');
 await page.keyboard.press('Control+k');
 await page.waitForTimeout(250);
