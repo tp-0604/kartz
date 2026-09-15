@@ -146,48 +146,15 @@ async function withFallback(call, chain, note, paced) {
 
 // Same request the direct Gemini path sends, aimed at the team Worker instead. No key
 // travels with it; the Worker holds that and adds it upstream.
+// A request that never comes back hangs the whole run: the ladder below only retries errors,
+// and a socket that stays open produces no error to retry. Seen for real — five of six batches
+// answered in eleven seconds each and the sixth simply never returned, leaving the run on
+// "read 5 of 6 batches…" for as long as anyone cared to watch. A timeout turns that into a 504,
+// which is already on the retryable list, so the ladder does what it was written to do.
+const REQUEST_TIMEOUT_MS = 120000;
+
 async function callProxy(batch, model, roster) {
-  const r = await fetch(apiUrl('/' + encodeURIComponent(model)), {
-    method: 'POST',
-    headers: apiHeaders({ 'content-type': 'application/json' }),
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [
-        ...batch.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d } })),
-        { text: buildPrompt(roster, false) }] }],
-      generationConfig: {
-        temperature: 0, maxOutputTokens: 32768,
-        // The same recording gives the same rows. Temperature 0 was never enough on its own —
-        // two identical requests came back 3,666 and 3,883 characters long — because it only
-        // says "take the likeliest token", and which token that is still shifts with how the
-        // request happened to be batched on the server. A seed pins that down: the same pair
-        // of requests came back byte for byte identical.
-        //
-        // Frame extraction was already deterministic — three extractions of one video produced
-        // 153 byte-identical frames — so with this the whole pipeline is repeatable, and a run
-        // that loses a rank loses it every time rather than one time in five. That is worth as
-        // much as the fix: a fault you can reproduce is a fault you can chase.
-        seed: 7,
-        thinkingConfig: { thinkingLevel: 'low' },
-        // Ask the API to enforce the shape rather than hoping the model returns clean JSON.
-        // Everything is a string: models will happily emit "1,234" or "#4" for a number and
-        // then the whole response is rejected, so take text and convert here.
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: 'ARRAY',
-          items: {
-            type: 'OBJECT',
-            properties: {
-              rank:        { type: 'STRING' },
-              roster_name: { type: 'STRING' },
-              seen:        { type: 'STRING' },
-              points:      { type: 'STRING' },
-            },
-            required: ['rank', 'seen', 'points'],
-          },
-        },
-      }
-    })
-  });
+  const r = await postBatch(batch, model, roster);
   if (!r.ok) throw new Error(r.status + ': ' + (await r.text()).slice(0, 300));
   const j = await r.json();
   // What it actually cost, as reported rather than guessed — the gate above is working from an
@@ -198,6 +165,59 @@ async function callProxy(batch, model, roster) {
     callProxy.calls = (callProxy.calls || 0) + 1;
   }
   return parseJSON(j.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') || '');
+}
+
+async function postBatch(batch, model, roster) {
+  try {
+    return await fetch(apiUrl('/' + encodeURIComponent(model)), {
+      method: 'POST',
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      headers: apiHeaders({ 'content-type': 'application/json' }),
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [
+          ...batch.map(d => ({ inline_data: { mime_type: 'image/jpeg', data: d } })),
+          { text: buildPrompt(roster, false) }] }],
+        generationConfig: {
+          temperature: 0, maxOutputTokens: 32768,
+          // The same recording gives the same rows. Temperature 0 was never enough on its own —
+          // two identical requests came back 3,666 and 3,883 characters long — because it only
+          // says "take the likeliest token", and which token that is still shifts with how the
+          // request happened to be batched on the server. A seed pins that down: the same pair
+          // of requests came back byte for byte identical.
+          //
+          // Frame extraction was already deterministic — three extractions of one video produced
+          // 153 byte-identical frames — so with this the whole pipeline is repeatable, and a run
+          // that loses a rank loses it every time rather than one time in five. That is worth as
+          // much as the fix: a fault you can reproduce is a fault you can chase.
+          seed: 7,
+          thinkingConfig: { thinkingLevel: 'low' },
+          // Ask the API to enforce the shape rather than hoping the model returns clean JSON.
+          // Everything is a string: models will happily emit "1,234" or "#4" for a number and
+          // then the whole response is rejected, so take text and convert here.
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: 'ARRAY',
+            items: {
+              type: 'OBJECT',
+              properties: {
+                rank:        { type: 'STRING' },
+                roster_name: { type: 'STRING' },
+                seen:        { type: 'STRING' },
+                points:      { type: 'STRING' },
+              },
+              required: ['rank', 'seen', 'points'],
+            },
+          },
+        }
+      })
+    });
+  } catch (e) {
+    // A timeout is reported as a gateway timeout, which the ladder already knows to retry.
+    // Anything else — the network going away mid-run — is worded so the log says which it was.
+    if (e && (e.name === 'TimeoutError' || e.name === 'AbortError'))
+      throw new Error(`504: that batch did not answer within ${REQUEST_TIMEOUT_MS / 1000}s.`);
+    throw new Error('503: could not reach the Worker — ' + ((e && e.message) || e));
+  }
 }
 
 // Parse row objects individually rather than requiring one well-formed array. A long
