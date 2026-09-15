@@ -274,6 +274,10 @@ extracts, but its roster half no longer applies.
 | **Step 6** | Press **Add … to the data**. It says how many are new and how many are already there. |
 | **Step 7** | Choose. Then the board is open in Data, and you are already looking at it. |
 
+The recording has to be one this browser can decode, which in practice means H.264 in .mov or
+.mp4 — what a phone records. A file it cannot open now says so straight away instead of sitting
+on *decoding video…* for ever, and says what to do about it.
+
 There is no copy, no spreadsheet tab, no CSV download, no Split Text to Columns and no
 name-fixing pass. The old Step 8 — *"fix the name in column M, this step will take the most
 time"* — is what the roster matching replaced; the old Steps 6 and 7 are what the database

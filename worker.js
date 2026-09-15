@@ -303,8 +303,13 @@ export default {
     if (!(isCf ? /^@cf\/[a-zA-Z0-9._/-]{1,80}$/ : /^[a-zA-Z0-9.-]{1,64}$/).test(model))
       return reply({ error: { code: 400, message: 'Bad model name.' } }, 400);
 
+    // 501, not 500: the page retries a 500 for two minutes because a 500 is usually a model
+    // having a bad afternoon. A missing key is not going to start working, so it must not look
+    // like one that might.
     if (!isCf && !env.GEMINI_KEY)
-      return reply({ error: { code: 500, message: 'Worker has no GEMINI_KEY secret set.' } }, 500);
+      return reply({ error: { code: 501, message:
+        'this Worker has no GEMINI_KEY secret set, so it cannot read a recording. '
+        + 'Set one with: wrangler secret put GEMINI_KEY' } }, 501);
 
     // Frames are large; cap the body so a stray caller cannot post something enormous.
     const payload = await request.text();
