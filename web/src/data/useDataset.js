@@ -400,13 +400,23 @@ export function useDataset(key, { notify, onSaved } = {}) {
   }, [apply]);
 
   // ---- columns and layout --------------------------------------------------------------------------
+  /**
+   * What the `columns` op carries. A board's five typed columns are the record and are not
+   * stored as columns at all, so sending them would come back as five duplicates of themselves
+   * under their own headings; only the board's own columns go. The roster is the other way
+   * round — every one of its columns is its own, mapping and all.
+   */
+  const headingsOf = d => (d.dataset && d.dataset.kind === 'roster'
+    ? d.columns.map(c => c.header)
+    : d.columns.filter(c => c.role === 'extra').map(c => c.header));
+
   const addColumn = useCallback(header => {
     const name = String(header || '').trim();
     if (!name) return;
     setData(d => {
       if (d.columns.some(c => c.header === name)) return d;
       const columns = [...d.columns, { key: 'x:' + name, header: name, type: 'text', width: 140, role: 'extra' }];
-      queueMicrotask(() => enqueue([{ op: 'columns', columns: columns.map(c => c.header) }]));
+      queueMicrotask(() => enqueue([{ op: 'columns', columns: headingsOf({ ...d, columns }) }]));
       return { ...d, columns };
     });
   }, [enqueue]);
@@ -417,12 +427,15 @@ export function useDataset(key, { notify, onSaved } = {}) {
     setData(d => {
       const col = d.columns.find(c => c.key === key);
       if (!col || col.header === name || d.columns.some(c => c.header === name)) return d;
+      // A board's record headings are the app's, not the board's: there is nowhere to store a
+      // different one, so renaming it would look like it worked until the next reload.
+      if (col.role !== 'extra' && !(d.dataset && d.dataset.kind === 'roster')) return d;
       const nextKey = isExtra(col.key) ? 'x:' + name : col.key;
       const columns = d.columns.map(c => (c.key === key ? { ...c, header: name, key: nextKey } : c));
       const rows = isExtra(col.key)
         ? d.rows.map(r => { const { [col.key]: v, ...rest } = r; return { ...rest, [nextKey]: v ?? null }; })
         : d.rows;
-      queueMicrotask(() => enqueue([{ op: 'columns', columns: columns.map(c => c.header),
+      queueMicrotask(() => enqueue([{ op: 'columns', columns: headingsOf({ ...d, columns }),
                                       rename: { from: col.header, to: name } }]));
       return { ...d, columns, rows };
     });
@@ -433,7 +446,7 @@ export function useDataset(key, { notify, onSaved } = {}) {
       const col = d.columns.find(c => c.key === key);
       if (!col || col.role !== 'extra') return d;
       const columns = d.columns.filter(c => c.key !== key);
-      queueMicrotask(() => enqueue([{ op: 'columns', columns: columns.map(c => c.header) }]));
+      queueMicrotask(() => enqueue([{ op: 'columns', columns: headingsOf({ ...d, columns }) }]));
       return { ...d, columns };
     });
   }, [enqueue]);

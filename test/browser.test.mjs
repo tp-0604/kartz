@@ -133,6 +133,10 @@ await page.waitForTimeout(900);
 await page.keyboard.press('Escape');
 ok('a new column appears', (await page.locator('.grid__th').allInnerTexts()).some(t => /notes/i.test(t)),
    await page.locator('.grid__th').allInnerTexts());
+// The five typed columns are the app's, not the board's. Sending them back as the board's own
+// columns used to duplicate every one of them under its own heading.
+ok('and nothing else came with it', (await page.locator('.grid__th').count()) === 6,
+   await page.locator('.grid__th').allInnerTexts());
 
 console.log('\n# marking cells up');
 const bgOf = loc => loc.evaluate(el => getComputedStyle(el).backgroundColor);

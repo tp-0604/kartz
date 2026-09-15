@@ -17,7 +17,7 @@ export default function Toolbar({
   columns, rows, filters, setFilters, query, setQuery, matches, sort, setSort,
   onAddRow, onImport, onExport, onToggleColumn, onShowAllColumns, onAddColumn, onRenameColumn,
   onRemoveColumn, onUndo, onRedo, canUndo, canRedo, onReload, onDelete, readOnly, extra,
-  findRef, format,
+  findRef, format, renameAny,
 }) {
   const hidden = columns.filter(c => c.hidden).length;
   const visible = columns.filter(c => !c.hidden);
@@ -59,7 +59,7 @@ export default function Toolbar({
       <Dropdown label={hidden ? `Columns · ${visible.length}/${columns.length}` : 'Columns'} width={290}
                 className={'btn btn--sm' + (hidden ? ' is-on' : '')}>
         {close => (
-          <ColumnsMenu columns={columns} readOnly={readOnly} close={close}
+          <ColumnsMenu columns={columns} readOnly={readOnly} close={close} renameAny={renameAny}
                        onToggleColumn={onToggleColumn} onShowAllColumns={onShowAllColumns}
                        onAddColumn={onAddColumn} onRenameColumn={onRenameColumn}
                        onRemoveColumn={onRemoveColumn} />
@@ -125,7 +125,7 @@ export default function Toolbar({
 
 const labelOf = (columns, key) => (columns.find(c => c.key === key) || {}).header || key;
 
-function ColumnsMenu({ columns, readOnly, close, onToggleColumn, onShowAllColumns,
+function ColumnsMenu({ columns, readOnly, close, renameAny, onToggleColumn, onShowAllColumns,
                        onAddColumn, onRenameColumn, onRemoveColumn }) {
   const [adding, setAdding] = useState('');
   const [renaming, setRenaming] = useState(null);
@@ -149,8 +149,10 @@ function ColumnsMenu({ columns, readOnly, close, onToggleColumn, onShowAllColumn
               </label>
               {!readOnly && (
                 <span style={{ display: 'flex', gap: 2 }}>
-                  <button className="iconbtn" title="Rename this column"
-                          onClick={() => setRenaming(c.key)}>✎</button>
+                  {(renameAny || c.role === 'extra') && (
+                    <button className="iconbtn" title="Rename this column"
+                            onClick={() => setRenaming(c.key)}>✎</button>
+                  )}
                   {c.role === 'extra' && (
                     <button className="iconbtn iconbtn--danger" title="Remove this column"
                             onClick={() => onRemoveColumn(c.key)}>✕</button>

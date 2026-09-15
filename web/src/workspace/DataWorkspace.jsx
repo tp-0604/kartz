@@ -291,6 +291,7 @@ export default function DataWorkspace({ active }) {
               onAddRow={addRow} onImport={() => setImporting(true)} onExport={doExport}
               onToggleColumn={ds.toggleColumn} onShowAllColumns={ds.showAllColumns}
               onAddColumn={ds.addColumn} onRenameColumn={ds.renameColumn} onRemoveColumn={ds.removeColumn}
+              renameAny={!!ds.dataset && ds.dataset.kind === 'roster'}
               onUndo={ds.undo} onRedo={ds.redo} canUndo={ds.canUndo} canRedo={ds.canRedo}
               onReload={() => ds.reload()} format={format}
               onDelete={ds.dataset && ds.dataset.kind === 'board' ? removeBoard : null}
