@@ -706,4 +706,60 @@ export async function replaceRoster(env, body) {
   return { saved: n, skipped, version: version + 1, savedAt: stamp };
 }
 
+// ---------------------------------------------------------------------------------------
+// The spreadsheet's own copy
+// ---------------------------------------------------------------------------------------
+// "Open in spreadsheet" edits a dataset in a full spreadsheet engine. What it changes in the rows
+// comes back through applyOps like any other edit. What only a spreadsheet has — formulas,
+// merges, borders, number formats — is kept here, as the workbook it saved, beside the rows.
+//
+// The workbook is stored with the dataset version it was saved at and handed back only while
+// that is still the version. Once the rows have changed anywhere else, the spreadsheet starts
+// again from them rather than showing an older sheet over newer data.
+const SHEET_MAX = 1_500_000;
+
+async function datasetVersion(env, target) {
+  if (target.kind === 'roster') {
+    const meta = await env.DB.prepare('SELECT version FROM roster_meta WHERE id = 1').first();
+    return meta ? meta.version : 0;
+  }
+  const board = await env.DB.prepare('SELECT version FROM boards WHERE id = ?').bind(target.id).first();
+  if (!board) throw notFound('no such board.');
+  return board.version;
+}
+
+export async function readSheet(env, key) {
+  const target = parseKey(key);
+  const version = await datasetVersion(env, target);
+  const row = target.kind === 'roster'
+    ? await env.DB.prepare('SELECT snapshot FROM roster_meta WHERE id = 1').first()
+    : await env.DB.prepare('SELECT snapshot FROM board_sheets WHERE board_id = ?').bind(target.id).first();
+  const saved = row ? parseJson(row.snapshot, null) : null;
+  const current = !!(saved && saved.workbook && Number(saved.version) === Number(version));
+  return { version, workbook: current ? saved.workbook : null };
+}
+
+export async function saveSheet(env, key, body) {
+  const target = parseKey(key);
+  const workbook = body && body.workbook;
+  if (!workbook || typeof workbook !== 'object') throw bad('workbook is required.');
+  const version = await datasetVersion(env, target);
+  if (Number(body.version) !== Number(version))
+    throw conflict('this was saved somewhere else since the spreadsheet saved its rows.', { version });
+  const text = JSON.stringify({ version, workbook });
+  if (text.length > SHEET_MAX) throw new HttpError(413, 'this spreadsheet is too large to store.');
+  const stamp = now();
+  if (target.kind === 'roster') {
+    await env.DB.prepare(
+      `INSERT INTO roster_meta (id, snapshot) VALUES (1, ?)
+         ON CONFLICT(id) DO UPDATE SET snapshot = excluded.snapshot`).bind(text).run();
+  } else {
+    await env.DB.prepare(
+      `INSERT INTO board_sheets (board_id, snapshot, updated_at) VALUES (?,?,?)
+         ON CONFLICT(board_id) DO UPDATE SET snapshot = excluded.snapshot, updated_at = excluded.updated_at`)
+      .bind(target.id, text, stamp).run();
+  }
+  return { saved: true, version, savedAt: stamp };
+}
+
 export { HttpError };

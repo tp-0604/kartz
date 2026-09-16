@@ -19,10 +19,11 @@ import { extractedToRecord } from '../data/records.js';
 import ReviewTable, { keptRows, makeOutName } from './ReviewTable.jsx';
 import CommitDialog from './CommitDialog.jsx';
 import { Empty, FlashButton } from '../components/shared/ui.jsx';
+import Portal from '../components/shared/Portal.jsx';
 
 export default function ExtractScreen() {
   const { roster, matchRoster, aliases, setAliases, date, setDate, notify,
-          refreshDatasets, openInData } = useApp();
+          refreshDatasets, openInData, pendingFiles, setPendingFiles } = useApp();
   const [queue, setQueue] = useState([]);              // [{ file, alliance, status, rows }]
   const [label, setLabel] = useState(DAYS[0]);
   const [running, setRunning] = useState(false);
@@ -134,6 +135,13 @@ export default function ExtractScreen() {
   };
 
   useEffect(() => { if (!queue.length) setRows(null); }, [queue.length]);
+
+  // A recording dropped on the canvas arrives here as if it had been chosen on this screen.
+  useEffect(() => {
+    if (!pendingFiles || !pendingFiles.length) return;
+    pickFiles(pendingFiles);
+    setPendingFiles(null);
+  }, [pendingFiles]);
 
   // ?demo on localhost loads a few made-up rows into the review table, so the path from here to
   // the database can be walked without a recording or a model key.
@@ -280,12 +288,14 @@ export default function ExtractScreen() {
       </div>
 
       {committing && (
-        <CommitDialog payload={committing} onClose={() => setCommitting(null)}
-                      onDone={async board => {
-                        setCommitting(null);
-                        await refreshDatasets();
-                        openInData({ kind: 'dataset', key: 'board:' + board });
-                      }} />
+        <Portal>
+          <CommitDialog payload={committing} onClose={() => setCommitting(null)}
+                        onDone={async board => {
+                          setCommitting(null);
+                          await refreshDatasets();
+                          openInData({ kind: 'dataset', key: 'board:' + board });
+                        }} />
+        </Portal>
       )}
     </div>
   );

@@ -47,6 +47,10 @@ const json = (method, body) => ({
 export const listDatasets = () => api('/datasets');
 export const loadDataset = key => api('/datasets/' + encodeURIComponent(key));
 export const applyOps = (key, body) => api('/datasets/' + encodeURIComponent(key) + '/ops', json('POST', body));
+// The workbook "Open in spreadsheet" keeps beside the rows: formulas and formatting. Handed back
+// only while the rows are still the version it was saved with.
+export const loadSheet = key => api('/datasets/' + encodeURIComponent(key) + '/sheet');
+export const saveSheet = (key, body) => api('/datasets/' + encodeURIComponent(key) + '/sheet', json('PUT', body));
 
 // ---- extraction into the database -----------------------------------------------------------
 // mode 'preview' writes nothing and says what would happen; the rest commit.

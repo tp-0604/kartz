@@ -1,69 +1,34 @@
 /* =========================================================================================
-   The Data workspace.
+   The workspace: a board, the roster or a view, in its sheet.
 
-   Three columns: what you are looking at, the thing itself, and — when it is asked for — what
-   the analyst made of it. The middle one gets everything left over, in both directions.
+   Two columns: the thing itself, and — when it is asked for — what the analyst made of it. The
+   first gets everything left over, in both directions.
    ========================================================================================= */
 .ws {
-  display: grid; height: 100%; min-height: 0;
-  grid-template-columns: var(--rail-w) minmax(0, 1fr);
-  background: var(--panel);
+  position: relative; display: grid; height: 100%; min-height: 0;
+  grid-template-columns: minmax(0, 1fr); background: transparent;
 }
-.ws.is-railed-off { grid-template-columns: 0 minmax(0, 1fr); }
-.ws.has-panel { grid-template-columns: var(--rail-w) minmax(0, 1fr) auto; }
-.ws.is-railed-off.has-panel { grid-template-columns: 0 minmax(0, 1fr) auto; }
+.ws.has-panel { grid-template-columns: minmax(0, 1fr) auto; }
 
-/* ---- the rail --------------------------------------------------------------------------- */
-.rail {
-  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
-  background: var(--panel2); border-right: 1px solid var(--line);
-}
-.ws.is-railed-off .rail { display: none; }
-.rail__search { padding: var(--s3) var(--s3) var(--s2); }
-.rail__search input { height: 30px; font-size: 12.5px; border-radius: var(--r1); }
-.rail__list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 var(--s2) var(--s3); }
-.rail__group {
-  display: flex; align-items: center; gap: 6px; width: 100%;
-  padding: 10px 8px 5px; background: none; border: 0;
-  font: 600 9.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--faint);
-}
-.rail__group span { margin-left: auto; font-size: 10px; }
-.rail__item {
-  display: flex; align-items: center; gap: var(--s2); width: 100%;
-  padding: 6px 8px; border: 0; border-radius: var(--r1); background: none;
-  font: 500 13px/1.35 var(--sans); color: var(--ink2); text-align: left; cursor: pointer;
-}
-.rail__item:hover { background: var(--panel3); color: var(--ink); }
-.rail__item.is-on { background: var(--accbg); color: var(--accent); font-weight: 650; }
-.rail__item.is-on .rail__n { color: var(--accent); }
-.rail__main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
-.rail__main b { font-weight: inherit; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rail__sub { font: 500 10.5px/1 var(--mono); color: var(--faint); }
-.rail__n { font: 500 11px/1 var(--mono); color: var(--faint); flex: none; }
-.rail__foot { border-top: 1px solid var(--line); padding: var(--s2); display: flex; gap: 4px; }
-
-/* ---- the main column --------------------------------------------------------------------- */
 .ws__main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-/* Everything in the main column is its own height; the grid is what is left over. A fixed
-   number of grid tracks could not be right for both a dataset, which has a toolbar and a status
-   bar, and a view, which has neither. */
+/* Everything in the main column is its own height; the grid is what is left over. */
 .ws__fill { flex: 1; min-height: 0; display: flex; }
 .ws__fill > * { flex: 1; min-width: 0; }
 
+/* The top padding clears the sheet's handle. */
 .ws__head {
-  display: flex; align-items: center; gap: var(--s3);
-  padding: 7px var(--s3) 7px var(--s3); border-bottom: 1px solid var(--line2);
-  min-height: 46px;
+  display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap;
+  padding: 18px var(--s4) 10px; min-height: 64px;
 }
-.ws__title { display: flex; align-items: center; gap: var(--s2); min-width: 0; flex: none; max-width: 40%; }
-.ws__title h1 { font: 650 14.5px/1.2 var(--sans); letter-spacing: -.01em;
+.ws__title { display: flex; align-items: center; gap: var(--s2); min-width: 0; flex: none; max-width: 45%; }
+.ws__title h1 { font: 600 19px/1.2 var(--display); letter-spacing: -.02em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ws__title .hint { white-space: nowrap; }
+.ws__title .hint { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
 .ws__savestate {
   display: inline-flex; align-items: center; gap: 6px; flex: none;
   font: 500 12px/1 var(--sans); color: var(--muted); white-space: nowrap;
-  padding: 0 var(--s2);
+  padding: 0 var(--s1);
 }
 .ws__savestate.is-bad { color: var(--bad); }
 .ws__savestate.is-dirty { color: var(--warn); }
@@ -71,28 +36,27 @@
 /* ---- the toolbar ---------------------------------------------------------------------------- */
 .ws__tools {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  padding: 6px var(--s3); border-bottom: 1px solid var(--line);
-  background: var(--panel2);
+  padding: 2px var(--s4) 10px; border-bottom: 1px solid var(--line2);
 }
-.ws__tools .btn { height: 30px; }
-.ws__tools .btn--icon { width: 30px; }
-.ws__sep { width: 1px; height: 20px; background: var(--line); flex: none; margin-inline: 3px; }
+.ws__tools .btn { height: 32px; }
+.ws__tools .btn--icon { width: 32px; }
+.ws__sep { width: 1px; height: 20px; background: var(--line); flex: none; margin-inline: 4px; }
 
 .findbox { position: relative; display: flex; align-items: center; flex: 0 1 260px; min-width: 150px; }
-.findbox input { height: 30px; padding-left: 28px; padding-right: 58px; font-size: 13px; border-radius: var(--r1); }
-.findbox__icon { position: absolute; left: 9px; color: var(--faint); font-size: 12px; pointer-events: none; }
-.findbox__n { position: absolute; right: 8px; font: 500 11px/1 var(--mono); color: var(--faint); }
+.findbox input { height: 32px; padding-left: 30px; padding-right: 58px; font-size: 13px; border-radius: var(--rpill); }
+.findbox__icon { position: absolute; left: 11px; color: var(--faint); font-size: 13px; pointer-events: none; }
+.findbox__n { position: absolute; right: 10px; font: 500 11px/1 var(--mono); color: var(--faint); }
 
 /* ---- filters ---------------------------------------------------------------------------------- */
 .filters {
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  padding: 6px var(--s3); border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--warn) 6%, var(--panel));
+  padding: 6px var(--s4); border-bottom: 1px solid var(--line2);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
 }
 .filters__label { font: 600 9.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em;
   color: var(--warn); flex: none; }
 .filterchip {
-  display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 4px 0 9px;
+  display: flex; align-items: center; gap: 5px; height: 26px; padding: 0 4px 0 10px;
   background: var(--panel); border: 1px solid var(--line); border-radius: var(--rpill);
   font-size: 12px; white-space: nowrap;
 }
@@ -105,19 +69,20 @@
 /* ---- the status bar ----------------------------------------------------------------------------- */
 .ws__status {
   display: flex; align-items: center; gap: var(--s4); flex-wrap: wrap;
-  padding: 5px var(--s3); border-top: 1px solid var(--line);
-  background: var(--panel2); color: var(--muted);
-  font: 500 11.5px/1 var(--sans); min-height: 28px;
+  padding: 7px var(--s4) calc(7px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line2);
+  color: var(--muted); font: 500 12px/1 var(--sans); min-height: 30px;
 }
 .ws__status b { color: var(--ink2); font-weight: 650; font-variant-numeric: tabular-nums; }
 .ws__status .spacer { flex: 1; }
 
-.ws__notice { padding: var(--s2) var(--s3); border-bottom: 1px solid var(--line); }
+.ws__notice { padding: var(--s2) var(--s4); border-bottom: 1px solid var(--line2); }
 
-/* ---- the read-only views that live in the rail ---------------------------------------------------- */
-.viewpane { overflow: auto; height: 100%; padding: var(--s4); }
+/* ---- the read-only views ---------------------------------------------------------------------------- */
+.viewpane { overflow: auto; height: 100%; padding: var(--s3) var(--s4) var(--s6); }
 .viewpane__head { display: flex; align-items: flex-end; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s4); }
-.viewpane__head h2 { font: 650 16px/1.2 var(--sans); letter-spacing: -.012em; }
+.viewpane__head h2 { font: 600 17px/1.2 var(--display); letter-spacing: -.02em; }
+/* In the sheet the view's name is already the heading above it; saying it twice is noise. */
+.ws .viewpane__head h2 { display: none; }
 
 /* ---- import ------------------------------------------------------------------------------------- */
 .mapping { display: grid; grid-template-columns: auto 1fr; gap: var(--s3) var(--s4); align-items: center; font-size: 13px; }
@@ -126,7 +91,7 @@
 @media (max-width: 700px) { .maprow { grid-template-columns: 1fr; gap: 5px; } }
 .previewrow {
   display: grid; grid-template-columns: auto 1fr auto auto; gap: var(--s3); align-items: center;
-  padding: 6px 11px; border: 1px solid var(--line2); border-radius: var(--r1);
+  padding: 7px 12px; border: 1px solid var(--line2); border-radius: var(--r1);
   background: var(--panel2); font-size: 12.5px;
 }
 .previewrow__st { font: 500 11px/1 var(--mono); color: var(--muted); white-space: nowrap; }
@@ -135,7 +100,7 @@
 .monthrow {
   display: grid; gap: var(--s3); align-items: center;
   grid-template-columns: 24px minmax(110px, 1fr) 146px 160px auto;
-  padding: 6px var(--s3); border: 1px solid var(--line); border-radius: var(--r2); background: var(--panel);
+  padding: 7px var(--s3); border: 1px solid var(--line); border-radius: var(--r2); background: var(--panel);
 }
 .monthrow__name { font: 600 13px/1 var(--sans); }
 .monthrow__count { color: var(--muted); font: 500 11.5px/1 var(--mono); text-align: right; white-space: nowrap; }
@@ -149,16 +114,18 @@
 
 /* ---- the activity trail ------------------------------------------------------------------------------ */
 .trail { display: flex; flex-direction: column; }
-.trail__item { display: flex; gap: var(--s3); padding: 8px 0; border-bottom: 1px solid var(--line2); font-size: 12.5px; }
+.trail__item { display: flex; gap: var(--s3); padding: 9px 0; border-bottom: 1px solid var(--line2); font-size: 13px; }
 .trail__item:last-child { border-bottom: 0; }
-.trail__when { flex: none; width: 120px; color: var(--faint); font: 500 11px/1.5 var(--mono); }
+.trail__when { flex: none; width: 130px; color: var(--faint); font: 500 11px/1.5 var(--mono); }
 .trail__what { flex: 1; min-width: 0; }
-.trail__where { color: var(--muted); font-size: 11.5px; }
+.trail__where { color: var(--muted); font-size: 12px; }
+@media (max-width: 560px) { .trail__item { flex-wrap: wrap; } .trail__when { width: 100%; } }
 
+/* On a narrower window the analyst's panel lies over the rows rather than squeezing them. It is
+   anchored to the workspace, not the window, so it stays inside the sheet. */
 @media (max-width: 1080px) {
-  .ws, .ws.has-panel { grid-template-columns: minmax(0, 1fr); }
-  .rail { display: none; }
-  .ws.has-panel .aipanel { position: fixed; inset: var(--topbar-h) 0 0 auto; width: min(420px, 100%); z-index: 50; }
+  .ws.has-panel { grid-template-columns: minmax(0, 1fr); }
+  .ws.has-panel .aipanel { position: absolute; inset: 0 0 0 auto; width: min(440px, 100%); z-index: 5; }
 }
 
 /* ---- marking up ------------------------------------------------------------------------------
@@ -166,7 +133,7 @@
    that disappears when the theme flips. These are named colours the theme resolves. */
 .swatches { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; padding: 2px 8px 8px; }
 .swatch {
-  height: 26px; border: 1px solid var(--line3); border-radius: var(--r1); cursor: pointer;
+  height: 26px; border: 1px solid var(--line3); border-radius: 7px; cursor: pointer;
   background: var(--panel); padding: 0; position: relative;
   font: 700 13px/1 var(--sans);
 }
@@ -185,4 +152,35 @@
 .fmtbtn__chip {
   width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line3);
   background: repeating-linear-gradient(45deg, var(--panel3) 0 3px, var(--panel) 3px 6px);
+}
+
+/* ---- the full spreadsheet ------------------------------------------------------------------- */
+/* Above everything but the toasts, so "Saved" is still seen. */
+.sheetdlg { position: fixed; inset: 0; z-index: 72; display: flex; flex-direction: column; background: var(--bg);
+  animation: dialogin .4s var(--spring); }
+.sheetdlg__bar {
+  display: flex; align-items: center; gap: var(--s2); flex: none;
+  height: 58px; padding-inline: var(--s4);
+  background: var(--glass3); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border-bottom: 1px solid var(--line2);
+}
+.sheetdlg__title { font: 600 16px/1.2 var(--display); letter-spacing: -.02em; }
+.sheetdlg__hint { color: var(--muted); font-size: 12.5px; }
+.sheetdlg__note { flex: none; padding: var(--s2) var(--s4); }
+.sheetdlg__body { flex: 1 1 auto; min-height: 0; position: relative; background: var(--panel); }
+.sheetdlg__host { position: absolute; inset: 0; }
+.sheetdlg__wait { display: grid; place-items: center; height: 100%; color: var(--muted); padding: var(--s4); text-align: center; }
+
+@media (max-width: 760px) {
+  .ws__head { padding: 16px var(--s3) 8px; gap: var(--s2); }
+  .ws__title { max-width: none; flex: 1 1 auto; }
+  .ws__head .askbar { order: 10; flex: 1 1 100%; }
+  /* One line that scrolls sideways, rather than three rows of buttons over the data. */
+  .ws__tools { flex-wrap: nowrap; overflow-x: auto; padding-inline: var(--s3); scrollbar-width: none; }
+  .ws__tools::-webkit-scrollbar { display: none; }
+  .ws__tools .spacer { display: none; }
+  .findbox { flex: 0 0 170px; min-width: 170px; }
+  /* The spreadsheet is a computer's tool; on a phone the grid is the editor. */
+  .ws__sheetbtn { display: none; }
+  .ws__status { gap: var(--s3); padding-inline: var(--s3); }
 }

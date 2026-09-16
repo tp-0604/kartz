@@ -1,67 +1,80 @@
 /* =========================================================================================
-   The application shell.
+   The application shell: one canvas, and sheets over it.
 
    The browser window is the application window. Nothing scrolls except the thing that should:
-   the grid scrolls, a panel scrolls, the page does not. That is what makes a header stay where
-   it is put and a toolbar stay reachable at row nine thousand.
+   the canvas scrolls, the grid scrolls, a panel scrolls, the page does not.
    ========================================================================================= */
 .shell {
+  position: relative; isolation: isolate;
   height: 100dvh; display: grid; grid-template-rows: var(--topbar-h) minmax(0, 1fr);
   overflow: hidden; background: var(--bg);
 }
+/* The light behind the glass. Painted once and never animated: it is what the blur works with. */
+.shell::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(42% 50% at 8% 4%, var(--ambient1), transparent 72%),
+    radial-gradient(40% 46% at 96% 18%, var(--ambient2), transparent 72%),
+    radial-gradient(50% 50% at 50% 104%, var(--ambient3), transparent 72%),
+    linear-gradient(172deg, var(--bg), var(--bg2));
+}
 
+/* ---- the floating bar ----------------------------------------------------------------------- */
 .topbar {
-  display: flex; align-items: center; gap: var(--s4);
-  padding-inline: var(--s4); background: var(--panel);
-  border-bottom: 1px solid var(--line); z-index: 30;
+  position: relative; z-index: 30;
+  display: flex; align-items: center; gap: var(--s3);
+  margin: 10px 14px 0; height: 46px; padding: 0 6px 0 14px;
+  background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border: 1px solid var(--glassstroke); border-radius: var(--rpill); box-shadow: var(--lift);
 }
 .brand {
-  display: inline-flex; align-items: center; gap: 9px; flex: none;
-  font: 700 15px/1 var(--sans); letter-spacing: -.01em; color: var(--ink);
-  background: none; border: 0; padding: 0 var(--s2) 0 0;
+  display: inline-flex; align-items: center; gap: 9px; flex: none; height: 34px;
+  font: 600 16px/1 var(--display); letter-spacing: -.02em; color: var(--ink);
+  background: none; border: 0; padding: 0 var(--s2) 0 0; border-radius: var(--rpill);
 }
-.brand i { width: 8px; height: 17px; border-radius: 2px; background: var(--accent); display: block; }
-
-.nav { display: flex; gap: 1px; padding: 2px; background: var(--panel3); border-radius: var(--r2); flex: none; }
-.nav__item {
-  height: 28px; padding-inline: 15px; border: 0; border-radius: 6px; background: transparent;
-  color: var(--muted); font: 600 12.5px/1 var(--sans); letter-spacing: .04em; text-transform: uppercase;
-  display: inline-flex; align-items: center; transition: background .13s, color .13s;
+/* Four alliances, one mark. */
+.brand i {
+  width: 18px; height: 18px; border-radius: 6px; display: block; flex: none;
+  background: conic-gradient(from 210deg, var(--a0), var(--a3), var(--a1), var(--a2), var(--a0));
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .35);
 }
-.nav__item:hover { color: var(--ink); }
-.nav__item[aria-current="page"] { background: var(--panel); color: var(--accent); box-shadow: 0 1px 2px var(--shade); }
 
-.topbar__meta { display: flex; align-items: center; gap: var(--s3); margin-left: auto; flex: none; }
-.build { font: 500 10.5px/1 var(--mono); color: var(--faint); white-space: nowrap; }
+.topbar__meta { display: flex; align-items: center; gap: 6px; margin-left: auto; flex: none; }
+.topbar .btn { height: 34px; }
+.topbar .btn--icon { width: 34px; font-size: 15px; }
 
-/* The one thing in the top bar that is a control rather than a label. */
+/* The search that reaches everything. */
 .kbar {
-  display: flex; align-items: center; gap: var(--s2); height: 28px; padding: 0 8px 0 10px;
-  min-width: 190px; border: 1px solid var(--line); border-radius: var(--r2);
-  background: var(--panel2); color: var(--muted); font-size: 12.5px; cursor: text;
+  display: flex; align-items: center; gap: var(--s2); height: 34px; padding: 0 6px 0 12px;
+  min-width: 230px; border: 1px solid var(--line); border-radius: var(--rpill);
+  background: color-mix(in srgb, var(--panel) 55%, transparent); color: var(--muted);
+  font-size: 13px; cursor: text; transition: border-color .18s, background .18s, color .18s;
 }
-.kbar:hover { border-color: var(--line3); color: var(--ink2); }
+.kbar:hover { border-color: var(--line3); color: var(--ink2); background: color-mix(in srgb, var(--panel) 80%, transparent); }
+.kbar__icon { font-size: 15px; line-height: 1; }
 .kbar kbd {
   font: 500 10.5px/1 var(--mono); color: var(--faint); background: var(--panel);
-  border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; margin-left: auto;
+  border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; margin-left: auto;
 }
 
 /* ---- the command palette ------------------------------------------------------------------- */
 .palette {
-  width: min(620px, 100%); background: var(--panel); border: 1px solid var(--line);
-  border-radius: var(--r3); box-shadow: 0 28px 70px var(--shade2); overflow: hidden;
-  animation: dialogin .12s ease;
+  width: min(640px, 100%);
+  background: var(--glass3); -webkit-backdrop-filter: var(--blur-strong); backdrop-filter: var(--blur-strong);
+  border: 1px solid var(--glassstroke); border-radius: var(--r4);
+  box-shadow: inset 0 1px 0 var(--glassedge), 0 30px 80px -20px var(--shade2);
+  overflow: hidden; animation: dialogin .45s var(--spring);
 }
 .palette input {
-  width: 100%; height: 50px; border: 0; border-bottom: 1px solid var(--line);
-  border-radius: 0; padding: 0 var(--s5); font-size: 15px; background: transparent;
+  width: 100%; height: 56px; border: 0; border-bottom: 1px solid var(--line2);
+  border-radius: 0; padding: 0 var(--s5); font-size: 16px; background: transparent;
 }
-.palette input:focus { box-shadow: none; border-color: var(--line); }
+.palette input:focus { box-shadow: none; border-color: var(--line2); }
 .palette__list { max-height: min(56vh, 460px); overflow-y: auto; padding: 6px; }
 .palette__item {
   display: flex; align-items: center; gap: var(--s3); width: 100%;
-  padding: 8px 12px; border: 0; background: none; border-radius: var(--r2);
-  font-size: 13.5px; color: var(--ink); text-align: left; cursor: pointer;
+  padding: 9px 12px; border: 0; background: none; border-radius: var(--r2);
+  font-size: 14px; color: var(--ink); text-align: left; cursor: pointer;
 }
 .palette__item.on { background: var(--accent); color: var(--accink); }
 .palette__item.on .palette__where, .palette__item.on .palette__kind { color: inherit; opacity: .75; }
@@ -74,24 +87,54 @@
   text-transform: uppercase; letter-spacing: .1em; color: var(--faint); }
 .palette__empty { padding: var(--s5); text-align: center; color: var(--muted); font-size: 13px; }
 
-/* ---- the Extract screen's own frame ---------------------------------------------------------- */
-.screen { overflow-y: auto; height: 100%; }
-.screen__in { max-width: 1520px; margin-inline: auto; padding: var(--s5) var(--gutter) var(--s5);
+/* ---- the stage: the canvas, and a sheet when one is open --------------------------------------- */
+.stage { position: relative; min-height: 0; }
+/* Its own layer, so nothing sticky or raised on the canvas can come up through a sheet. */
+.stage > .home { position: absolute; inset: 0; z-index: 0; }
+
+.sheet {
+  position: absolute; inset: 10px 14px 0; z-index: 1;
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  background: var(--glass3); -webkit-backdrop-filter: var(--blur-strong); backdrop-filter: var(--blur-strong);
+  border: 1px solid var(--glassstroke); border-bottom: 0; border-radius: var(--r4) var(--r4) 0 0;
+  box-shadow: inset 0 1px 0 var(--glassedge), 0 -24px 60px -30px var(--shade2);
+  animation: sheetin .6s var(--spring) both;
+}
+@keyframes sheetin { from { transform: translateY(56px); opacity: 0; } to { transform: none; opacity: 1; } }
+/* The handle says what this is: a layer over the boards, which can be put away. */
+.sheet::before {
+  content: ''; position: absolute; top: 7px; left: 50%; z-index: 2; width: 38px; height: 5px;
+  margin-left: -19px; border-radius: 3px; background: var(--line3); pointer-events: none;
+}
+.sheet__bar {
+  flex: none; display: flex; align-items: center; gap: var(--s3);
+  padding: 18px var(--s4) 10px; border-bottom: 1px solid var(--line2);
+}
+.sheet__bar h1 { font: 600 18px/1.2 var(--display); letter-spacing: -.02em; }
+.sheet__body { flex: 1; min-height: 0; position: relative; }
+.sheet__body > .ws { position: absolute; inset: 0; height: auto; }
+
+/* ---- the extractor's own frame, inside its sheet ------------------------------------------------ */
+.screen { overflow-y: auto; height: 100%; overscroll-behavior: contain; }
+.screen__in { max-width: 1520px; margin-inline: auto; padding: var(--s5) var(--gutter) var(--s6);
   min-height: 100%; display: flex; flex-direction: column; }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r3); padding: var(--s5); }
+.panel { background: color-mix(in srgb, var(--panel) 72%, transparent); border: 1px solid var(--line);
+  border-radius: var(--r3); padding: var(--s5); box-shadow: inset 0 1px 0 var(--glassedge); }
 .panel--flush { padding: 0; overflow: hidden; }
 .sectionhead { display: flex; align-items: center; gap: var(--s3); flex-wrap: wrap; margin-bottom: var(--s4); }
-.sectionhead h2 { font: 650 15px/1.2 var(--sans); letter-spacing: -.01em; }
+.sectionhead h2 { font: 600 16px/1.2 var(--display); letter-spacing: -.015em; }
 .sectionhead p { flex-basis: 100%; color: var(--muted); font-size: 12.5px; }
 .step { display: inline-flex; align-items: center; justify-content: center; flex: none;
-  width: 21px; height: 21px; border-radius: var(--rpill);
+  width: 22px; height: 22px; border-radius: var(--rpill);
   background: var(--accbg); color: var(--accent); font: 700 11px/1 var(--mono); }
 
 @media (max-width: 760px) {
-  :root { --h: 38px; --hlg: 46px; --topbar-h: 52px; }
-  .topbar { gap: var(--s2); padding-inline: var(--s3); }
-  .kbar { display: none; }
-  .build { display: none; }
-  .screen__in { padding: var(--s4) var(--s4) var(--s6); }
-  .panel { padding: var(--s4); border-radius: var(--r2); }
+  :root { --h: 40px; --hlg: 48px; --hsm: 34px; --topbar-h: 60px; }
+  .topbar { margin: 8px 8px 0; padding-left: 12px; gap: var(--s2); }
+  .kbar { min-width: 0; width: 34px; padding: 0; justify-content: center; }
+  .kbar__text, .kbar kbd { display: none; }
+  .sheet { inset: 8px 0 0; border-radius: 22px 22px 0 0; border-inline: 0; }
+  .sheet__bar { padding: 16px var(--s3) 8px; }
+  .screen__in { padding: var(--s4) var(--s4) calc(var(--s6) + env(safe-area-inset-bottom)); }
+  .panel { padding: var(--s4); }
 }

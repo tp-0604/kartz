@@ -7,9 +7,9 @@
    ========================================================================================= */
 .askbar {
   display: flex; align-items: center; gap: var(--s2); flex: 1 1 300px; min-width: 0;
-  height: 32px; padding: 0 6px 0 11px;
-  border: 1px solid var(--accline); border-radius: var(--r2);
-  background: color-mix(in srgb, var(--accbg) 55%, var(--panel));
+  height: 34px; padding: 0 5px 0 13px;
+  border: 1px solid var(--line); border-radius: var(--rpill);
+  background: color-mix(in srgb, var(--panel) 72%, transparent);
   transition: border-color .13s, box-shadow .13s;
 }
 .askbar:focus-within { border-color: var(--accent); box-shadow: var(--ring); }
@@ -23,13 +23,14 @@
   font: 500 10.5px/1 var(--mono); color: var(--faint); background: var(--panel);
   border: 1px solid var(--line); border-radius: 4px; padding: 3px 5px; flex: none;
 }
-.askbar__go { height: 24px; padding-inline: 10px; font-size: 12px; border-radius: var(--r1); }
+.askbar__go { height: 26px; padding-inline: 12px; font-size: 12px; }
 .askbar.is-off { opacity: .6; }
 
 /* ---- the panel --------------------------------------------------------------------------- */
 .aipanel {
   display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0;
-  background: var(--panel); border-left: 1px solid var(--line); position: relative;
+  background: var(--glass3); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+  border-left: 1px solid var(--line2); position: relative;
 }
 .aipanel__grip {
   position: absolute; left: -3px; top: 0; bottom: 0; width: 7px; cursor: col-resize; z-index: 5;
@@ -39,7 +40,7 @@
 }
 .aipanel__head {
   display: flex; align-items: center; gap: var(--s2);
-  padding: 8px var(--s3); border-bottom: 1px solid var(--line); background: var(--panel2);
+  padding: 18px var(--s3) 10px; border-bottom: 1px solid var(--line2); background: transparent;
 }
 .aipanel__head h2 {
   font: 600 9.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--accent);
@@ -73,7 +74,8 @@
 .kpis { display: flex; flex-wrap: wrap; gap: var(--s2); }
 .kpi {
   flex: 1 1 130px; min-width: 0; padding: 10px 12px;
-  border: 1px solid var(--line); border-radius: var(--r2); background: var(--panel2);
+  border: 1px solid var(--line); border-radius: var(--r3);
+  background: color-mix(in srgb, var(--panel) 75%, transparent);
 }
 .kpi__label { font: 600 9.5px/1.2 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
 .kpi__value {

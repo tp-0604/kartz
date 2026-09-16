@@ -8,29 +8,41 @@ go to the model.
 
 ## The app
 
-Two destinations, because there are two jobs.
+One canvas, and two sheets over it.
 
-    EXTRACT                                   DATA
-    recording → rows → review → add     the roster, every board, edit, search,
-                         ↓               filter, sort, import, export, ask
+    BOARDS — the canvas
+    a month: alliances down the side, the days boards were filmed across the top
+         │ drop a recording                    │ open a board, the roster or a view
+         ▼                                     ▼
+    EXTRACT sheet                              WORKSPACE sheet
+    recording → rows → review → add            edit, search, filter, sort, import,
+                         ↓                     export, ask, open in spreadsheet
                     Cloudflare Worker → D1
 
-**EXTRACT** is the recording coming in. Unchanged logic, in `web/src/extractor/`: the same frame
-sampling, the same prompt, the same roster matching, the same one-character rule, the same review
-table. What changed is the end of it. There is no clipboard step and no spreadsheet in the
-middle — the reviewed rows go into the database, with a preview first saying what is new and
-what is already there.
+**The canvas** is where the app opens. The month is a grid of tiles, one per board, with a dashed
+gap wherever an alliance was not captured, so what is missing is visible before anything is
+opened. Its columns are the real dates boards were filmed on rather than fixed Day 1 / Day 4 /
+Final slots, because some months hold two events. The roster and the views that cross boards sit
+under it; the menu and `⌘K` reach everything from anywhere.
 
-**DATA** is everything saved. A dataset is the roster or one board's scores, and it opens as a
-grid that fills the window: row numbers, a frozen header, multi-cell selection, editing,
-copy/cut/paste, insert, delete, duplicate, resize, reorder, sort, filter, search, hidden
-columns, undo and redo. Beside it are the views that cross boards — a month across its scoring
-days, one player over time, the extraction runs, the activity trail — and, where a model
-provider is configured, an analyst that answers questions by querying the database.
+**The extractor sheet** is the recording coming in: drop a video anywhere on the canvas, or
+choose one. Unchanged logic, in `web/src/extractor/`: the same frame sampling, the same prompt,
+the same roster matching, the same one-character rule, the same review table. The reviewed rows
+go into the database, with a preview first saying what is new and what is already there.
 
-The old app's four tabs are all still here; three of them were never screens, they were things:
-the Sheet was a board, the Roster was the roster, and History was a list of boards. `⌘K` opens
-everything at once.
+**The workspace sheet** is everything saved. A dataset is the roster or one board's scores, and it
+opens as a grid: row numbers, a frozen header, multi-cell selection, editing, copy/cut/paste,
+insert, delete, duplicate, resize, reorder, sort, filter, search, hidden columns, undo and redo.
+The views that cross boards open here too — a month across its scoring days, one player over
+time, the extraction runs, the activity trail — and, where a model provider is configured, an
+analyst that answers questions by querying the database. Where the grid is not enough, **Open in
+spreadsheet** loads Univer: what changes in the rows saves like any other edit, and the workbook
+itself (formulas, merges, number formats) is kept beside the board for as long as the rows are
+unchanged elsewhere.
+
+A sheet that is put away stays open underneath, so an unsaved edit or a finished extraction is
+never lost by going back to the canvas. The look is glass over solid rows, in light and dark; the
+device decides unless a theme is chosen in the app.
 
 ### The grid
 
@@ -232,7 +244,7 @@ bag of custom columns, with every existing row copied across; everything else it
 | `extraction_runs` | which recording produced which rows, and how many were already there |
 | `activity` | what changed, to what, when |
 | `saved_views` | a filter, a sort and a set of columns, under a name |
-| `board_sheets` | legacy. The old workbook snapshots, read once for their columns and then left alone |
+| `board_sheets` | the workbook "Open in spreadsheet" saves for a board (formulas, formatting), with the board version it matches; handed back only while that version is current |
 
 Why a row id. The grid edits rows, and a row's key used to be the thing being edited: a score
 was keyed by `(board_id, place)` and a player by their name, so correcting a rank or a spelling

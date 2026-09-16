@@ -175,7 +175,11 @@ async function googleChat(env, { model, system, messages, tools, schema, maxToke
     }
     const parts = [];
     if (m.content) parts.push({ text: m.content });
-    for (const c of m.toolCalls || []) parts.push({ functionCall: { name: c.name, args: c.args } });
+    // Gemini 3 signs its tool calls and refuses the next turn unless each signature comes back
+    // on the part it arrived on.
+    for (const c of m.toolCalls || [])
+      parts.push({ functionCall: { name: c.name, args: c.args },
+                   ...(c.signature ? { thoughtSignature: c.signature } : {}) });
     if (!parts.length) continue;
     contents.push({ role: m.role === 'assistant' ? 'model' : 'user', parts });
   }
@@ -201,7 +205,8 @@ async function googleChat(env, { model, system, messages, tools, schema, maxToke
   return {
     text: parts.filter(p => p.text).map(p => p.text).join(''),
     toolCalls: parts.filter(p => p.functionCall).map((p, i) => ({
-      id: 'call_' + i, name: p.functionCall.name, args: p.functionCall.args || {} })),
+      id: 'call_' + i, name: p.functionCall.name, args: p.functionCall.args || {},
+      ...(p.thoughtSignature ? { signature: p.thoughtSignature } : {}) })),
     stop: out.candidates && out.candidates[0] && out.candidates[0].finishReason,
   };
 }

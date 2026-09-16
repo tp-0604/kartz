@@ -9,16 +9,18 @@ import { today } from '../utils/format.js';
 const Ctx = createContext(null);
 export const useApp = () => useContext(Ctx);
 
+// Where the app is: the canvas, or one of the two sheets over it. The hash is the address.
 export const MODES = [
+  { id: 'home',    label: 'Boards',  hint: 'the month canvas' },
   { id: 'extract', label: 'Extract', hint: 'recording → rows' },
-  { id: 'data',    label: 'Data',    hint: 'everything saved' },
+  { id: 'data',    label: 'Data',    hint: 'a board, the roster or a view' },
 ];
 
 const modeFromHash = () => {
   const h = (location.hash || '').replace(/^#/, '').split('/')[0];
   // The old app's four screens all live inside these two now.
   if (h === 'sheet' || h === 'history' || h === 'roster' || h === 'database') return 'data';
-  return MODES.some(m => m.id === h) ? h : (store.get('mode') || 'extract');
+  return MODES.some(m => m.id === h) ? h : 'home';
 };
 
 const EMPTY_META = { columns: [], mapping: {}, version: 0, savedAt: null };
@@ -49,6 +51,10 @@ export function AppProvider({ children }) {
   const [setupOpen, setSetupOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [openTarget, setOpenTarget] = useState(null);
+  // Handoffs between the canvas, the menu and the sheets: a recording dropped on the canvas, for
+  // the extractor; and 'board' or 'file', for the workspace to open its import dialog.
+  const [pendingFiles, setPendingFiles] = useState(null);
+  const [importRequest, setImportRequest] = useState(null);
   const noticeTimer = useRef(null);
 
   // ---- navigation: the hash is the address, and the last mode is remembered ------------------
@@ -59,8 +65,9 @@ export function AppProvider({ children }) {
   }, []);
   const go = useCallback(m => {
     setMode(m);
-    store.set('mode', m);
-    try { history.replaceState(null, '', '#' + m); } catch { /* ignore */ }
+    try {
+      history.replaceState(null, '', m === 'home' ? location.pathname + location.search : '#' + m);
+    } catch { /* ignore */ }
   }, []);
 
   // ---- a one-line notice, anywhere -------------------------------------------------------------
@@ -120,6 +127,7 @@ export function AppProvider({ children }) {
     aliases, setAliases, date, setDate,
     datasets, boards, refreshDatasets,
     openTarget, setOpenTarget, openInData,
+    pendingFiles, setPendingFiles, importRequest, setImportRequest,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
