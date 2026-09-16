@@ -89,6 +89,10 @@ async function handleData(seg, parts, request, env, reply) {
     return reply(await Data.readDataset(env, sub), 200);
   if (seg === 'datasets' && method === 'POST' && sub && leaf === 'ops')
     return reply(await Data.applyOps(env, sub, await body()), 200);
+  if (seg === 'datasets' && sub && leaf === 'sheet') {
+    if (method === 'GET') return reply(await Data.readSheet(env, sub), 200);
+    if (method === 'PUT') return reply(await Data.saveSheet(env, sub, await body()), 200);
+  }
 
   // ---- the roster, read and replaced whole --------------------------------------------------
   // The extractor mirrors this into the browser so a bad connection cannot stop a run, and an

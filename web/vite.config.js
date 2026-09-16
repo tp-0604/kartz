@@ -21,6 +21,8 @@ export default defineConfig({
     outDir: 'dist',
     // The Data workspace is the larger half and the extractor is what a phone opens, so it is
     // React.lazy and Vite puts it in a chunk of its own. The .xlsx reader and writer are a
-    // dynamic import inside that, for the same reason again.
+    // dynamic import inside that, for the same reason again — and so is the spreadsheet engine,
+    // which is most of the build by weight and loads only when "Open in spreadsheet" is pressed.
+    chunkSizeWarningLimit: 7000,
   },
 });

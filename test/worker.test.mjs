@@ -229,6 +229,34 @@ ok('/board?id=', r.json.rows.length === 4, r.json);
 r = await call('PATCH', '/score', { board: boardId, place: 2, points: 555 });
 ok('/score PATCH', r.json.updated.points === 555, r.json);
 
+console.log('\n# the spreadsheet keeps its workbook while the rows are current');
+const sheetKey = encodeURIComponent('board:' + boardId);
+r = await call('GET', `/datasets/${sheetKey}`);
+const sheetVersion = r.json.version;
+const firstRowId = r.json.rows[0].id;
+r = await call('GET', `/datasets/${sheetKey}/sheet`);
+ok('no workbook to begin with', r.status === 200 && r.json.workbook === null && r.json.version === sheetVersion, r.json);
+const workbook = { id: 'kartz', sheets: { s1: { cellData: { 0: { 0: { v: 'row id' } }, 1: { 6: { f: '=E2*2', v: 2 } } } } } };
+r = await call('PUT', `/datasets/${sheetKey}/sheet`, { version: sheetVersion - 1, workbook });
+ok('a workbook saved against an old version is refused', r.status === 409, r);
+r = await call('PUT', `/datasets/${sheetKey}/sheet`, { version: sheetVersion, workbook });
+ok('a workbook is saved', r.status === 200 && r.json.saved === true, r.json);
+r = await call('GET', `/datasets/${sheetKey}/sheet`);
+ok('it comes back, formula and all', r.json.workbook && r.json.workbook.sheets.s1.cellData[1][6].f === '=E2*2', r.json);
+r = await call('GET', `/datasets/${sheetKey}`);
+ok('the board still reads with a workbook stored', r.status === 200 && r.json.rows.length > 0, r.json);
+r = await call('POST', `/datasets/${sheetKey}/ops`,
+  { version: sheetVersion, ops: [{ op: 'update', id: firstRowId, values: { points: 901 } }] });
+ok('the rows change elsewhere', r.status === 200 && r.json.version !== sheetVersion, r.json);
+r = await call('GET', `/datasets/${sheetKey}/sheet`);
+ok('the older workbook is no longer handed back', r.json.workbook === null && r.json.version !== sheetVersion, r.json);
+r = await call('GET', '/datasets/roster/sheet');
+const rosterSheetVersion = r.json.version;
+r = await call('PUT', '/datasets/roster/sheet', { version: rosterSheetVersion, workbook });
+ok('the roster keeps a workbook too', r.status === 200, r.json);
+r = await call('GET', '/datasets/roster/sheet');
+ok('and hands it back', !!r.json.workbook, r.json);
+
 console.log('\n# AI status without a provider');
 r = await call('GET', '/ai/status');
 ok('ai degrades gracefully', r.json.available === false && !!r.json.reason, r.json);

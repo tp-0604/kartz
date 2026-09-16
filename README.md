@@ -232,7 +232,7 @@ bag of custom columns, with every existing row copied across; everything else it
 | `extraction_runs` | which recording produced which rows, and how many were already there |
 | `activity` | what changed, to what, when |
 | `saved_views` | a filter, a sort and a set of columns, under a name |
-| `board_sheets` | legacy. The old workbook snapshots, read once for their columns and then left alone |
+| `board_sheets` | the workbook "Open in spreadsheet" saves for a board (formulas, formatting), with the board version it matches; handed back only while that version is current |
 
 Why a row id. The grid edits rows, and a row's key used to be the thing being edited: a score
 was keyed by `(board_id, place)` and a player by their name, so correcting a rank or a spelling

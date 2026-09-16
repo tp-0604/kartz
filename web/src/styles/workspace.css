@@ -186,3 +186,20 @@
   width: 12px; height: 12px; border-radius: 3px; border: 1px solid var(--line3);
   background: repeating-linear-gradient(45deg, var(--panel3) 0 3px, var(--panel) 3px 6px);
 }
+
+/* ---- the full spreadsheet ------------------------------------------------------------------- */
+/* Above the workspace and its dialogs, under the toasts, so "Saved" is still seen. */
+.sheetdlg { position: fixed; inset: 0; z-index: 72; display: flex; flex-direction: column; background: var(--bg); }
+.sheetdlg__bar {
+  display: flex; align-items: center; gap: var(--s2); flex: none;
+  height: var(--topbar-h); padding-inline: var(--s4);
+  background: var(--panel); border-bottom: 1px solid var(--line);
+}
+.sheetdlg__title { font-weight: 650; font-size: 14.5px; }
+.sheetdlg__hint { color: var(--muted); font-size: 12.5px; }
+.sheetdlg__note { flex: none; padding: var(--s2) var(--s4); }
+.sheetdlg__body { flex: 1 1 auto; min-height: 0; position: relative; }
+.sheetdlg__host { position: absolute; inset: 0; }
+.sheetdlg__wait { display: grid; place-items: center; height: 100%; color: var(--muted); padding: var(--s4); text-align: center; }
+/* The spreadsheet is a computer's tool; on a phone the grid is the editor. */
+@media (max-width: 760px) { .ws__sheetbtn { display: none; } }

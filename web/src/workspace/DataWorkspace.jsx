@@ -17,6 +17,7 @@ import DatasetNav, { VIEWS } from './DatasetNav.jsx';
 import Toolbar from './Toolbar.jsx';
 import ImportDialog from './ImportDialog.jsx';
 import BoardBar from './BoardBar.jsx';
+import SpreadsheetDialog from './SpreadsheetDialog.jsx';
 import MonthView from './views/MonthView.jsx';
 import PlayerView from './views/PlayerView.jsx';
 import RunsView from './views/RunsView.jsx';
@@ -48,6 +49,7 @@ export default function DataWorkspace({ active }) {
   const [sort, setSort] = useState(null);
   const [selection, setSelection] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [railOff, setRailOff] = useState(() => !!store.get('ws.railOff'));
   const analyst = useAnalyst();
   const [panelW, setPanelW] = useState(() => store.get('ws.panelW') || 400);
@@ -162,6 +164,16 @@ export default function DataWorkspace({ active }) {
     await ds.reload();
   }, [ds]);
 
+  // The spreadsheet works from what is saved, so anything still on its way goes first.
+  const openSheet = useCallback(async () => {
+    if (ds.save.status === 'conflict' || ds.save.status === 'failed') {
+      notify('Deal with the unsaved changes above first, then open the spreadsheet.', 'warn');
+      return;
+    }
+    await ds.flush();
+    setSheetOpen(true);
+  }, [ds, notify]);
+
   const removeBoard = useCallback(async () => {
     if (!ds.dataset || ds.dataset.kind !== 'board') return;
     if (!window.confirm(`Delete the ${ds.dataset.alliance} board from ${ds.dataset.date}, and its `
@@ -175,8 +187,10 @@ export default function DataWorkspace({ active }) {
   }, [ds.dataset, ds.rows.length, notify, refreshDatasets]);
 
   // ---- keyboard that belongs to the workspace rather than the grid -----------------------------
+  // Not while the spreadsheet is open: its undo is its own, and undoing the grid underneath it
+  // would change the rows the spreadsheet is about to save against.
   useEffect(() => {
-    if (!active) return;
+    if (!active || sheetOpen) return;
     const onKey = e => {
       const mod = e.metaKey || e.ctrlKey;
       if (!mod) return;
@@ -188,7 +202,7 @@ export default function DataWorkspace({ active }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [active, ds]);
+  }, [active, ds, sheetOpen]);
 
   // ---- what the analyst is told about this screen -------------------------------------------------
   const aiContext = useMemo(() => {
@@ -270,6 +284,13 @@ export default function DataWorkspace({ active }) {
                 <button className="btn btn--sm" style={{ marginLeft: 6 }} onClick={ds.flush}>Retry</button>
               )}
             </span>
+          )}
+
+          {!view && ds.dataset && (
+            <button className="btn btn--sm ws__sheetbtn" onClick={openSheet}
+                    title="Edit this in the full spreadsheet — formulas, formatting and all">
+              Open in spreadsheet
+            </button>
           )}
         </div>
 
@@ -389,6 +410,12 @@ export default function DataWorkspace({ active }) {
                          onDragStart={startDragPanel} onClose={analyst.close}
                          onAsk={q => analyst.ask(q, aiContext)} onSource={onAnalysisSource} />
         </Boundary>
+      )}
+
+      {sheetOpen && ds.dataset && (
+        <SpreadsheetDialog ds={ds} notify={notify}
+                           onSaved={() => refreshDatasets()}
+                           onClose={() => setSheetOpen(false)} />
       )}
 
       {importing && (
