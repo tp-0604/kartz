@@ -13,7 +13,9 @@ import { useDataset, cellId } from '../data/useDataset.js';
 import { problems, shape } from '../data/model.js';
 import { commonStyle } from '../data/format.js';
 import DataGrid from '../grid/DataGrid.jsx';
-import DatasetNav, { VIEWS } from './DatasetNav.jsx';
+import { VIEWS } from '../app/views.js';
+import Portal from '../components/shared/Portal.jsx';
+import { useDark } from '../utils/theme.js';
 import Toolbar from './Toolbar.jsx';
 import ImportDialog from './ImportDialog.jsx';
 import BoardBar from './BoardBar.jsx';
@@ -41,8 +43,9 @@ const SAVE_TEXT = {
   conflict: ['bad', 'Someone else saved this'],
 };
 
-export default function DataWorkspace({ active }) {
-  const { datasets, refreshDatasets, notify, openTarget, setOpenTarget, boards } = useApp();
+export default function DataWorkspace({ active, onClose }) {
+  const { refreshDatasets, notify, openTarget, setOpenTarget, boards,
+          importRequest, setImportRequest } = useApp();
   const [target, setTarget] = useState(() => openTarget || { kind: 'dataset', key: store.get('ws.open') || 'roster' });
   const [filters, setFilters] = useState([]);
   const [query, setQuery] = useState('');
@@ -50,11 +53,11 @@ export default function DataWorkspace({ active }) {
   const [selection, setSelection] = useState(null);
   const [importing, setImporting] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [railOff, setRailOff] = useState(() => !!store.get('ws.railOff'));
   const analyst = useAnalyst();
   const [panelW, setPanelW] = useState(() => store.get('ws.panelW') || 400);
   const findRef = useRef(null);
   const gridWrap = useRef(null);
+  const dark = useDark();
 
   // The command palette and the extractor both open things here.
   useEffect(() => {
@@ -62,6 +65,13 @@ export default function DataWorkspace({ active }) {
     setTarget(openTarget);
     setOpenTarget(null);
   }, [openTarget, setOpenTarget]);
+
+  // The menu and ⌘K can ask for a new board or an import from anywhere.
+  useEffect(() => {
+    if (!importRequest) return;
+    setImporting(importRequest === 'board' ? 'board' : true);
+    setImportRequest(null);
+  }, [importRequest, setImportRequest]);
 
   const datasetKey = target.kind === 'dataset' ? target.key : null;
   const ds = useDataset(datasetKey, { notify, onSaved: () => refreshDatasets() });
@@ -113,10 +123,10 @@ export default function DataWorkspace({ active }) {
     cells: selectedCells.length,
     current: selection
       ? commonStyle(rows.slice(selection.r0, selection.r1 + 1), selection.columns) : null,
-    dark: typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches,
+    dark,
     onFormat: patch => { ds.setFormat(selectedCells, patch); backToGrid(); },
     onClear: () => { ds.clearFormat(selectedCells); backToGrid(); },
-  }), [selectedCells, selection, rows, ds]);
+  }), [selectedCells, selection, rows, ds, dark]);
 
   const addRow = useCallback(() => {
     const after = selection && rows[selection.r1] ? rows[selection.r1].id : null;
@@ -252,17 +262,14 @@ export default function DataWorkspace({ active }) {
   const [saveClass, saveLabel] = SAVE_TEXT[ds.save.status] || SAVE_TEXT.saved;
 
   return (
-    <div className={'ws' + (railOff ? ' is-railed-off' : '') + (analyst.state ? ' has-panel' : '')}>
-      <DatasetNav datasets={datasets} current={target.kind === 'dataset' ? target.key : 'view:' + target.id}
-                  onOpen={setTarget} onImport={() => setImporting(true)}
-                  onNewBoard={() => setImporting('board')} />
-
+    <div className={'ws' + (analyst.state ? ' has-panel' : '')}>
       <div className="ws__main">
         <div className="ws__head">
-          <button className="btn btn--sm btn--icon btn--quiet" title={railOff ? 'Show the list' : 'Hide the list'}
-                  onClick={() => setRailOff(v => { store.set('ws.railOff', !v); return !v; })}>
-            {railOff ? '»' : '«'}
-          </button>
+          {onClose && (
+            <button type="button" className="btn btn--sm backbtn" onClick={onClose} title="Back to the boards">
+              <span aria-hidden="true">‹</span> Boards
+            </button>
+          )}
 
           {view ? (
             <div className="ws__title"><h1>{view.label}</h1></div>
@@ -336,6 +343,8 @@ export default function DataWorkspace({ active }) {
                       matrix,
                     })}
                     onAddRow={addRow}
+                    onInsert={(rowIndex, where) => ds.insertRows(rows[rowIndex] && rows[rowIndex].id, 1, null,
+                                                                 where === 'above' ? 'before' : 'after')}
                     onResize={(key, w) => ds.resizeColumn(key, w)}
                     onMoveColumn={ds.moveColumn}
                     onSelectionChange={setSelection}
@@ -413,21 +422,25 @@ export default function DataWorkspace({ active }) {
       )}
 
       {sheetOpen && ds.dataset && (
-        <SpreadsheetDialog ds={ds} notify={notify}
-                           onSaved={() => refreshDatasets()}
-                           onClose={() => setSheetOpen(false)} />
+        <Portal>
+          <SpreadsheetDialog ds={ds} notify={notify}
+                             onSaved={() => refreshDatasets()}
+                             onClose={() => setSheetOpen(false)} />
+        </Portal>
       )}
 
       {importing && (
-        <ImportDialog mode={importing === 'board' ? 'board' : 'file'}
-                      dataset={ds.dataset} columns={ds.columns} onImportRows={importRows}
-                      onClose={() => setImporting(false)}
-                      onDone={async key => {
-                        setImporting(false);
-                        await refreshDatasets();
-                        if (key) setTarget({ kind: 'dataset', key });
-                        else ds.reload();
-                      }} />
+        <Portal>
+          <ImportDialog mode={importing === 'board' ? 'board' : 'file'}
+                        dataset={ds.dataset} columns={ds.columns} onImportRows={importRows}
+                        onClose={() => setImporting(false)}
+                        onDone={async key => {
+                          setImporting(false);
+                          await refreshDatasets();
+                          if (key) setTarget({ kind: 'dataset', key });
+                          else ds.reload();
+                        }} />
+        </Portal>
       )}
     </div>
   );

@@ -4,6 +4,7 @@ import App from './App.jsx';
 import './styles/tokens.css';
 import './styles/base.css';
 import './styles/shell.css';
+import './styles/home.css';
 import './styles/grid.css';
 import './styles/workspace.css';
 import './styles/ai.css';

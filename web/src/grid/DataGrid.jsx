@@ -12,6 +12,8 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { fromTsv, toTsv, writeClipboard } from './clipboard.js';
 import { cssFor, styleFor } from '../data/format.js';
+import { useDark } from '../utils/theme.js';
+import Portal from '../components/shared/Portal.jsx';
 
 const OVERSCAN = 8;
 const MIN_W = 56, MAX_W = 640;
@@ -32,16 +34,9 @@ export default function DataGrid({
   readOnly = false, emptyText = 'No rows',
 }) {
   // The swatch a cell wears is a name; which half of the pair it resolves to is the theme's
-  // business, watched here so a mark made in daylight is still legible at night.
-  const [dark, setDark] = useState(() =>
-    typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
-  useEffect(() => {
-    if (typeof matchMedia !== 'function') return;
-    const mq = matchMedia('(prefers-color-scheme: dark)');
-    const on = e => setDark(e.matches);
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
-  }, []);
+  // business — the device's setting or the one chosen in the app — so a mark made in daylight is
+  // still legible at night.
+  const dark = useDark();
   const hostRef = useRef(null);
   // A toolbar button takes the focus with it when it is clicked, and a grid that has lost the
   // focus no longer hears Ctrl+B. Whoever draws the toolbar gets a way to hand the focus back.
@@ -480,7 +475,7 @@ export default function DataGrid({
         )}
       </div>
 
-      {menu && <GridMenu {...menu} onClose={() => setMenu(null)} />}
+      {menu && <Portal><GridMenu {...menu} onClose={() => setMenu(null)} /></Portal>}
     </div>
   );
 }

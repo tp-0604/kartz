@@ -13,7 +13,9 @@
  *  - every chart can show the figures it was drawn from, which is also what makes the lighter
  *    hues legible to anyone the colours fail.
  */
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { useDark } from '../utils/theme.js';
 
 // The categorical order, validated against this app's light and dark surfaces: worst adjacent
 // pair ΔE 9.1 light / 8.4 dark under colour-vision deficiency, 19.6 / 19.3 in normal vision.
@@ -21,18 +23,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 const SERIES_LIGHT = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300'];
 const SERIES_DARK  = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300'];
 
-function useDark() {
-  const [dark, setDark] = useState(() =>
-    typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches);
-  useEffect(() => {
-    if (typeof matchMedia !== 'function') return;
-    const mq = matchMedia('(prefers-color-scheme: dark)');
-    const on = e => setDark(e.matches);
-    mq.addEventListener('change', on);
-    return () => mq.removeEventListener('change', on);
-  }, []);
-  return dark;
-}
 
 function useWidth() {
   const ref = useRef(null);
@@ -73,7 +63,8 @@ function Tip({ at, children }) {
   if (!at) return null;
   const left = Math.min(at.x + 12, (typeof window !== 'undefined' ? window.innerWidth : 1000) - 200);
   const top = Math.max(8, at.y - 38);
-  return <div className="charttip" style={{ left, top }}>{children}</div>;
+  // Drawn at the top of the document: inside the glass panel, "fixed" would mean the panel.
+  return createPortal(<div className="charttip" style={{ left, top }}>{children}</div>, document.body);
 }
 
 // ---------------------------------------------------------------------------------------
