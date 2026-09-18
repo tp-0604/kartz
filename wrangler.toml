@@ -25,3 +25,7 @@ binding = "AI"
 binding = "DB"
 database_name = "kartz-db"
 database_id = "32834df7-8b13-40e1-b6cb-517285302496"
+
+# Every five minutes: editing sessions that have gone quiet become one sentence in the log.
+[triggers]
+crons = ["*/5 * * * *"]

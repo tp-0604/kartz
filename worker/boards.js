@@ -6,6 +6,7 @@
  * these routes write a whole board at once, because that is what producing one actually is: a
  * recording becomes a hundred and fifty rows or it does not become anything.
  */
+import { forbidden, isAdmin, mayManage, nameKey, requireManage } from './auth.js';
 import { bad, chunk, conflict, identity, logActivity, newId, notFound, now,
          nullable, str, toInt } from './util.js';
 
@@ -59,7 +60,9 @@ export async function saveBoard(env, { event, date, alliance, label, rows, colum
   if (rows.length > MAX_ROWS) throw bad(`too many rows (${rows.length}).`);
 
   const id = boardId(event, date, alliance);
-  const existing = await env.DB.prepare('SELECT version FROM boards WHERE id = ?').bind(id).first();
+  const existing = await env.DB.prepare('SELECT version, created_by FROM boards WHERE id = ?').bind(id).first();
+  // Writing a whole board over one that exists replaces it: its sender's call, or an admin's.
+  if (existing) requireManage(env.user, existing, 'replace the rows of');
   if (expectVersion !== undefined && expectVersion !== null && existing
       && Number(expectVersion) !== existing.version)
     throw conflict('this board was saved by someone else since you opened it — reload it and re-apply your edits.',
@@ -81,11 +84,11 @@ export async function saveBoard(env, { event, date, alliance, label, rows, colum
   const stmts = [
     env.DB.prepare('DELETE FROM scores WHERE board_id = ?').bind(id),
     env.DB.prepare(
-      `INSERT INTO boards (id, event, date, alliance, label, saved_at, version) VALUES (?,?,?,?,?,?,1)
+      `INSERT INTO boards (id, event, date, alliance, label, saved_at, version, created_by) VALUES (?,?,?,?,?,?,1,?)
        ON CONFLICT(id) DO UPDATE SET label = COALESCE(excluded.label, boards.label),
                                      saved_at = excluded.saved_at,
                                      version = boards.version + 1`)
-      .bind(id, event, date, alliance, label, stamp),
+      .bind(id, event, date, alliance, label, stamp, env.user ? env.user.id : null),
   ];
 
   const seen = new Set();
@@ -173,6 +176,12 @@ export async function commitExtraction(env, body) {
       was: d.existing.points, now: d.incoming.points, wasPlace: d.existing.place,
     })),
   };
+  // Adding rows to a board is anyone's; replacing it is its sender's or an admin's, and the
+  // preview says which, so the dialog offers only what will be allowed.
+  preview.canReplace = !board || mayManage(env.user, board);
+  preview.owner = board && board.created_by
+    ? ((await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(board.created_by).first()) || {}).name || null
+    : null;
   if (mode === 'preview') return preview;
 
   if (board && body.version !== undefined && body.version !== null
@@ -229,11 +238,11 @@ export async function commitExtraction(env, body) {
   };
   await env.DB.prepare(
     `INSERT INTO extraction_runs (id, created_at, board_id, event, date, alliance, label, video,
-                                  found, added, duplicates, frames, readings, status, note)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+                                  found, added, duplicates, frames, readings, status, note, created_by)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .bind(run.id, run.created_at, run.board_id, run.event, run.date, run.alliance, run.label,
           run.video, run.found, run.added, run.duplicates, run.frames, run.readings,
-          run.status, run.note).run();
+          run.status, run.note, env.user ? env.user.id : null).run();
   await logActivity(env, 'extract', 'board:' + id,
     `${run.added} row${run.added === 1 ? '' : 's'} added from an extraction`
     + (duplicates.length ? `, ${duplicates.length} already there` : ''),
@@ -254,6 +263,19 @@ export async function listRuns(env, limit = 60) {
 export async function patchBoard(env, id, body) {
   const board = await env.DB.prepare('SELECT * FROM boards WHERE id = ?').bind(id).first();
   if (!board) throw notFound('no such board');
+  requireManage(env.user, board, 'rename or re-date');
+  // Who owns it is an admin's to change: by in-game name, or empty for nobody.
+  let owner = board.created_by || null;
+  if (body.ownerName !== undefined && body.ownerName !== null) {
+    if (!isAdmin(env.user)) throw forbidden('only an admin can change who owns a board.');
+    const key = nameKey(body.ownerName);
+    if (!key) owner = null;
+    else {
+      const u = await env.DB.prepare('SELECT id FROM users WHERE name_key = ?').bind(key).first();
+      if (!u) throw bad(`no account is called “${str(body.ownerName)}”.`);
+      owner = u.id;
+    }
+  }
   const event = str(body.event ?? board.event);
   const date = str(body.date ?? board.date);
   const alliance = str(body.alliance ?? board.alliance);
@@ -266,8 +288,8 @@ export async function patchBoard(env, id, body) {
     if (clash) throw conflict(`a board already exists for ${alliance} on ${date}.`);
   }
   await env.DB.batch([
-    env.DB.prepare('UPDATE boards SET id=?, event=?, date=?, alliance=?, label=?, version=version+1 WHERE id=?')
-      .bind(next, event, date, alliance, label, id),
+    env.DB.prepare('UPDATE boards SET id=?, event=?, date=?, alliance=?, label=?, created_by=?, version=version+1 WHERE id=?')
+      .bind(next, event, date, alliance, label, owner, id),
     env.DB.prepare('UPDATE scores SET board_id=? WHERE board_id=?').bind(next, id),
     env.DB.prepare('UPDATE board_meta SET board_id=? WHERE board_id=?').bind(next, id),
     env.DB.prepare('UPDATE board_sheets SET board_id=? WHERE board_id=?').bind(next, id),
@@ -279,6 +301,7 @@ export async function patchBoard(env, id, body) {
 export async function deleteBoard(env, id) {
   const board = await env.DB.prepare('SELECT * FROM boards WHERE id = ?').bind(id).first();
   if (!board) throw notFound('no such board');
+  requireManage(env.user, board, 'delete');
   const n = await env.DB.prepare('SELECT COUNT(*) n FROM scores WHERE board_id = ?').bind(id).first();
   await env.DB.batch([
     env.DB.prepare('DELETE FROM scores WHERE board_id = ?').bind(id),

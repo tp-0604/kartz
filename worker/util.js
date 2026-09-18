@@ -37,9 +37,13 @@ export const identity = row =>
  * never blocks the write it describes.
  */
 export async function logActivity(env, kind, dataset, summary, detail) {
+  // The request's env carries who is signed in (see worker.js), so every line says who.
+  const u = env.user || null;
   try {
-    await env.DB.prepare('INSERT INTO activity (at, kind, dataset, summary, detail) VALUES (?,?,?,?,?)')
-      .bind(now(), kind, dataset || null, summary, detail ? JSON.stringify(detail) : null).run();
+    await env.DB.prepare(
+      'INSERT INTO activity (at, kind, dataset, summary, detail, actor_id, actor_name) VALUES (?,?,?,?,?,?,?)')
+      .bind(now(), kind, dataset || null, summary, detail ? JSON.stringify(detail) : null,
+            u ? u.id : null, u ? u.name : null).run();
   } catch { /* the log is not worth failing a save over */ }
 }
 

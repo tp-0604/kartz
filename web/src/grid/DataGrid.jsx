@@ -467,7 +467,10 @@ export default function DataGrid({
                  onChange={e => setEditing(s => ({ ...s, value: e.target.value }))}
                  onBlur={() => commitEdit()}
                  onKeyDown={e => {
-                   e.stopPropagation();
+                   // The app's own shortcuts — search (⌘K) and the AI (⌘J) — still work mid-edit;
+                   // leaving the cell for them commits what was typed, as any blur does.
+                   const appKey = (e.metaKey || e.ctrlKey) && ['k', 'j'].includes(e.key.toLowerCase());
+                   if (!appKey) e.stopPropagation();
                    if (e.key === 'Escape') { e.preventDefault(); setEditing(null); hostRef.current.focus(); }
                    else if (e.key === 'Enter') { e.preventDefault(); commitEdit({ dr: e.shiftKey ? -1 : 1, dc: 0 }); hostRef.current.focus(); }
                    else if (e.key === 'Tab') { e.preventDefault(); commitEdit({ dr: 0, dc: e.shiftKey ? -1 : 1 }); hostRef.current.focus(); }

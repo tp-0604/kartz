@@ -24,10 +24,6 @@ import MonthView from './views/MonthView.jsx';
 import PlayerView from './views/PlayerView.jsx';
 import RunsView from './views/RunsView.jsx';
 import ActivityView from './views/ActivityView.jsx';
-import AskBar from '../ai/AskBar.jsx';
-import AnalysisPanel from '../ai/AnalysisPanel.jsx';
-import { useAnalyst } from '../ai/useAnalyst.js';
-import Boundary from '../components/shared/Boundary.jsx';
 import { exportDataset } from '../services/exporter.js';
 import * as API from '../services/api.js';
 import { deleteBoard } from '../services/api.js';
@@ -45,7 +41,7 @@ const SAVE_TEXT = {
 
 export default function DataWorkspace({ active, onClose }) {
   const { refreshDatasets, notify, openTarget, setOpenTarget, boards,
-          importRequest, setImportRequest } = useApp();
+          importRequest, setImportRequest, user, setAiContext } = useApp();
   const [target, setTarget] = useState(() => openTarget || { kind: 'dataset', key: store.get('ws.open') || 'roster' });
   const [filters, setFilters] = useState([]);
   const [query, setQuery] = useState('');
@@ -53,16 +49,21 @@ export default function DataWorkspace({ active, onClose }) {
   const [selection, setSelection] = useState(null);
   const [importing, setImporting] = useState(false);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const analyst = useAnalyst();
-  const [panelW, setPanelW] = useState(() => store.get('ws.panelW') || 400);
   const findRef = useRef(null);
   const gridWrap = useRef(null);
+  const pendingFilters = useRef(null);
   const dark = useDark();
 
-  // The command palette and the extractor both open things here.
+  // The command palette, the extractor and the AI's "view source data" all open things here —
+  // the AI with the filters its answer was computed under.
   useEffect(() => {
     if (!openTarget) return;
-    setTarget(openTarget);
+    const { filters: wanted, ...next } = openTarget;
+    if (wanted) {
+      if (next.kind === 'dataset' && next.key === datasetKey) setFilters(wanted);
+      else pendingFilters.current = wanted;
+    }
+    setTarget(next);
     setOpenTarget(null);
   }, [openTarget, setOpenTarget]);
 
@@ -78,8 +79,16 @@ export default function DataWorkspace({ active, onClose }) {
 
   useEffect(() => {
     if (datasetKey) store.set('ws.open', datasetKey);
-    setFilters([]); setQuery(''); setSort(null); setSelection(null);
+    setFilters(pendingFilters.current || []); setQuery(''); setSort(null); setSelection(null);
+    pendingFilters.current = null;
   }, [datasetKey]);
+
+  // What this account may do here. The Worker decides; this only keeps the page from offering
+  // what it would refuse.
+  const admin = !!user && user.role === 'admin';
+  const mayManageBoard = !!ds.dataset && ds.dataset.kind === 'board'
+    && (admin || (!!user && ds.dataset.ownerId === user.id));
+  const canReplace = admin || mayManageBoard;
 
   // ---- what the grid actually shows -----------------------------------------------------------
   const visibleColumns = useMemo(() => ds.columns.filter(c => !c.hidden), [ds.columns]);
@@ -231,38 +240,15 @@ export default function DataWorkspace({ active, onClose }) {
     };
   }, [ds.dataset, ds.rows.length, filters, query, rows.length, sort, visibleColumns, selection]);
 
-  const onAnalysisSource = useCallback(source => {
-    // "View source data" — take the workspace to the rows the answer was computed from.
-    if (!source || !source.dataset) return;
-    if (source.dataset.startsWith('board:') || source.dataset === 'roster') {
-      setTarget({ kind: 'dataset', key: source.dataset });
-      if (Array.isArray(source.filters) && source.filters.length)
-        setFilters(source.filters.filter(f => f && f.field)
-          .map(f => ({ key: f.field, op: f.op || 'eq', value: f.value })));
-    } else if (source.dataset.startsWith('month:')) {
-      setTarget({ kind: 'view', id: 'month' });
-    }
-  }, []);
-
-  // ---- the panel's width, dragged ------------------------------------------------------------------
-  const startDragPanel = e => {
-    e.preventDefault();
-    const startX = e.clientX, startW = panelW;
-    const move = ev => setPanelW(Math.max(300, Math.min(760, startW - (ev.clientX - startX))));
-    const up = () => {
-      window.removeEventListener('mousemove', move);
-      window.removeEventListener('mouseup', up);
-      setPanelW(w => { store.set('ws.panelW', w); return w; });
-    };
-    window.addEventListener('mousemove', move);
-    window.addEventListener('mouseup', up);
-  };
+  // The AI in the top bar is told what this sheet shows, while it is the one showing.
+  useEffect(() => { setAiContext(active ? aiContext : null); }, [active, aiContext, setAiContext]);
+  useEffect(() => () => setAiContext(null), [setAiContext]);
 
   const view = target.kind === 'view' ? VIEWS.find(v => v.id === target.id) : null;
   const [saveClass, saveLabel] = SAVE_TEXT[ds.save.status] || SAVE_TEXT.saved;
 
   return (
-    <div className={'ws' + (analyst.state ? ' has-panel' : '')}>
+    <div className="ws">
       <div className="ws__main">
         <div className="ws__head">
           {onClose && (
@@ -275,12 +261,13 @@ export default function DataWorkspace({ active, onClose }) {
             <div className="ws__title"><h1>{view.label}</h1></div>
           ) : (
             <BoardBar dataset={ds.dataset} version={ds.version} rows={ds.rows.length}
+                      canManage={mayManageBoard} isAdmin={admin}
                       onChanged={async () => { await refreshDatasets(); ds.reload(); }}
                       onRenamed={key => setTarget({ kind: 'dataset', key })}
                       boards={boards} />
           )}
 
-          <AskBar analyst={analyst} context={aiContext} />
+          <span className="spacer" />
 
           {!view && (
             <span className={'ws__savestate' + (saveClass ? ' is-' + saveClass : '')}
@@ -293,7 +280,7 @@ export default function DataWorkspace({ active, onClose }) {
             </span>
           )}
 
-          {!view && ds.dataset && (
+          {!view && ds.dataset && admin && (
             <button className="btn btn--sm ws__sheetbtn" onClick={openSheet}
                     title="Edit this in the full spreadsheet — formulas, formatting and all">
               Open in spreadsheet
@@ -322,7 +309,7 @@ export default function DataWorkspace({ active, onClose }) {
               renameAny={!!ds.dataset && ds.dataset.kind === 'roster'}
               onUndo={ds.undo} onRedo={ds.redo} canUndo={ds.canUndo} canRedo={ds.canRedo}
               onReload={() => ds.reload()} format={format}
-              onDelete={ds.dataset && ds.dataset.kind === 'board' ? removeBoard : null}
+              onDelete={mayManageBoard ? removeBoard : null}
               readOnly={false} />
 
             <Notices ds={ds} issues={issues} />
@@ -399,28 +386,6 @@ export default function DataWorkspace({ active, onClose }) {
         )}
       </div>
 
-      {analyst.state && (
-        <Boundary resetKey={analyst.state.history.length}
-                  fallback={err => (
-                    <aside className="aipanel" style={{ width: panelW }} aria-label="Analysis">
-                      <div className="aipanel__grip" onMouseDown={startDragPanel} />
-                      <div className="aipanel__head">
-                        <h2>✦ Analysis</h2><span className="spacer" />
-                        <button className="btn btn--sm btn--quiet" onClick={analyst.close}>✕</button>
-                      </div>
-                      <div className="aipanel__body">
-                        <div className="note note--bad">That answer could not be drawn: {String(err && err.message || err)}</div>
-                        <p className="hint">The grid, the extractor and every save are unaffected —
-                          nothing outside this panel depends on it. Ask again, or close the panel.</p>
-                      </div>
-                    </aside>
-                  )}>
-          <AnalysisPanel state={analyst.state} status={analyst.status} width={panelW}
-                         onDragStart={startDragPanel} onClose={analyst.close}
-                         onAsk={q => analyst.ask(q, aiContext)} onSource={onAnalysisSource} />
-        </Boundary>
-      )}
-
       {sheetOpen && ds.dataset && (
         <Portal>
           <SpreadsheetDialog ds={ds} notify={notify}
@@ -432,6 +397,7 @@ export default function DataWorkspace({ active, onClose }) {
       {importing && (
         <Portal>
           <ImportDialog mode={importing === 'board' ? 'board' : 'file'}
+                        canReplace={canReplace} isAdmin={admin}
                         dataset={ds.dataset} columns={ds.columns} onImportRows={importRows}
                         onClose={() => setImporting(false)}
                         onDone={async key => {

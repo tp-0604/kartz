@@ -38,7 +38,8 @@ export async function allRows(env, limit = 20000) {
 
 export async function activity(env, limit = 80) {
   const { results } = await env.DB.prepare(
-    'SELECT id, at, kind, dataset, summary, detail FROM activity ORDER BY at DESC, id DESC LIMIT ?')
+    `SELECT id, at, kind, dataset, summary, detail, actor_name, ai_summary FROM activity
+      ORDER BY at DESC, id DESC LIMIT ?`)
     .bind(Math.min(400, limit)).all();
   return { activity: (results || []).map(r => ({ ...r, detail: r.detail ? JSON.parse(r.detail) : null })) };
 }

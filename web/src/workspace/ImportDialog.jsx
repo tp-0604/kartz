@@ -25,7 +25,7 @@ const TABS = [
 
 const text = v => (v === null || v === undefined ? '' : String(v).trim());
 
-export default function ImportDialog({ mode, dataset, columns, onClose, onDone, onImportRows }) {
+export default function ImportDialog({ mode, dataset, columns, onClose, onDone, onImportRows, canReplace, isAdmin }) {
   const [tab, setTab] = useState(mode === 'board' ? 'board' : 'table');
   return (
     <div className="scrim" onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -33,7 +33,8 @@ export default function ImportDialog({ mode, dataset, columns, onClose, onDone, 
         <div className="dialog__head">
           <h2>Import</h2>
           <div className="nav" style={{ marginLeft: 'auto' }}>
-            {TABS.map(([id, label]) => (
+            {/* The whole workbook replaces the roster and many boards at once: an admin's job. */}
+            {TABS.filter(([id]) => isAdmin || id !== 'workbook').map(([id, label]) => (
               <button key={id} type="button" className="nav__item" aria-current={tab === id ? 'page' : undefined}
                       style={{ textTransform: 'none', letterSpacing: 0 }}
                       onClick={() => setTab(id)}>{label}</button>
@@ -42,7 +43,7 @@ export default function ImportDialog({ mode, dataset, columns, onClose, onDone, 
           <button className="btn btn--sm btn--quiet" onClick={onClose}>Close</button>
         </div>
         <div className="dialog__body">
-          {tab === 'table' && <TableImport dataset={dataset} columns={columns}
+          {tab === 'table' && <TableImport dataset={dataset} columns={columns} canReplace={canReplace}
                                            onImportRows={onImportRows} onDone={onDone} />}
           {tab === 'workbook' && <WorkbookImport onDone={onDone} />}
           {tab === 'board' && <NewBoard onDone={onDone} />}
@@ -55,7 +56,7 @@ export default function ImportDialog({ mode, dataset, columns, onClose, onDone, 
 // ---------------------------------------------------------------------------------------
 // A table into the dataset that is open
 // ---------------------------------------------------------------------------------------
-function TableImport({ dataset, columns, onImportRows, onDone }) {
+function TableImport({ dataset, columns, onImportRows, onDone, canReplace }) {
   const { notify } = useApp();
   const [file, setFile] = useState(null);
   const [sheets, setSheets] = useState(null);
@@ -240,10 +241,14 @@ function TableImport({ dataset, columns, onImportRows, onDone }) {
               <input type="radio" name="how" checked={how === 'append'} onChange={() => setHow('append')} />
               <span>Add these rows to what is there</span>
             </label>
-            <label className="check">
-              <input type="radio" name="how" checked={how === 'replace'} onChange={() => setHow('replace')} />
+            <label className="check" style={canReplace ? undefined : { opacity: 0.5, cursor: 'not-allowed' }}>
+              <input type="radio" name="how" checked={how === 'replace'} disabled={!canReplace}
+                     onChange={() => setHow('replace')} />
               <span>Replace every row with these</span>
             </label>
+            {!canReplace && (
+              <span className="hint">Replacing every row is for an admin, or whoever sent this board.</span>
+            )}
           </div>
 
           <div className="btnrow">

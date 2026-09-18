@@ -50,7 +50,7 @@ export function useAnalyst() {
       // panel from having to know what the endpoint happens to call its payload.
       setState({ question: text, busy: false, error: null,
                  history: [...history, { question: text, answer: out.analysis, trace: out.trace,
-                                         model: out.model, provider: out.provider }] });
+                                         model: out.model, provider: out.provider, usage: out.usage }] });
     } catch (e) {
       setState({ question: text, busy: false, history, error: e.message || String(e) });
     }

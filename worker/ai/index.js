@@ -16,6 +16,9 @@ import { TOOLS, TOOL_BY_NAME, workspaceTool } from './tools.js';
 
 const MAX_ROUNDS = 6;
 const TABLE_ROWS = 200, CHART_ROWS = 60;
+// How many rows of one lookup the model is shown. A 200-row result is ~11k tokens, re-sent on every
+// round after it; fifty is plenty to answer from and keeps the worst question near 25k, not 68k.
+const MODEL_ROWS = 50;
 
 const COMPONENT_TYPES = ['text', 'metric', 'table', 'list', 'bar_chart', 'line_chart', 'comparison'];
 
@@ -251,10 +254,17 @@ export async function ask(env, body) {
   let rounds = 0;
   let answerText = '';
   let model = null, provider = null;
+  // What the answer cost, as the provider counted it, for the meter under it.
+  const usage = { input: 0, output: 0, calls: 0 };
+  const tally = o => {
+    usage.calls++;
+    if (o && o.usage) { usage.input += o.usage.input || 0; usage.output += o.usage.output || 0; }
+  };
 
   while (rounds < MAX_ROUNDS) {
     rounds++;
     const out = await chat(env, { system: SYSTEM, messages, tools: specs, maxTokens: 6000 });
+    tally(out);
     model = out.model; provider = out.provider;
     if (out.stop === 'refusal')
       return { analysis: cleanAnalysis({ title: 'Not answered', summary: out.refusal,
@@ -275,8 +285,11 @@ export async function ask(env, body) {
                    ok: !result.error, error: result.error || null,
                    rows: Array.isArray(result.rows) ? result.rows.length
                        : Array.isArray(result.groups) ? result.groups.length : undefined });
+      const shown = Array.isArray(result.rows) && result.rows.length > MODEL_ROWS
+        ? { ...result, rows: result.rows.slice(0, MODEL_ROWS), rowsNotShown: result.rows.length - MODEL_ROWS }
+        : result;
       messages.push({ role: 'tool', toolCallId: call.id, name: call.name,
-                      content: JSON.stringify(result).slice(0, 60000) });
+                      content: JSON.stringify(shown).slice(0, 60000) });
     }
   }
 
@@ -291,12 +304,13 @@ export async function ask(env, body) {
     schema: ANALYSIS_SCHEMA,
     maxTokens: 8000,
   }).catch(e => ({ text: '', error: e }));
+  tally(render);
 
   const parsed = extractJson(render && render.text) || extractJson(answerText);
   const analysis = cleanAnalysis(parsed, (render && render.text) || answerText);
   if (!parsed && !answerText && render && render.error) throw render.error;
   return { analysis, trace, model: (render && render.model) || model,
-           provider: (render && render.provider) || provider, rounds };
+           provider: (render && render.provider) || provider, rounds, usage };
 }
 
 export function aiStatus(env) {

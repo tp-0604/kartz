@@ -25,7 +25,7 @@ const hue = a => {
 };
 
 export default function HomeCanvas({ inert }) {
-  const { datasets, boards, openInData, go, setPendingFiles } = useApp();
+  const { datasets, boards, openInData, go, setPendingFiles, user } = useApp();
   const [picked, setPicked] = useState(null);
   const [over, setOver] = useState(false);
   const fileInput = useRef(null);
@@ -138,6 +138,11 @@ export default function HomeCanvas({ inert }) {
                                 aria-label={`${a}, ${labelFor[d]}, ${dayOf(d)}: ${n(b.rows)} rows`}>
                           <span className="tile__n">{n(b.rows)}</span>
                           <span className="tile__m">rows{typeof b.best === 'number' ? ` · best ${n(b.best)}` : ''}</span>
+                          {b.owner && (
+                            <span className={'tile__by' + (user && b.ownerId === user.id ? ' is-me' : '')}>
+                              by {user && b.ownerId === user.id ? 'you' : b.owner}
+                            </span>
+                          )}
                           <span className="tile__bar" aria-hidden="true">
                             <i style={{ width: Math.max(4, Math.round(((b.rows || 0) / most) * 100)) + '%' }} />
                           </span>

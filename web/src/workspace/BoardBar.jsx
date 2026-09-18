@@ -12,14 +12,14 @@ import { DAYS, MAIN_ALLIANCES } from '../extractor/config.js';
 import { patchBoard } from '../services/api.js';
 import { useApp } from '../state/AppContext.jsx';
 
-export default function BoardBar({ dataset, rows, onChanged, onRenamed, boards }) {
+export default function BoardBar({ dataset, rows, onChanged, onRenamed, boards, canManage, isAdmin }) {
   const { notify } = useApp();
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     setForm(dataset && dataset.kind === 'board'
-      ? { date: dataset.date, alliance: dataset.alliance, label: dataset.label || '' } : null);
+      ? { date: dataset.date, alliance: dataset.alliance, label: dataset.label || '', owner: dataset.owner || '' } : null);
   }, [dataset]);
 
   if (!dataset) return <div className="ws__title"><h1 className="muted">Nothing open</h1></div>;
@@ -33,15 +33,18 @@ export default function BoardBar({ dataset, rows, onChanged, onRenamed, boards }
     );
 
   const alliances = [...new Set([...MAIN_ALLIANCES, ...(boards || []).map(b => b.alliance), dataset.alliance])];
+  const ownerChanged = !!isAdmin && !!form && form.owner.trim() !== (dataset.owner || '');
   const changed = form && (form.date !== dataset.date || form.alliance !== dataset.alliance
-                           || (form.label || '') !== (dataset.label || ''));
+                           || (form.label || '') !== (dataset.label || '') || ownerChanged);
+  const sentBy = <span className="ws__owner">{dataset.owner ? `sent by ${dataset.owner}` : 'from before accounts'}</span>;
 
   const apply = async close => {
     if (!changed) { close(); return; }
     setBusy(true);
     try {
       const out = await patchBoard(dataset.id, { date: form.date, alliance: form.alliance,
-                                                 label: form.label || null });
+                                                 label: form.label || null,
+                                                 ...(ownerChanged ? { ownerName: form.owner.trim() } : {}) });
       notify(out.renamed ? 'Board renamed ✓' : 'Board updated ✓');
       close();
       if (out.renamed && onRenamed) onRenamed('board:' + out.board);
@@ -54,6 +57,15 @@ export default function BoardBar({ dataset, rows, onChanged, onRenamed, boards }
     <div className="ws__title">
       <AllianceChip a={dataset.alliance} />
       <h1>{dataset.date}</h1>
+      {!canManage ? (
+        <>
+          <span className="ws__day" title="Only whoever sent this board, or an admin, can rename or re-date it">
+            {dataset.label || 'no day'}
+          </span>
+          {sentBy}
+        </>
+      ) : (
+      <>
       <Dropdown label={(dataset.label || 'no day') + ' ▾'} className="btn btn--sm btn--quiet" width={280}
                 title="Change the date, the alliance or the scoring day">
         {close => (
@@ -78,8 +90,15 @@ export default function BoardBar({ dataset, rows, onChanged, onRenamed, boards }
                 {DAYS.map(d => <option key={d} value={d}>{d}</option>)}
               </select>
             </div>
+            {isAdmin && (
+              <div className="field">
+                <span className="label">Sent by</span>
+                <input className="input--sm" value={form.owner} placeholder="nobody — from before accounts"
+                       spellCheck={false} onChange={e => setForm(f => ({ ...f, owner: e.target.value }))} />
+              </div>
+            )}
             <p className="hint">The date and the alliance are the board's name, so changing either
-              renames it. The rows go with it.</p>
+              renames it. The rows go with it.{isAdmin ? ' Whoever sent it can delete or replace it.' : ''}</p>
             <div className="btnrow">
               <button className="btn btn--sm btn--primary" disabled={!changed || busy}
                       onClick={() => apply(close)}>{busy ? 'Saving…' : 'Apply'}</button>
@@ -88,6 +107,9 @@ export default function BoardBar({ dataset, rows, onChanged, onRenamed, boards }
           </div>
         )}
       </Dropdown>
+      {sentBy}
+      </>
+      )}
     </div>
   );
 }

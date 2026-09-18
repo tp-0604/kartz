@@ -261,7 +261,9 @@ export async function readDataset(env, key) {
     };
   }
 
-  const board = await env.DB.prepare('SELECT * FROM boards WHERE id = ?').bind(target.id).first();
+  const board = await env.DB.prepare(
+    'SELECT b.*, u.name AS owner_name FROM boards b LEFT JOIN users u ON u.id = b.created_by WHERE b.id = ?')
+    .bind(target.id).first();
   if (!board) throw notFound('no such board.');
   const meta = await boardMeta(env, target.id);
   const columns = applyLayout([
@@ -276,6 +278,7 @@ export async function readDataset(env, key) {
       key: datasetKey(target), kind: 'board', id: board.id, title: `${board.alliance} · ${board.date}`,
       date: board.date, alliance: board.alliance, label: board.label, event: board.event,
       rows: (results || []).length, savedAt: board.saved_at,
+      owner: board.owner_name || null, ownerId: board.created_by || null,
     },
     columns,
     rows: (results || []).map(r => ({ ...flatten(r, columns), edited: r.edited ? 1 : 0 })),
@@ -286,9 +289,9 @@ export async function readDataset(env, key) {
 /** Every dataset the workspace can open, for the navigator. */
 export async function listDatasets(env) {
   const { results: boards } = await env.DB.prepare(
-    `SELECT b.id, b.event, b.date, b.alliance, b.label, b.saved_at, b.version,
-            COUNT(s.id) AS rows, MAX(s.points) AS best
-       FROM boards b LEFT JOIN scores s ON s.board_id = b.id
+    `SELECT b.id, b.event, b.date, b.alliance, b.label, b.saved_at, b.version, b.created_by,
+            u.name AS owner_name, COUNT(s.id) AS rows, MAX(s.points) AS best
+       FROM boards b LEFT JOIN scores s ON s.board_id = b.id LEFT JOIN users u ON u.id = b.created_by
       GROUP BY b.id ORDER BY b.date DESC, b.alliance ASC`).all();
   const rmeta = await env.DB.prepare('SELECT version, saved_at FROM roster_meta WHERE id = 1').first();
   const rcount = await env.DB.prepare('SELECT COUNT(*) n FROM roster').first();
@@ -299,6 +302,7 @@ export async function listDatasets(env) {
       key: 'board:' + b.id, kind: 'board', id: b.id, title: `${b.alliance} · ${b.date}`,
       event: b.event, date: b.date, alliance: b.alliance, label: b.label,
       rows: b.rows, best: b.best, version: b.version, savedAt: b.saved_at,
+      owner: b.owner_name || null, ownerId: b.created_by || null,
     })),
   };
 }
@@ -427,6 +431,29 @@ function planColumns(ops, headings) {
   return { headings: next, touched, layout };
 }
 
+// What a batch actually changed, row by row: the before and after of every field, and the rows
+// added and removed. It goes into the log line, and the editing session's summary is written
+// from it — so the summary can say "Duke 835 → 840" rather than "1 row changed".
+const scoreLabel = r => (r ? (r.search || r.ingame || (r.place ? 'rank ' + r.place : '')) : '');
+const playerLabel = r => (r ? (r.search || r.ingame || '') : '');
+function describeChanges(writes, deletes, existing, labelOf) {
+  const out = [];
+  for (const w of writes) {
+    const was = existing.get(w.id);
+    const row = labelOf(was) || labelOf(w.record) || 'a new row';
+    if (w.kind === 'insert' && !was) { out.push({ row, added: true }); continue; }
+    const fields = {};
+    for (const [k, v] of Object.entries(w.record || {}))
+      if (!was || (was[k] ?? null) !== (v ?? null)) fields[k] = [was ? was[k] ?? null : null, v ?? null];
+    const extraWas = parseJson(was && was.extra, {}) || {};
+    for (const [k, v] of Object.entries(w.extra || {}))
+      if ((extraWas[k] ?? null) !== (v ?? null)) fields[k] = [extraWas[k] ?? null, v ?? null];
+    if (Object.keys(fields).length) out.push({ row, fields });
+  }
+  for (const id of deletes) out.push({ row: labelOf(existing.get(id)) || 'a row', deleted: true });
+  return out;
+}
+
 export async function applyOps(env, key, body) {
   const target = parseKey(key);
   const ops = Array.isArray(body && body.ops) ? body.ops : null;
@@ -459,7 +486,8 @@ async function boardOps(env, boardId, ops, body) {
   const existing = new Map();
   for (const part of chunk(touchedIds, 90)) {
     const { results } = await env.DB.prepare(
-      `SELECT id, place, extra, style FROM scores WHERE board_id = ? AND id IN (${part.map(() => '?').join(',')})`)
+      `SELECT id, place, search, ingame, alliance, points, extra, style FROM scores
+        WHERE board_id = ? AND id IN (${part.map(() => '?').join(',')})`)
       .bind(boardId, ...part).all();
     for (const r of results || []) existing.set(r.id, r);
   }
@@ -525,7 +553,14 @@ async function boardOps(env, boardId, ops, body) {
                    updated && `${updated} row${updated > 1 ? 's' : ''} changed`,
                    deletes.length && `${deletes.length} row${deletes.length > 1 ? 's' : ''} deleted`,
                    plan.touched && 'columns changed'].filter(Boolean).join(', ');
-  if (summary) await logActivity(env, 'edit', 'board:' + boardId, summary, { board: boardId });
+  if (summary) {
+    const changes = describeChanges(writes, deletes, existing, scoreLabel);
+    await logActivity(env, 'edit', 'board:' + boardId, summary, {
+      board: boardId,
+      counts: { changed: updated, added: inserted, deleted: deletes.length, columns: !!plan.touched },
+      changes: changes.slice(0, 60), more: Math.max(0, changes.length - 60),
+    });
+  }
 
   return { version: board.version + 1, applied: writes.length + deletes.length, rejected,
            inserted, updated, deleted: deletes.length, savedAt: stamp };
@@ -573,7 +608,7 @@ async function rosterOps(env, ops, body) {
   const existing = new Map();
   for (const part of chunk(touchedIds, 95)) {
     const { results } = await env.DB.prepare(
-      `SELECT id, search, extra, style FROM roster WHERE id IN (${part.map(() => '?').join(',')})`)
+      `SELECT id, search, ingame, alliance, extra, style FROM roster WHERE id IN (${part.map(() => '?').join(',')})`)
       .bind(...part).all();
     for (const r of results || []) existing.set(r.id, r);
   }
@@ -650,7 +685,13 @@ async function rosterOps(env, ops, body) {
                    updated && `${updated} player${updated > 1 ? 's' : ''} changed`,
                    deletes.length && `${deletes.length} player${deletes.length > 1 ? 's' : ''} removed`,
                    plan.touched && 'columns changed'].filter(Boolean).join(', ');
-  if (summary) await logActivity(env, 'edit', 'roster', summary);
+  if (summary) {
+    const changes = describeChanges(ok, deletes, existing, playerLabel);
+    await logActivity(env, 'edit', 'roster', summary, {
+      counts: { changed: updated, added: inserted, deleted: deletes.length, columns: !!plan.touched },
+      changes: changes.slice(0, 60), more: Math.max(0, changes.length - 60),
+    });
+  }
 
   return { version: version + 1, applied: ok.length + deletes.length, rejected,
            inserted, updated, deleted: deletes.length, savedAt: stamp,

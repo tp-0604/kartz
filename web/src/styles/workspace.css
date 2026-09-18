@@ -184,3 +184,10 @@
   .ws__sheetbtn { display: none; }
   .ws__status { gap: var(--s3); padding-inline: var(--s3); }
 }
+
+/* ---- who sent a board, and who did what ---------------------------------------------------- */
+.ws__owner { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+.ws__day { font-size: 12.5px; color: var(--ink2); white-space: nowrap; padding-inline: 4px; }
+.trail__who { font-weight: 650; margin-right: 6px; }
+.trail__ai { display: block; padding: 8px 11px; border-radius: var(--r2); background: var(--accbg); color: var(--ink); line-height: 1.45; }
+.trail__ai::before { content: '✦ '; color: var(--accent); }

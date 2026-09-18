@@ -55,6 +55,30 @@ export function AppProvider({ children }) {
   // the extractor; and 'board' or 'file', for the workspace to open its import dialog.
   const [pendingFiles, setPendingFiles] = useState(null);
   const [importRequest, setImportRequest] = useState(null);
+  // What the AI is told the screen shows: set by the workspace while a board is open.
+  const [aiContext, setAiContext] = useState(null);
+
+  // ---- who is signed in. Nothing below loads until somebody is -------------------------------
+  const [user, setUser] = useState(null);
+  const [authChecked, setAuthChecked] = useState(() => !API.getSession());
+  useEffect(() => {
+    const out = () => setUser(null);
+    window.addEventListener('kartz:signedout', out);
+    if (API.getSession()) {
+      API.whoAmI()
+        .then(j => { if (j.user) setUser(j.user); else API.setSession(''); })
+        .catch(() => { /* offline or refused: the sign-in screen says what to do */ })
+        .finally(() => setAuthChecked(true));
+    }
+    return () => window.removeEventListener('kartz:signedout', out);
+  }, []);
+  const acceptSession = useCallback(out => { API.setSession(out.token); setUser(out.user); }, []);
+  const signOut = useCallback(async () => {
+    try { await API.signOut(); } catch { /* signed out on this device either way */ }
+    API.setSession('');
+    setUser(null);
+  }, []);
+  const userId = user ? user.id : null;
   const noticeTimer = useRef(null);
 
   // ---- navigation: the hash is the address, and the last mode is remembered ------------------
@@ -88,7 +112,7 @@ export function AppProvider({ children }) {
     store.set('roster', { rows: j.rows || [], meta });
     return j;
   }, []);
-  useEffect(() => { loadRoster().catch(() => setRosterLoaded(true)); }, [loadRoster]);
+  useEffect(() => { if (userId) loadRoster().catch(() => setRosterLoaded(true)); }, [loadRoster, userId]);
 
   // What the matcher runs on: three fields, and nothing it does not use.
   const matchRoster = useMemo(
@@ -110,7 +134,7 @@ export function AppProvider({ children }) {
       return null;
     }
   }, []);
-  useEffect(() => { refreshDatasets(); }, [refreshDatasets]);
+  useEffect(() => { if (userId) refreshDatasets(); }, [refreshDatasets, userId]);
 
   const boards = datasets ? datasets.boards : [];
 
@@ -128,6 +152,7 @@ export function AppProvider({ children }) {
     datasets, boards, refreshDatasets,
     openTarget, setOpenTarget, openInData,
     pendingFiles, setPendingFiles, importRequest, setImportRequest,
+    user, authChecked, acceptSession, signOut, aiContext, setAiContext,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
