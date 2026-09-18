@@ -44,6 +44,8 @@ const env = {
   DB,
   // Passed through from the environment, never stored here: with a key set, this harness runs a
   // real extraction against the real model.
+  // The admin code for signing up as an admin on this local copy.
+  ADMIN_CODE: process.env.ADMIN_CODE || 'local-admin',
   GEMINI_KEY: process.env.GEMINI_KEY,
   AI_PROVIDER: process.env.AI_PROVIDER,
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,

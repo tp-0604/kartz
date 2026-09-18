@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS boards (
   alliance TEXT NOT NULL,               -- whose board was filmed
   label    TEXT,                        -- 'Day 1', 'Final'. optional, and free text on purpose
   saved_at TEXT NOT NULL,
-  version  INTEGER NOT NULL DEFAULT 1   -- bumped on every write; a save from a stale copy is refused
+  version  INTEGER NOT NULL DEFAULT 1,  -- bumped on every write; a save from a stale copy is refused
+  created_by TEXT                       -- the account that sent it; NULL for boards from before accounts
 );
 
 -- A row keeps its identity when its values change. `id` is never edited and never derived from
@@ -62,9 +63,10 @@ CREATE TABLE IF NOT EXISTS board_meta (
   updated_at TEXT
 );
 
--- Legacy. One workbook snapshot per board, written by the version of this app that embedded a
--- spreadsheet library. Nothing writes here any more; it is read once per board to recover the
--- columns somebody added to the right of the record, and then left alone.
+-- One workbook per board, as "Open in spreadsheet" saved it: formulas, merges and formats, stored
+-- as {version, workbook} and handed back only while the board is still at that version. An older
+-- version of this app stored a bare snapshot here; that shape is read once per board, for the
+-- columns somebody added to the right of the record.
 CREATE TABLE IF NOT EXISTS board_sheets (
   board_id   TEXT PRIMARY KEY,
   snapshot   TEXT NOT NULL,
@@ -126,7 +128,8 @@ CREATE TABLE IF NOT EXISTS extraction_runs (
   frames     INTEGER,
   readings   INTEGER,
   status     TEXT NOT NULL DEFAULT 'completed',
-  note       TEXT
+  note       TEXT,
+  created_by TEXT
 );
 CREATE INDEX IF NOT EXISTS runs_by_time ON extraction_runs(created_at DESC);
 
@@ -137,7 +140,11 @@ CREATE TABLE IF NOT EXISTS activity (
   kind    TEXT NOT NULL,
   dataset TEXT,
   summary TEXT NOT NULL,
-  detail  TEXT
+  detail  TEXT,
+  actor_id   TEXT,                       -- who did it
+  actor_name TEXT,
+  ai_summary TEXT,                       -- the sentence written about an editing session
+  summarized INTEGER NOT NULL DEFAULT 0  -- an edit already folded into one
 );
 CREATE INDEX IF NOT EXISTS activity_by_time ON activity(at DESC);
 
@@ -150,3 +157,26 @@ CREATE TABLE IF NOT EXISTS saved_views (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS views_by_dataset ON saved_views(dataset);
+
+-- Everyone signs up: an in-game name, written plainly, and a password. A name belongs to one
+-- account, however it is capitalised or spaced — that is what name_key is for.
+CREATE TABLE IF NOT EXISTS users (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  name_key   TEXT NOT NULL,
+  role       TEXT NOT NULL DEFAULT 'member',   -- member | admin
+  pass_hash  TEXT NOT NULL,                    -- PBKDF2-SHA256, salted
+  pass_salt  TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  last_seen  TEXT
+);
+CREATE UNIQUE INDEX IF NOT EXISTS users_by_name ON users(name_key);
+
+-- A browser that has signed in holds a random token; this holds only its hash.
+CREATE TABLE IF NOT EXISTS sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS sessions_by_user ON sessions(user_id);

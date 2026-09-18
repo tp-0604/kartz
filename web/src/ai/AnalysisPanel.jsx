@@ -8,7 +8,6 @@
  */
 import { BarChart, LineChart, PlainTable, short } from './charts.jsx';
 import { Delta } from '../components/shared/ui.jsx';
-import { EXAMPLES } from './useAnalyst.js';
 
 const FLAG = {
   measured: ['measured', 'every figure came from a query'],
@@ -16,57 +15,9 @@ const FLAG = {
   unavailable: ['no data', 'the rows needed are not in the database'],
 };
 
-export default function AnalysisPanel({ state, status, width, onDragStart, onClose, onSource, onAsk }) {
-  return (
-    <aside className="aipanel" style={{ width }} aria-label="Analysis">
-      <div className="aipanel__grip" onMouseDown={onDragStart} title="Drag to resize" />
-      <div className="aipanel__head">
-        <h2>✦ Analysis</h2>
-        <span className="spacer" />
-        <button className="btn btn--sm btn--quiet" onClick={onClose} title="Close the panel">✕</button>
-      </div>
-      <div className="aipanel__body">
-        {!state.history.length && !state.busy && !state.error && (
-          <div className="stack stack--tight">
-            <p className="hint">
-              A question is answered by querying this database — the rows are never sent to a
-              model. It sees what is on screen: the dataset, the filters, the sort and what you
-              have selected.
-            </p>
-            <div className="aiexamples">
-              {EXAMPLES.map(q => (
-                <button key={q} type="button" onClick={() => onAsk(q)}>{q}</button>
-              ))}
-            </div>
-            {status && status.available && (
-              <p className="hint">Answering with {status.provider} · {status.model}.</p>
-            )}
-          </div>
-        )}
-        {state.history.map((item, i) => (
-          <Answer key={i} item={item} onSource={onSource} />
-        ))}
-        {state.busy && (
-          <div className="stack stack--tight">
-            <div className="answer__q">{state.question}</div>
-            <div className="thinking"><i />Querying the database…</div>
-          </div>
-        )}
-        {state.error && (
-          <div className="stack stack--tight">
-            <div className="answer__q">{state.question}</div>
-            <div className="note note--bad">{state.error}</div>
-            <p className="hint">Nothing else in the app depends on this. The grid, the extractor
-              and every save work whether or not a model answers.</p>
-          </div>
-        )}
-      </div>
-    </aside>
-  );
-}
-
-function Answer({ item, onSource }) {
-  const { question, answer, trace, model, provider } = item;
+/** One question and its answer, as the AI popup draws it. */
+export function Answer({ item, onSource }) {
+  const { question, answer, trace, model, provider, usage } = item;
   const [flag, why] = FLAG[answer.confidence] || FLAG.measured;
   // Metrics read as a row of tiles rather than a stack, so consecutive ones are grouped.
   const blocks = [];
@@ -124,6 +75,11 @@ function Answer({ item, onSource }) {
       <div className="row" style={{ gap: 'var(--s3)' }}>
         <span className={'answer__flag answer__flag--' + answer.confidence} title={why}>● {flag}</span>
         {model && <span className="hint">{provider} · {model}</span>}
+        {usage && usage.input > 0 && (
+          <span className="hint mono" title="What this answer cost, as the provider counted it">
+            {(usage.input + usage.output).toLocaleString()} tokens · {usage.calls} call{usage.calls === 1 ? '' : 's'}
+          </span>
+        )}
         {trace && trace.length > 0 && (
           <details className="disclosure" style={{ flexBasis: '100%', padding: '8px 11px' }}>
             <summary>What it asked the database</summary>

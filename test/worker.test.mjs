@@ -1,19 +1,22 @@
 import fs from 'node:fs';
 import { makeDb, readSchema } from './d1.mjs';
 import worker from '../worker.js';
+import { summarizeSessions } from '../worker/summaries.js';
 
 const schema = readSchema();
 const DB = makeDb(schema);
-const env = { DB, ASSETS: null };
+const env = { DB, ASSETS: null, ADMIN_CODE: 'test-admin-code' };
+let SESSION = null;          // the admin's, once signed up; each call sends it unless told otherwise
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra) => { if (cond) { pass++; console.log('  ok  ', name); }
   else { fail++; console.log('  FAIL', name, extra === undefined ? '' : JSON.stringify(extra).slice(0, 400)); } };
 
-async function call(method, path, body) {
+async function call(method, path, body, session = SESSION) {
   const req = new Request('https://x.test/api' + path, {
     method,
-    headers: { 'content-type': 'application/json', 'Sec-Fetch-Site': 'same-origin' },
+    headers: { 'content-type': 'application/json', 'Sec-Fetch-Site': 'same-origin',
+               ...(session ? { 'x-kartz-session': session } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const res = await worker.fetch(req, env);
@@ -21,6 +24,14 @@ async function call(method, path, body) {
   let json = null; try { json = JSON.parse(text); } catch { json = text; }
   return { status: res.status, json };
 }
+
+// ---- an account first: nothing else answers without one -----------------------------------
+console.log('\n# accounts');
+let acct = await call('GET', '/boards');
+ok('signed out, the data routes refuse', acct.status === 401, acct);
+acct = await call('POST', '/auth/signup', { name: 'Tahp', password: 'secret-1', admin: true, adminCode: 'test-admin-code' });
+ok('an admin signs up with the admin code', acct.status === 200 && acct.json.user.role === 'admin' && !!acct.json.token, acct.json);
+SESSION = acct.json.token;
 
 // ---- seed a board the way the extractor would --------------------------------------------
 console.log('\n# extractor save');
@@ -256,6 +267,88 @@ r = await call('PUT', '/datasets/roster/sheet', { version: rosterSheetVersion, w
 ok('the roster keeps a workbook too', r.status === 200, r.json);
 r = await call('GET', '/datasets/roster/sheet');
 ok('and hands it back', !!r.json.workbook, r.json);
+
+console.log('\n# names, passwords and who may do what');
+let m = await call('POST', '/auth/signup', { name: 'Amy', password: 'amy-pass' }, null);
+ok('a member signs up', m.status === 200 && m.json.user.role === 'member', m.json);
+const AMY = m.json.token;
+m = await call('POST', '/auth/signup', { name: '  amy ', password: 'other-pass' }, null);
+ok('the same name, however it is typed, is taken', m.status === 409, m.json);
+m = await call('POST', '/auth/signup', { name: 'ŊŲƁĮ', password: 'fancy-pass' }, null);
+ok('fancy text is refused', m.status === 400, m.json);
+m = await call('POST', '/auth/signup', { name: 'Bo', password: '123' }, null);
+ok('a short password is refused', m.status === 400, m.json);
+m = await call('POST', '/auth/signup', { name: 'Mallory', password: 'mallory-1', admin: true, adminCode: 'wrong' }, null);
+ok('a wrong admin code is refused', m.status === 403, m.json);
+m = await call('POST', '/auth/signin', { name: 'AMY', password: 'wrong-pass' }, null);
+ok('a wrong password is refused', m.status === 401, m.json);
+m = await call('POST', '/auth/signin', { name: 'nobody', password: 'wrong-pass' }, null);
+ok('an unknown name gets the same refusal', m.status === 401 && /do not match/.test(m.json.error.message), m.json);
+m = await call('POST', '/auth/signin', { name: 'AMY', password: 'amy-pass' }, null);
+ok('signing in finds the account whatever the case', m.status === 200 && m.json.user.name === 'Amy', m.json);
+m = await call('GET', '/auth/me', undefined, AMY);
+ok('the session says who it is', m.json.user && m.json.user.name === 'Amy' && m.json.user.role === 'member', m.json);
+
+const legacy = 'kartz|2026-07-01|698N';
+DB._raw.exec(`INSERT INTO boards (id,event,date,alliance,label,saved_at,version) VALUES ('${legacy}','kartz','2026-07-01','698N','Final','2026-07-01T00:00:00Z',1)`);
+const adminBoard = await call('GET', '/datasets/' + encodeURIComponent('board:' + boardId));
+const cur = adminBoard.json.dataset;
+ok("a board says who sent it", cur.owner === 'Tahp' && !!cur.ownerId, cur);
+m = await call('DELETE', '/boards/' + encodeURIComponent(boardId), undefined, AMY);
+ok("a member cannot delete someone else's board", m.status === 403, m.json);
+m = await call('DELETE', '/boards/' + encodeURIComponent(legacy), undefined, AMY);
+ok('a member cannot delete a board from before accounts', m.status === 403 && /admin/.test(m.json.error.message), m.json);
+m = await call('PATCH', '/boards/' + encodeURIComponent(boardId), { label: 'Day 4' }, AMY);
+ok("a member cannot rename someone else's board", m.status === 403, m.json);
+m = await call('PUT', `/datasets/${encodeURIComponent('board:' + boardId)}/sheet`, { version: 1, workbook: {} }, AMY);
+ok('a member cannot save the spreadsheet', m.status === 403, m.json);
+m = await call('GET', `/datasets/${encodeURIComponent('board:' + boardId)}/sheet`, undefined, AMY);
+ok('or open it', m.status === 403, m.json);
+m = await call('PUT', '/roster/rows', { rows: [], allowEmpty: true }, AMY);
+ok('a member cannot replace the roster', m.status === 403, m.json);
+m = await call('GET', '/users', undefined, AMY);
+ok('a member cannot list the accounts', m.status === 403, m.json);
+
+const extract = mode => ({ mode, date: cur.date, alliance: cur.alliance, label: cur.label,
+                           rows: [{ place: 1, search: 'Nubi', ingame: 'Nubi', alliance: cur.alliance, points: 1 }] });
+m = await call('POST', '/commit', extract('preview'), AMY);
+ok("the preview says a member may not replace someone else's board", m.json.canReplace === false && m.json.owner === 'Tahp', m.json);
+m = await call('POST', '/commit', extract('replace'), AMY);
+ok('and the Worker refuses the replace', m.status === 403, m.json);
+
+m = await call('POST', '/commit', { mode: 'new', date: '2026-09-10', alliance: '698S', label: 'Day 1',
+  rows: [{ place: 1, search: 'Amp', ingame: 'Amp', alliance: '698S', points: 400 }] }, AMY);
+ok('a member extracts a new board', m.status === 200 && m.json.added === 1, m.json);
+const amyBoard = m.json.board;
+m = await call('GET', '/datasets', undefined, AMY);
+const listed = m.json.boards.find(b => b.id === amyBoard);
+ok('the list says she sent it', listed && listed.owner === 'Amy', listed);
+
+const edited = await call('GET', '/datasets/' + encodeURIComponent('board:' + boardId), undefined, AMY);
+m = await call('POST', `/datasets/${encodeURIComponent('board:' + boardId)}/ops`,
+  { version: edited.json.version, ops: [{ op: 'update', id: edited.json.rows[0].id, values: { points: 1234 } }] }, AMY);
+ok("a member can still correct someone else's board in the grid", m.status === 200 && m.json.applied === 1, m.json);
+m = await call('GET', '/activity?limit=10', undefined, AMY);
+const line = m.json.activity.find(x => x.kind === 'edit' && x.actor_name === 'Amy');
+ok('the log says who edited it, and what the value was before and after',
+   line && line.detail.changes[0].fields.points[1] === 1234 && line.detail.changes[0].fields.points[0] !== 1234, line);
+
+const first = await summarizeSessions(env, { force: true });
+m = await call('GET', '/activity?limit=20', undefined, AMY);
+const session = m.json.activity.find(x => x.kind === 'summary' && x.actor_name === 'Amy');
+ok('a finished editing session becomes one entry', first.summarized >= 1 && session && /^Amy edited/.test(session.summary), session);
+const again = await summarizeSessions(env, { force: true });
+ok('and is described once', again.summarized === 0, again);
+
+m = await call('DELETE', '/boards/' + encodeURIComponent(amyBoard), undefined, AMY);
+ok('a member deletes a board she sent', m.status === 200, m.json);
+m = await call('PATCH', '/boards/' + encodeURIComponent(legacy), { ownerName: 'Amy' });
+ok('an admin can give a board an owner', m.status === 200, m.json);
+m = await call('DELETE', '/boards/' + encodeURIComponent(legacy), undefined, AMY);
+ok('after which its owner can delete it', m.status === 200, m.json);
+m = await call('POST', '/auth/signout', {}, AMY);
+m = await call('GET', '/boards', undefined, AMY);
+ok('a signed-out session is refused', m.status === 401, m);
 
 console.log('\n# AI status without a provider');
 r = await call('GET', '/ai/status');

@@ -132,3 +132,7 @@
   .tile__n { font-size: 21px; }
 }
 @media (prefers-reduced-motion: reduce) { .capsule::after { display: none; } }
+
+/* Who sent a board: the one person, besides an admin, who may delete or replace it. */
+.tile__by { font-size: 11.5px; color: var(--ink2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile__by.is-me { color: var(--accent); font-weight: 600; }

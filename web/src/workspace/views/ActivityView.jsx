@@ -8,7 +8,7 @@ import { fmtTime } from '../../utils/format.js';
 
 const KIND = {
   edit: 'edited', insert: 'added', delete: 'deleted', import: 'imported',
-  extract: 'from a recording', columns: 'columns', 'delete-board': 'deleted',
+  extract: 'from a recording', columns: 'columns', 'delete-board': 'deleted', summary: 'session',
 };
 
 export default function ActivityView({ onOpen }) {
@@ -34,7 +34,10 @@ export default function ActivityView({ onOpen }) {
             <div key={a.id} className="trail__item">
               <span className="trail__when">{fmtTime(a.at)}</span>
               <span className="trail__what">
-                {a.summary}
+                {/* A session entry is already written as a sentence about someone; the rest get their name. */}
+                {a.kind === 'summary'
+                  ? (a.ai_summary ? <span className="trail__ai">{a.ai_summary}</span> : a.summary)
+                  : <>{a.actor_name && <b className="trail__who">{a.actor_name}</b>}{a.summary}</>}
                 {a.dataset && (
                   <div className="trail__where">
                     {a.dataset === 'roster' ? 'Roster' : a.dataset.replace(/^board:kartz\|/, '')}

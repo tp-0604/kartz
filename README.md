@@ -44,6 +44,35 @@ A sheet that is put away stays open underneath, so an unsaved edit or a finished
 never lost by going back to the canvas. The look is glass over solid rows, in light and dark; the
 device decides unless a theme is chosen in the app.
 
+### Accounts and permissions
+
+Everyone signs up on first open: an in-game name, written plainly (letters, numbers, spaces and
+`- _ . '`, no fancy text), and a password. A name belongs to one account however it is typed, so
+"Amy" is one person everywhere. An admin signs up the same way and brings the admin code, a Worker
+secret (`wrangler secret put ADMIN_CODE`); without it set, admin sign-up is refused.
+
+The Worker enforces all of it — the page only avoids offering what would be refused:
+
+- **Everyone** can browse every board, ask the AI, extract new boards (which are then theirs), and
+  edit cells, rows and columns in the grid on any board.
+- **Whoever sent a board** can delete it, rename or re-date it, and replace it with a new
+  extraction. Boards from before accounts have no sender, so those are an admin's.
+- **Admins** can do all of that on every board, open and save the spreadsheet engine, replace the
+  roster or a whole board from an import, import a whole workbook, and change who owns a board.
+
+Every save is logged under the name of whoever made it, with the values before and after. Every
+five minutes a cron trigger turns each editing session that has gone quiet — one person, one
+board, three minutes with nothing new — into one sentence in the log, written by the cheapest
+configured model, or as a plain sentence when there is none.
+
+### The AI bar
+
+One box in the top bar, and ⌘J, opens the analyst from anywhere. It knows which board is open and
+under what filters, answers by querying the database with a fixed set of tools, and draws the
+answer with the app's own figures, tables and charts. Under each answer is what it cost, as the
+provider counted it. A lookup shows the model at most 50 rows: a 200-row result is about 11,000
+tokens, re-sent on every round after it, and fifty is plenty to answer from.
+
 ### The grid
 
 Editing is optimistic and batched. A keystroke lands in the rows immediately, becomes an

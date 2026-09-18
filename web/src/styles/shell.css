@@ -7,6 +7,7 @@
 .shell {
   position: relative; isolation: isolate;
   height: 100dvh; display: grid; grid-template-rows: var(--topbar-h) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);   /* the window's width, never the widest thing in it */
   overflow: hidden; background: var(--bg);
 }
 /* The light behind the glass. Painted once and never animated: it is what the blur works with. */
@@ -138,3 +139,44 @@
   .screen__in { padding: var(--s4) var(--s4) calc(var(--s6) + env(safe-area-inset-bottom)); }
   .panel { padding: var(--s4); }
 }
+
+/* ---- who is signed in ------------------------------------------------------------------------ */
+.kbar.kbar--icon { min-width: 0; padding: 0 6px 0 11px; }
+.me { gap: 8px; padding: 0 12px 0 4px; }
+.me__av { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; flex: none;
+  background: var(--accbg); color: var(--accent); font: 700 11.5px/1 var(--sans); }
+.me.is-admin .me__av { background: color-mix(in srgb, var(--a3) 16%, transparent); color: var(--a3); }
+.me__name { max-width: 120px; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- signing up and in ------------------------------------------------------------------------- */
+.auth { position: relative; isolation: isolate; min-height: 100dvh; display: grid; place-items: center;
+  padding: var(--s5) var(--s4); background: var(--bg); overflow-y: auto; }
+.auth::before {
+  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(42% 50% at 8% 4%, var(--ambient1), transparent 72%),
+    radial-gradient(40% 46% at 96% 18%, var(--ambient2), transparent 72%),
+    radial-gradient(50% 50% at 50% 104%, var(--ambient3), transparent 72%),
+    linear-gradient(172deg, var(--bg), var(--bg2));
+}
+.auth__card {
+  width: min(420px, 100%); display: flex; flex-direction: column; gap: var(--s4); padding: 28px 24px 22px;
+  background: var(--glass3); -webkit-backdrop-filter: var(--blur-strong); backdrop-filter: var(--blur-strong);
+  border: 1px solid var(--glassstroke); border-radius: var(--r4);
+  box-shadow: inset 0 1px 0 var(--glassedge), 0 30px 80px -30px var(--shade2);
+  animation: dialogin .5s var(--spring);
+}
+.auth__mark { width: 46px; height: 46px; border-radius: 15px;
+  background: conic-gradient(from 210deg, var(--a0), var(--a3), var(--a1), var(--a2), var(--a0)); }
+.auth h1 { font: 600 24px/1.15 var(--display); letter-spacing: -.02em; }
+.auth__lede { margin-top: 6px; color: var(--muted); font-size: 14px; }
+.auth__tabs { align-self: flex-start; }
+.auth__foot { text-align: center; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--accent); font: inherit; font-weight: 600; cursor: pointer; }
+
+@media (max-width: 760px) {
+  .me { padding: 0 4px; }
+  .me__name, .topbar__theme, .kbar.kbar--icon kbd { display: none; }
+  .kbar.kbar--icon { width: 34px; padding: 0; justify-content: center; }
+}
+@media (max-width: 400px) { .brand__name { display: none; } }

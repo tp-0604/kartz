@@ -140,7 +140,12 @@ export default function CommitDialog({ payload, onClose, onDone }) {
                       : `Add all ${preview.total}, updating the ${preview.duplicates} already there`}
                   </button>
                 )}
-                {preview.exists && (
+                {preview.exists && preview.canReplace === false && (
+                  <p className="hint">This board was sent by {preview.owner || 'someone before accounts'},
+                    so only {preview.owner ? 'they or an admin' : 'an admin'} can replace it. Adding the
+                    new records is still yours to do.</p>
+                )}
+                {preview.exists && preview.canReplace !== false && (
                   <button className="btn btn--block" disabled={!!busy}
                           onClick={() => {
                             if (window.confirm(`Replace the whole ${payload.alliance} board for `

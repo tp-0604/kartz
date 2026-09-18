@@ -13,10 +13,14 @@ export const apiBase = () => BASE;
 export const getPass = () => { try { return localStorage.getItem('kartz.pass') || ''; } catch { return ''; } };
 export const setPass = v => { try { v ? localStorage.setItem('kartz.pass', v) : localStorage.removeItem('kartz.pass'); } catch { /* ignore */ } };
 
+// The signed-in session: a token the Worker issued at sign-in, kept in this browser only.
+export const getSession = () => { try { return localStorage.getItem('kartz.session') || ''; } catch { return ''; } };
+export const setSession = v => { try { v ? localStorage.setItem('kartz.session', v) : localStorage.removeItem('kartz.session'); } catch { /* ignore */ } };
+
 export const apiUrl = path => BASE + path;
 export const apiHeaders = (h = {}) => {
-  const pass = getPass();
-  return pass ? { ...h, 'x-kartz-pass': pass } : h;
+  const pass = getPass(), session = getSession();
+  return { ...h, ...(pass ? { 'x-kartz-pass': pass } : {}), ...(session ? { 'x-kartz-session': session } : {}) };
 };
 
 export class ApiError extends Error {
@@ -27,7 +31,13 @@ export async function api(path, opts = {}) {
   const res = await fetch(apiUrl(path), { ...opts, headers: apiHeaders(opts.headers || {}) });
   const j = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = (j.error && j.error.message) || j.error
+    // A session the Worker no longer knows — expired, or signed out elsewhere — sends the app back
+    // to the sign-in screen, rather than failing one request at a time.
+    if (res.status === 401 && getSession()) {
+      setSession('');
+      window.dispatchEvent(new Event('kartz:signedout'));
+    }
+    const msg =(j.error && j.error.message) || j.error
       || (res.status === 403 ? 'the Worker refused this browser — set the shared phrase on the Setup screen'
                              : 'request failed (' + res.status + ')');
     throw new ApiError(res.status, msg, j);
@@ -51,6 +61,12 @@ export const applyOps = (key, body) => api('/datasets/' + encodeURIComponent(key
 // only while the rows are still the version it was saved with.
 export const loadSheet = key => api('/datasets/' + encodeURIComponent(key) + '/sheet');
 export const saveSheet = (key, body) => api('/datasets/' + encodeURIComponent(key) + '/sheet', json('PUT', body));
+
+// ---- accounts ---------------------------------------------------------------------------------
+export const signUp = body => api('/auth/signup', json('POST', body));
+export const signIn = body => api('/auth/signin', json('POST', body));
+export const signOut = () => api('/auth/signout', json('POST', {}));
+export const whoAmI = () => api('/auth/me');
 
 // ---- extraction into the database -----------------------------------------------------------
 // mode 'preview' writes nothing and says what would happen; the rest commit.

@@ -124,6 +124,7 @@ async function anthropicChat(env, { model, system, messages, tools, schema, maxT
     text: blocks.filter(b => b.type === 'text').map(b => b.text).join(''),
     toolCalls: blocks.filter(b => b.type === 'tool_use').map(b => ({ id: b.id, name: b.name, args: b.input || {} })),
     stop: out.stop_reason,
+    usage: out.usage ? { input: out.usage.input_tokens || 0, output: out.usage.output_tokens || 0 } : null,
   };
 }
 
@@ -159,6 +160,7 @@ async function openaiChat(env, { model, system, messages, tools, schema, maxToke
       args: (() => { try { return JSON.parse(c.function.arguments || '{}'); } catch { return {}; } })(),
     })),
     stop: out.choices && out.choices[0] && out.choices[0].finish_reason,
+    usage: out.usage ? { input: out.usage.prompt_tokens || 0, output: out.usage.completion_tokens || 0 } : null,
   };
 }
 
@@ -208,6 +210,8 @@ async function googleChat(env, { model, system, messages, tools, schema, maxToke
       id: 'call_' + i, name: p.functionCall.name, args: p.functionCall.args || {},
       ...(p.thoughtSignature ? { signature: p.thoughtSignature } : {}) })),
     stop: out.candidates && out.candidates[0] && out.candidates[0].finishReason,
+    usage: out.usageMetadata ? { input: out.usageMetadata.promptTokenCount || 0,
+                                 output: out.usageMetadata.candidatesTokenCount || 0 } : null,
   };
 }
 
@@ -273,7 +277,9 @@ export async function chat(env, request) {
   if (!adapter) throw new Error(`unknown AI provider “${info.name}”.`);
 
   const tried = [];
-  const models = [info.model, ...(FALLBACKS[info.name] || [])].filter((m, i, a) => m && a.indexOf(m) === i);
+  // `cheap` asks for the smallest model the provider has first — for chores like a log entry.
+  const cheapest = request.cheap ? (FALLBACKS[info.name] || []).slice(-1) : [];
+  const models = [...cheapest, info.model, ...(FALLBACKS[info.name] || [])].filter((m, i, a) => m && a.indexOf(m) === i);
   let last = null;
   for (const model of models) {
     try {

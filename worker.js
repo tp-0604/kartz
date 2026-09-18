@@ -13,8 +13,11 @@
  *   wrangler secret put GEMINI_KEY      <- required for the extractor
  *   wrangler secret put SHARED_PASS     <- the phrase, when the page is hosted elsewhere
  *   wrangler secret put ANTHROPIC_API_KEY | OPENAI_API_KEY   <- optional: the analyst
+ *   wrangler secret put ADMIN_CODE      <- the code an account brings to sign up as an admin
  */
 import { HttpError, str, toInt } from './worker/util.js';
+import * as Auth from './worker/auth.js';
+import { summarizeSessions } from './worker/summaries.js';
 import * as Data from './worker/datasets.js';
 import * as Boards from './worker/boards.js';
 import * as Views from './worker/views.js';
@@ -58,7 +61,7 @@ async function runWorkersAI(env, model, body) {
 // ---------------------------------------------------------------------------------------
 const DATA_SEGMENTS = new Set([
   'datasets', 'runs', 'commit', 'boards', 'board', 'score', 'month', 'player', 'all',
-  'roster', 'activity', 'views', 'ai',
+  'roster', 'activity', 'views', 'ai', 'auth', 'users',
 ]);
 
 async function handleData(seg, parts, request, env, reply) {
@@ -76,6 +79,21 @@ async function handleData(seg, parts, request, env, reply) {
     return j;
   };
 
+  // ---- accounts --------------------------------------------------------------------------------
+  if (seg === 'auth') {
+    if (sub === 'signup' && method === 'POST') return reply(await Auth.signUp(env, await body()), 200);
+    if (sub === 'signin' && method === 'POST') return reply(await Auth.signIn(env, await body()), 200);
+    if (sub === 'signout' && method === 'POST') return reply(await Auth.signOut(env, request), 200);
+    if (sub === 'me' && method === 'GET') return reply({ user: await Auth.who(env, request) }, 200);
+    return null;
+  }
+
+  // Everything else needs somebody signed in. The request gets its own copy of env that says who,
+  // so the log can record who did what and the rules below can say who may.
+  const user = await Auth.who(env, request);
+  if (!user && !(seg === 'ai' && sub === 'status')) throw new HttpError(401, 'sign in to use Kartz.');
+  env = { ...env, user };
+
   // ---- the analyst ----------------------------------------------------------------------
   if (seg === 'ai') {
     if (sub === 'status' && method === 'GET') return reply(aiStatus(env), 200);
@@ -90,8 +108,17 @@ async function handleData(seg, parts, request, env, reply) {
   if (seg === 'datasets' && method === 'POST' && sub && leaf === 'ops')
     return reply(await Data.applyOps(env, sub, await body()), 200);
   if (seg === 'datasets' && sub && leaf === 'sheet') {
+    Auth.requireAdmin(env.user, 'use the spreadsheet');
     if (method === 'GET') return reply(await Data.readSheet(env, sub), 200);
     if (method === 'PUT') return reply(await Data.saveSheet(env, sub, await body()), 200);
+  }
+
+  // ---- accounts, for an admin deciding who owns a board ------------------------------------------
+  if (seg === 'users' && method === 'GET' && !sub) {
+    Auth.requireAdmin(env.user, 'list the accounts');
+    const { results } = await env.DB.prepare(
+      'SELECT id, name, role, created_at, last_seen FROM users ORDER BY name_key').all();
+    return reply({ users: results || [] }, 200);
   }
 
   // ---- the roster, read and replaced whole --------------------------------------------------
@@ -107,8 +134,10 @@ async function handleData(seg, parts, request, env, reply) {
     return reply({ rows, columns: out.columns.map(c => c.header), mapping: out.dataset.mapping,
                    version: out.version, savedAt: out.dataset.savedAt }, 200);
   }
-  if (seg === 'roster' && sub === 'rows' && method === 'PUT')
+  if (seg === 'roster' && sub === 'rows' && method === 'PUT') {
+    Auth.requireAdmin(env.user, 'replace the whole roster');
     return reply(await Data.replaceRoster(env, await body()), 200);
+  }
 
   // The single page in public/ still asks for /api/roster: the old shape, where a Google Sheet
   // was the roster and this database held only the differences against it. That stopped being
@@ -220,13 +249,18 @@ function corsHeaders(origin) {
   return {
     'access-control-allow-origin': origin,
     'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-    'access-control-allow-headers': 'content-type, x-kartz-pass',
+    'access-control-allow-headers': 'content-type, x-kartz-pass, x-kartz-session',
     'access-control-max-age': '86400',
     'vary': 'Origin',
   };
 }
 
 export default {
+  // Every five minutes (wrangler.toml): editing sessions that have gone quiet become one log entry.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(summarizeSessions(env));
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url);
 
@@ -298,6 +332,9 @@ export default {
 
     // Everything past this point is a model call, which is always a POST.
     if (request.method !== 'POST') return reply({ error: 'POST only' }, 405);
+    // Reading a recording costs money on the model key, so it is for signed-in accounts only.
+    if (!(await Auth.who(env, request)))
+      return reply({ error: { code: 401, message: 'sign in to use Kartz.' } }, 401);
 
     // No separate phrase check here. The gate above already decided: a request either came from
     // an origin this deployment recognises — the site itself — or it brought the shared phrase.
