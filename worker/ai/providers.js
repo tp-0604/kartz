@@ -189,7 +189,12 @@ async function googleChat(env, { model, system, messages, tools, schema, maxToke
     contents,
     generationConfig: { temperature: 0, maxOutputTokens: maxTokens || 8000,
                         ...(schema ? { responseMimeType: 'application/json' } : {}) },
-    ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+    // A JSON mime type alone lets the model choose its own shape, and a small model will. The
+    // shape is spelled out in the instructions too, so the answer arrives as the app reads it.
+    ...(system || schema ? { systemInstruction: { parts: [{ text: [system, schema
+      ? 'Reply with one JSON object and nothing else. It must match this JSON Schema — these '
+        + 'property names and these types, and no others:\n' + JSON.stringify(stripSchema(schema))
+      : ''].filter(Boolean).join('\n\n') }] } } : {}),
   };
   if (tools && tools.length)
     body.tools = [{ functionDeclarations: tools.map(t => ({

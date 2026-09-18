@@ -87,6 +87,10 @@ rows. A row has: place (the rank the game showed), search (the player's roster n
 identity, null for someone not on the roster), ingame (the name the video drew, which changes),
 alliance (the player's own alliance, which is not always the board's), points (their score),
 and possibly extra columns the user added, named "x:Whatever".
+The alliances are 698W, 698S, 698N and 698C. An alliance value such as z1.Transferred, z3.?,
+Unknown or an empty one is not an alliance: it marks a player who left, transferred or could not
+be placed. Leave those out when comparing or ranking alliances, and say in the summary that you
+did.
 A month usually holds three boards per alliance: Day 1, Day 4 and Final. "Snapshot", "day" and
 "board" all mean a board. The *roster* is the list of players.
 Datasets you can name: "roster", "scores" (every board at once), "month:YYYY-MM", and
@@ -201,8 +205,43 @@ function cleanComponent(c) {
   return null;
 }
 
+// Models do not always use the names they are asked for — a small one especially. The common other
+// spellings are read as what they plainly mean, so an answer is drawn rather than dumped as JSON.
+const list = v => (Array.isArray(v) ? v : []);
+function readAlternates(raw) {
+  const o = { ...raw };
+  if (!str(o.summary)) {
+    const said = o.answer ?? o.text ?? o.response ?? o.result ?? o.explanation;
+    o.summary = typeof said === 'string' ? said : '';
+  }
+  const conf = str(o.confidence).toLowerCase();
+  if (!['measured', 'inferred', 'unavailable'].includes(conf))
+    o.confidence = /low|guess|estimat/.test(conf) ? 'inferred' : /none|unavail/.test(conf) ? 'unavailable' : 'measured';
+  if (!Array.isArray(o.components)) {
+    const out = [];
+    for (const m of list(o.metrics))
+      out.push({ type: 'metric', label: m && (m.label ?? m.name), value: m && m.value, unit: m && m.unit,
+                 delta: m && (m.delta ?? m.change), note: m && m.note });
+    for (const ch of list(o.charts)) {
+      if (!ch || typeof ch !== 'object') continue;
+      const data = list(ch.data ?? ch.rows ?? ch.values);
+      if (/line/i.test(str(ch.type)))
+        out.push({ type: 'line_chart', title: ch.title, x: ch.x, y: ch.y,
+                   series: list(ch.series).length ? ch.series
+                     : [{ name: ch.title || 'value', points: data.map(d => ({ x: d && (d.x ?? d.label), y: d && (d.y ?? d.value) })) }] });
+      else out.push({ type: 'bar_chart', title: ch.title, x: ch.x, y: ch.y, rows: data });
+    }
+    for (const t of list(o.tables)) if (t && typeof t === 'object') out.push({ ...t, type: 'table' });
+    o.components = out;
+  }
+  return o;
+}
+
 export function cleanAnalysis(raw, fallbackText) {
-  const obj = raw && typeof raw === 'object' ? raw : {};
+  const obj = readAlternates(raw && typeof raw === 'object' ? raw : {});
+  // A reply that is JSON nobody could read is not an answer to show anyone.
+  if (!str(obj.summary) && /^\s*[[{]/.test(str(fallbackText)))
+    fallbackText = 'The answer came back in a shape this app could not read. Ask again.';
   const components = (Array.isArray(obj.components) ? obj.components : [])
     .slice(0, 12).map(cleanComponent).filter(Boolean);
   const summary = str(obj.summary).slice(0, 2000)

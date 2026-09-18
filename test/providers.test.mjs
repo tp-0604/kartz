@@ -1,6 +1,7 @@
 // What the analyst does when the model provider is busy, rate-limited or refusing — with the
 // provider's answers faked, so it runs with no key and no network.
 import { chat } from '../worker/ai/providers.js';
+import { cleanAnalysis } from '../worker/ai/index.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, extra) => { if (cond) { pass++; console.log('  ok  ', name); }
@@ -51,6 +52,29 @@ seen = script([error(401, 'API key not valid.'), answer('never reached')]);
 threw = null;
 try { await ask(); } catch (e) { threw = e; }
 ok('a bad key is not retried anywhere', !!threw && threw.status === 401 && seen.length === 1, { seen, threw: threw && threw.message });
+
+console.log('\n# an answer in a shape of its own');
+let body = null;
+globalThis.fetch = async (url, init) => { body = JSON.parse(init.body);
+  return new Response(JSON.stringify(answer('{}').body), { status: 200 }); };
+await chat(env, { system: 's', schema: { type: 'object', properties: { summary: { type: 'string' } } },
+                  messages: [{ role: 'user', content: 'q' }] });
+const sys = body.systemInstruction.parts[0].text;
+ok('Gemini is told the exact shape, not only "JSON"', /JSON Schema/.test(sys) && sys.includes('"summary"')
+   && body.generationConfig.responseMimeType === 'application/json', sys);
+
+// What gemini-3.5-flash-lite actually sent back on 19 Sep 2026, shown to the user as raw JSON.
+const wild = { answer: 'The alliance with the highest average score is 698N at 275.46.', confidence: 'high',
+  sources: [{ dataset: 'scores', rows: 15669 }],
+  metrics: [{ label: 'Highest Average Score', value: 275.46, change: null }],
+  charts: [{ type: 'bar', title: 'Average Score by Alliance', data: [
+    { label: '698N', value: 275.46 }, { label: '698S', value: 269.62 }, { label: '698W', value: 248.11 }, { label: '698C', value: 232.81 }] }] };
+const drawn = cleanAnalysis(wild, JSON.stringify(wild));
+ok('its answer becomes the summary, not a dump', drawn.summary === wild.answer, drawn.summary);
+ok('its metrics and chart are drawn', drawn.components.map(c => c.type).join() === 'metric,bar_chart'
+   && drawn.components[1].rows.length === 4 && drawn.confidence === 'measured', drawn.components);
+const unreadable = cleanAnalysis(null, '{"something": "else"');
+ok('JSON nobody can read is never shown as the answer', !/^\s*\{/.test(unreadable.summary), unreadable.summary);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
