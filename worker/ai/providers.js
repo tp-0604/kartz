@@ -280,19 +280,38 @@ export async function chat(env, request) {
   // `cheap` asks for the smallest model the provider has first — for chores like a log entry.
   const cheapest = request.cheap ? (FALLBACKS[info.name] || []).slice(-1) : [];
   const models = [...cheapest, info.model, ...(FALLBACKS[info.name] || [])].filter((m, i, a) => m && a.indexOf(m) === i);
+  const retryMs = Number(env.AI_RETRY_MS ?? 1200);
   let last = null;
   for (const model of models) {
-    try {
-      const out = await adapter(env, { ...request, model });
-      return { ...out, model, provider: info.name };
-    } catch (e) {
-      tried.push(model);
-      last = e;
-      // Only a missing or rejected model is worth another throw of the dice; a bad request or
-      // a rate limit will fail the same way on the next model along.
-      if (!(e.status === 404 || e.status === 400)) break;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const out = await adapter(env, { ...request, model });
+        return { ...out, model, provider: info.name };
+      } catch (e) {
+        last = e;
+        // A busy model usually answers a moment later, so it gets one more try before moving on.
+        if (busy(e) && attempt === 0) { await pause(retryMs); continue; }
+        break;
+      }
     }
+    tried.push(model);
+    // Worth the next model along: one that is missing or refused this request (404, 400), one that
+    // is overloaded, or one whose quota is spent (429) — Gemini counts quota per model, and the
+    // smaller one is often free when the larger is not. A bad key fails the same way everywhere.
+    if (!(last.status === 404 || last.status === 400 || last.status === 429 || busy(last))) break;
   }
+  if (busy(last))
+    last = Object.assign(new Error('The AI is busy right now — the provider is overloaded, on its '
+      + 'smaller model too. It usually passes within a minute; try again shortly.'), { status: 503 });
   throw Object.assign(last || new Error('the model provider could not be reached.'),
                       { tried, provider: info.name });
 }
+
+// Busy is not broken: an overloaded provider answers 503 (Google says "high demand" or
+// UNAVAILABLE; Anthropic uses 529). That is worth a retry and a smaller model; nothing else is.
+function busy(e) {
+  if (!e) return false;
+  return e.status === 503 || e.status === 529
+    || /high demand|overloaded|\bUNAVAILABLE\b/i.test(String(e.message || ''));
+}
+const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
