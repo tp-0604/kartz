@@ -410,6 +410,21 @@ o = await call('GET', '/activity?limit=20', undefined, OWNER);
 ok('the log says what the owner did', (o.json.activity || []).some(a => a.kind === 'account'
    && a.actor_name === 'Tess' && /removed the account Amy/.test(a.summary)), o.json.activity && o.json.activity[0]);
 
+// An account that already exists claims its role by signing in with the code, rather than
+// signing up a second time under another name.
+o = await call('POST', '/auth/signup', { name: 'Pip', password: 'pip-pass-1' }, null);
+ok('somebody signs up as a member', o.json.user.role === 'member', o.json);
+o = await call('POST', '/auth/signin', { name: 'Pip', password: 'pip-pass-1', adminCode: 'test-admin-code' }, null);
+ok('and claims admin with the admin code on the sign-in form', o.status === 200 && o.json.user.role === 'admin', o.json);
+o = await call('POST', '/auth/signin', { name: 'Pip', password: 'pip-pass-1', adminCode: 'wrong' }, null);
+ok('a wrong code on the way in is refused, session and all', o.status === 403, o.json);
+o = await call('POST', '/auth/signin', { name: 'Pip', password: 'pip-pass-1', adminCode: 'test-owner-code' }, null);
+ok('and the owner code is no way in while there is an owner',
+   o.status === 403 && /already has an owner/.test(o.json.error.message), o.json);
+o = await call('GET', '/auth/me', undefined, (await call('POST', '/auth/signin',
+  { name: 'Pip', password: 'pip-pass-1' }, null)).json.token);
+ok('what was claimed sticks', o.json.user.role === 'admin', o.json);
+
 // Handing Kartz over is the way back in if the owner ever loses the account.
 o = await call('POST', '/auth/signup', { name: 'Dev', password: 'dev-pass-1' }, null);
 const DEV = o.json.token;

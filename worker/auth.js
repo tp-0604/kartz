@@ -65,6 +65,12 @@ async function openSession(env, user) {
   return { token, user: publicUser(user) };
 }
 
+async function noOwnerYet(env) {
+  const owner = await env.DB.prepare("SELECT name FROM users WHERE role = 'owner'").first();
+  if (owner)
+    throw forbidden(`Kartz already has an owner — “${owner.name}”. Sign in as them, or ask them to hand it over.`);
+}
+
 const taken = name => new HttpError(409, `“${name}” is already taken. If it is yours, sign in instead.`);
 
 export async function signUp(env, body) {
@@ -80,12 +86,8 @@ export async function signUp(env, body) {
     const code = str(body.adminCode);
     if (!env.ADMIN_CODE && !env.OWNER_CODE)
       throw forbidden('admin sign-up is not set up on this Worker yet. Whoever runs it sets ADMIN_CODE.');
-    if (env.OWNER_CODE && same(code, env.OWNER_CODE)) {
-      const owner = await env.DB.prepare("SELECT name FROM users WHERE role = 'owner'").first();
-      if (owner)
-        throw forbidden(`Kartz already has an owner — “${owner.name}”. Sign in as them, or ask them to hand it over.`);
-      role = 'owner';
-    } else if (env.ADMIN_CODE && same(code, env.ADMIN_CODE)) role = 'admin';
+    if (env.OWNER_CODE && same(code, env.OWNER_CODE)) { await noOwnerYet(env); role = 'owner'; }
+    else if (env.ADMIN_CODE && same(code, env.ADMIN_CODE)) role = 'admin';
     else throw forbidden('that admin code is not right.');
   }
 
@@ -114,6 +116,22 @@ export async function signIn(env, body) {
   if (!user) { await derive(password || 'x'); throw refuse(); }
   const { hash } = await derive(password, user.pass_salt);
   if (!same(hash, user.pass_hash)) throw refuse();
+
+  // A code on the sign-in form claims the role for an account that already exists: how whoever
+  // runs Kartz becomes the owner without signing up a second time under another name.
+  const code = str(body && body.adminCode);
+  if (code && user.role !== 'owner') {
+    if (env.OWNER_CODE && same(code, env.OWNER_CODE)) {
+      await noOwnerYet(env);
+      await env.DB.prepare("UPDATE users SET role = 'owner' WHERE id = ?").bind(user.id).run();
+      user.role = 'owner';
+    } else if (env.ADMIN_CODE && same(code, env.ADMIN_CODE)) {
+      if (user.role !== 'admin')
+        await env.DB.prepare("UPDATE users SET role = 'admin' WHERE id = ?").bind(user.id).run();
+      user.role = 'admin';
+    } else throw forbidden('that admin code is not right.');
+  }
+
   await env.DB.prepare('UPDATE users SET last_seen = ? WHERE id = ?').bind(now(), user.id).run();
   return openSession(env, user);
 }
