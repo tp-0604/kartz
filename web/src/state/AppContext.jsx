@@ -66,6 +66,8 @@ export function AppProvider({ children }) {
   // Where you are inside the files: a section, and a file open in it.
   const [section, setSection] = useState(null);
   const [fileOpen, setFileOpen] = useState(null);
+  // Workbooks dropped on the window, waiting for the files screen to read them in.
+  const [droppedBooks, setDroppedBooks] = useState(null);
 
   // ---- who is signed in. Nothing below loads until somebody is -------------------------------
   const [user, setUser] = useState(null);
@@ -187,6 +189,7 @@ export function AppProvider({ children }) {
     pendingFiles, setPendingFiles, importRequest, setImportRequest,
     user, authChecked, acceptSession, signOut, aiContext, setAiContext,
     tree, treeError, refreshTree, section, openSection, fileOpen, openFile, setFileOpen,
+    droppedBooks, setDroppedBooks,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -258,7 +258,12 @@ ok('a picture that was never there says so', res.status === 404, res.status);
 /* --------------------------------------------------------------------------- who may write */
 console.log('\n# who may write to a file');
 r = await call('PUT', `/sheets/${sheet}/slab`, { band: 0, count: 1, cells: packBand([[0, 0, 'x', 'str', null, 0]]) }, AMY);
-ok("a member cannot write over somebody else's file", r.status === 403, r.json);
+ok("a member cannot rewrite a drawing she does not own", r.status === 403, r.json);
+const tableSheet = (await call('GET', '/files/' + file)).json.sheets.find(s => s.shape === 'table');
+r = await call('PUT', `/sheets/${tableSheet.id}/slab`,
+  { band: 0, count: 1, cells: packBand([[0, 0, 'Amy was here', 'str', null, 0]]),
+    version: tableSheet.version, summary: 'changed A1' }, AMY);
+ok('but she can correct a cell on a table, as she always could on a board', r.status === 200, r.json);
 r = await call('PATCH', '/files/' + file, { name: 'Renamed' }, AMY);
 ok('nor rename it', r.status === 403, r.json);
 r = await call('DELETE', '/files/' + file, undefined, AMY);

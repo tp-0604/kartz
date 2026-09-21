@@ -21,6 +21,7 @@ import Dropdown from './components/shared/Dropdown.jsx';
 import AiPopup from './ai/AiPopup.jsx';
 import Rail from './files/Rail.jsx';
 import FilesScreen from './files/FilesScreen.jsx';
+import DropZone from './files/DropZone.jsx';
 import { useAnalyst } from './ai/useAnalyst.js';
 import { VIEWS } from './app/views.js';
 import { isDark, setTheme, themeChoice, useDark } from './utils/theme.js';
@@ -35,7 +36,7 @@ const MOD = typeof navigator !== 'undefined'
 function Shell() {
   const { mode, go, notice, setupOpen, setSetupOpen, paletteOpen, setPaletteOpen,
           boards, datasets, openInData, setImportRequest, user, signOut, aiContext,
-          refreshTree, openSection } = useApp();
+          refreshTree, openSection, openFile, tree } = useApp();
   const dark = useDark();
   const analyst = useAnalyst();
   const { open: openAnalyst } = analyst;
@@ -110,13 +111,30 @@ function Shell() {
     if (admin)
       out.splice(out.length - 1, 0, { id: 'people', group: 'Do', kind: 'action', label: 'People and what they may do',
                                       where: owner ? 'yours to decide' : '', run: actions.people });
+    // Every file and every tab by name. The tree came down with the tab names on purpose, so
+    // three letters reaches any of three hundred and twenty-eight without a round trip.
+    if (tree) {
+      const folderOf = new Map((tree.folders || []).map(f => [f.id, f.name]));
+      const fileOf = new Map();
+      for (const f of tree.files || []) {
+        fileOf.set(f.id, f.name);
+        out.push({ id: 'file-' + f.id, group: 'Files', kind: 'file', label: f.name,
+                   where: `${folderOf.get(f.folder_id) || 'Files'} · ${f.sheets} tabs`,
+                   run: () => openFile(f.id) });
+      }
+      for (const sh of tree.sheets || []) {
+        out.push({ id: 'tab-' + sh.id, group: 'Tabs', kind: 'view', label: sh.name,
+                   where: `${fileOf.get(sh.file_id) || ''} · ${(sh.cells || 0).toLocaleString()} cells`,
+                   run: () => openFile(sh.file_id, sh.idx) });
+      }
+    }
     for (const b of boards)
       out.push({ id: b.key, group: 'Boards', kind: 'board',
                  label: `${b.alliance} · ${b.date}${b.label ? ' · ' + b.label : ''}`,
                  where: `${b.rows} rows`,
                  run: () => openInData({ kind: 'dataset', key: b.key }) });
     return out;
-  }, [actions, admin, boards, dark, datasets, go, openInData, owner, user.name]);
+  }, [actions, admin, boards, dark, datasets, go, openFile, openInData, owner, tree, user.name]);
 
   return (
     <div className="shell">
@@ -228,6 +246,7 @@ function Shell() {
           {notice.text}
         </div>
       )}
+      <DropZone />
       {setupOpen && <SetupDialog onClose={() => setSetupOpen(false)} />}
       {peopleOpen && <PeopleDialog onClose={() => setPeopleOpen(false)} />}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />

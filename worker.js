@@ -94,7 +94,13 @@ async function handleData(seg, parts, request, env, reply) {
   // Everything else needs somebody signed in. The request gets its own copy of env that says who,
   // so the log can record who did what and the rules below can say who may.
   const user = await Auth.who(env, request);
-  if (!user && !(seg === 'ai' && sub === 'status')) throw new HttpError(401, 'sign in to use Kartz.');
+  // A picture is fetched by an <img> tag, which cannot carry a session header. Its id is the
+  // hash of its own bytes — forty hex characters nobody can guess and which only a signed-in
+  // read of a sheet hands out — and the origin check above still applies, so the hash is the
+  // capability. Everything else needs an account.
+  const openAsset = seg === 'assets' && method === 'GET' && !!sub;
+  if (!user && !openAsset && !(seg === 'ai' && sub === 'status'))
+    throw new HttpError(401, 'sign in to use Kartz.');
   env = { ...env, user };
 
   // ---- the analyst ----------------------------------------------------------------------
@@ -173,7 +179,13 @@ async function handleData(seg, parts, request, env, reply) {
     if (method === 'GET' && leaf === 'cells')
       return reply(await Files.readBands(env, sub, q.get('from'), q.get('to')), 200);
     if (method === 'GET' && leaf === 'meta') return reply(await Files.readMeta(env, sub), 200);
-    if (method === 'PUT' && leaf === 'slab') { mine('write to'); return reply(await Files.putSlab(env, sub, await body()), 200); }
+    // Editing a cell is not the same as owning the file. Anyone signed in may correct a value
+    // on a sheet that is a table — the same rule boards have always had — but a sheet that is a
+    // drawing, and a file still being imported, stay with whoever owns them.
+    if (method === 'PUT' && leaf === 'slab') {
+      if (sheet.shape === 'layout' || !file || !file.ready) mine('write to');
+      return reply(await Files.putSlab(env, sub, await body()), 200);
+    }
     if (method === 'PUT' && leaf === 'meta') { mine('write to'); return reply(await Files.putMeta(env, sub, await body()), 200); }
     if (method === 'GET' && leaf === 'tables') return reply(await Tables.readTables(env, sub), 200);
     if (method === 'PUT' && leaf === 'table') { mine('write to'); return reply(await Tables.putTable(env, sub, await body()), 200); }

@@ -8,6 +8,7 @@ import { useEffect, useMemo } from 'react';
 import { useApp } from '../state/AppContext.jsx';
 import Cover from './Cover.jsx';
 import FileView from './FileView.jsx';
+import ImportDrop from './ImportDrop.jsx';
 import { Empty } from '../components/shared/ui.jsx';
 
 const short = n => (n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? Math.round(n / 1e3) + 'k' : String(n || 0));
@@ -29,6 +30,7 @@ export function useSections() {
         tabs: files.reduce((n, f) => n + (f.sheets || 0), 0),
         cells: files.reduce((n, f) => n + (f.cells || 0), 0),
         cover: files.map(f => f.cover).find(Boolean) || null,
+        touched: files.map(f => f.updated_at).filter(Boolean).sort().pop() || null,
       };
     });
     const loose = tree.files.filter(f => !sections.some(s => s.id === f.folder_id)
@@ -42,29 +44,59 @@ export function useSections() {
         tabs: rootFiles.reduce((n, f) => n + (f.sheets || 0), 0),
         cells: rootFiles.reduce((n, f) => n + (f.cells || 0), 0),
         cover: rootFiles.map(f => f.cover).find(Boolean) || null,
+        touched: rootFiles.map(f => f.updated_at).filter(Boolean).sort().pop() || null,
       });
     }
     return sections.sort((a, b) => b.cells - a.cells);
   }, [tree]);
 }
 
-function Tile({ cover, title, line, onOpen }) {
+/**
+ * A tile is its name, big and in the middle, over a design that is faded on purpose: the cover
+ * says what kind of thing this is at a glance, and the word says which one it is.
+ */
+function Tile({ cover, title, line, note, onOpen, onPeek }) {
   return (
-    <button type="button" className="tile" onClick={onOpen}>
-      <Cover cover={cover} fade />
+    <button type="button" className="tile" onClick={onOpen}
+            onMouseEnter={onPeek ? () => onPeek(true) : undefined}
+            onMouseLeave={onPeek ? () => onPeek(false) : undefined}>
+      <Cover cover={cover} seed={title} className="tile__bg" />
       <span className="tile__cap">
         <b>{title}</b>
         <small>{line}</small>
+        {note ? <em>{note}</em> : null}
       </span>
     </button>
   );
 }
 
+/** "3 days ago", near enough. What a tile needs is recent or not. */
+export function ago(iso) {
+  if (!iso) return '';
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '';
+  const days = Math.floor((Date.now() - then) / 86400000);
+  if (days <= 0) return 'today';
+  if (days === 1) return 'yesterday';
+  if (days < 30) return days + ' days ago';
+  const months = Math.round(days / 30);
+  return months === 1 ? 'a month ago' : months + ' months ago';
+}
+
 export default function FilesScreen() {
-  const { tree, treeError, refreshTree, section, openSection, fileOpen, openFile, setFileOpen } = useApp();
+  const { tree, treeError, refreshTree, section, openSection, fileOpen, openFile, setFileOpen,
+          droppedBooks, setDroppedBooks } = useApp();
   const sections = useSections();
 
   useEffect(() => { if (!tree) refreshTree(); }, [tree, refreshTree]);
+
+  if (droppedBooks && droppedBooks.length) {
+    return (
+      <ImportDrop files={droppedBooks} folderId={section || null}
+                  onCancel={() => setDroppedBooks(null)}
+                  onDone={id => { setDroppedBooks(null); if (id) openFile(id); }} />
+    );
+  }
 
   if (treeError) {
     return (
@@ -100,6 +132,7 @@ export default function FilesScreen() {
             {here.files.map(f => (
               <Tile key={f.id} cover={f.cover} title={f.name}
                     line={`${f.sheets} tab${f.sheets === 1 ? '' : 's'} · ${short(f.cells)} cells`}
+                    note={f.owner ? `sent by ${f.owner}` : ago(f.updated_at)}
                     onOpen={() => openFile(f.id)} />
             ))}
           </div>
@@ -127,6 +160,7 @@ export default function FilesScreen() {
           {sections.map(s => (
             <Tile key={s.id || s.name} cover={s.cover} title={s.name}
                   line={`${s.files.length} file${s.files.length === 1 ? '' : 's'} · ${s.tabs} tabs · ${short(s.cells)} cells`}
+                  note={s.touched ? 'changed ' + ago(s.touched) : ''}
                   onOpen={() => openSection(s.id)} />
           ))}
         </div>
