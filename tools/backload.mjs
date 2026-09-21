@@ -14,11 +14,15 @@
  *
  * Useful flags:
  *   --dry            read and plan everything, send nothing
+ *   --sql <dir>      write the whole backload as SQL and a folder of pictures, for
+ *                    "wrangler d1 execute --file" and "wrangler r2 object put" — the way to
+ *                    load production without holding anybody's password
  *   --only <text>    only files whose path contains this
  *   --replace        delete and re-import a file that is already there
  *   --report <path>  write the whole report as JSON
  */
-import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync, appendFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { basename, join, relative } from 'node:path';
 import { readBook } from '../web/src/services/xlsxBook.js';
 import { planImport, sendImport } from '../web/src/services/bookImport.js';
@@ -37,6 +41,7 @@ const API = String(flag('api', 'http://localhost:8788/api')).replace(/\/+$/, '')
 const DRY = has('dry');
 const REPLACE = has('replace');
 const ONLY = flag('only');
+const SQL = flag('sql');
 
 if (!FROM) {
   console.error('Give it a folder: --from "/path/to/TW 2698"');
@@ -84,6 +89,79 @@ async function signIn() {
   }
 }
 
+/* --------------------------------------------------------------------------- writing SQL */
+
+// D1 allows a hundred thousand bytes per statement, and a band of a busy sheet is larger than
+// that once it is written as hex. So a big value goes in as its first chunk and is appended to,
+// which SQLite does losslessly for blobs as long as the result is cast back.
+const CHUNK = 40000;                                   // hex characters, so 20 KB of bytes
+const hexOf = bytes => Buffer.from(bytes).toString('hex');
+const q = v => (v === null || v === undefined ? 'NULL' : "'" + String(v).replace(/'/g, "''") + "'");
+const n = v => (v === null || v === undefined || v === '' ? 'NULL' : String(Math.round(Number(v)) || 0));
+
+const statements = [];
+const say = sql => statements.push(sql);
+
+/** A long value, written as a first statement and then appended to. */
+function writeLong(table, cols, key, column, hex, asText) {
+  const wrap = h => (asText ? `CAST(X'${h}' AS TEXT)` : `X'${h}'`);
+  const first = hex.slice(0, CHUNK);
+  say(`INSERT INTO ${table} (${cols.names.join(', ')}) VALUES (${cols.values(wrap(first))});`);
+  for (let i = CHUNK; i < hex.length; i += CHUNK) {
+    const part = hex.slice(i, i + CHUNK);
+    const cast = asText ? `${column} || CAST(X'${part}' AS TEXT)` : `CAST(${column} || X'${part}' AS BLOB)`;
+    say(`UPDATE ${table} SET ${column} = ${cast} WHERE ${key};`);
+  }
+}
+
+const newRowId = prefix => prefix + '_' + randomUUID().replace(/-/g, '').slice(0, 20);
+
+function sqlFolder(id, parentId, name, at) {
+  say(`INSERT INTO folders (id, parent_id, name, sort, created_at, created_by) `
+    + `VALUES (${q(id)}, ${q(parentId)}, ${q(name)}, 0, ${q(at)}, NULL);`);
+}
+
+function sqlFile(plan, fileId, folderId, at) {
+  say(`INSERT INTO files (id, folder_id, name, source, source_name, sheets, cells, version, ready, `
+    + `report, created_at, updated_at, created_by) VALUES (${q(fileId)}, ${q(folderId)}, `
+    + `${q(plan.file.name)}, 'xlsx', ${q(plan.file.sourceName)}, 0, 0, 1, 0, NULL, ${q(at)}, ${q(at)}, NULL);`);
+
+  // The report is written at the end, once the tabs have been counted.
+  const report = hexOf(Buffer.from(JSON.stringify(plan.report)));
+
+  plan.styles.forEach((style, idx) => {
+    say(`INSERT INTO styles (file_id, idx, json) VALUES (${q(fileId)}, ${idx}, `
+      + `CAST(X'${hexOf(Buffer.from(JSON.stringify(style || {})))}' AS TEXT));`);
+  });
+  return report;
+}
+
+function sqlSheet(sheet, sheetId, fileId) {
+  say(`INSERT INTO sheets (id, file_id, name, idx, shape, rows, cols, cells, hidden, frozen, `
+    + `tab_color, defaults, version) VALUES (${q(sheetId)}, ${q(fileId)}, ${q(sheet.name)}, `
+    + `${n(sheet.idx)}, ${q(sheet.shape)}, ${n(sheet.rows)}, ${n(sheet.cols)}, `
+    + `${sheet.bands.reduce((t, b) => t + b.count, 0)}, ${sheet.hidden ? 1 : 0}, `
+    + `${sheet.frozen ? q(JSON.stringify(sheet.frozen)) : 'NULL'}, ${q(sheet.tabColor)}, `
+    + `${sheet.defaults && Object.keys(sheet.defaults).length ? q(JSON.stringify(sheet.defaults)) : 'NULL'}, 1);`);
+
+  for (const band of sheet.bands) {
+    const bytes = Buffer.from(band.cells, 'base64');
+    const hex = hexOf(bytes);
+    writeLong('slabs', {
+      names: ['sheet_id', 'band', 'cells', 'count', 'bytes'],
+      values: first => `${q(sheetId)}, ${band.band}, ${first}, ${band.count}, ${bytes.length}`,
+    }, `sheet_id = ${q(sheetId)} AND band = ${band.band}`, 'cells', hex, false);
+  }
+
+  for (const [kind, json] of Object.entries(sheet.meta)) {
+    const hex = hexOf(Buffer.from(JSON.stringify(json)));
+    writeLong('sheet_meta', {
+      names: ['sheet_id', 'kind', 'json'],
+      values: first => `${q(sheetId)}, ${q(kind)}, ${first}`,
+    }, `sheet_id = ${q(sheetId)} AND kind = ${q(kind)}`, 'json', hex, true);
+  }
+}
+
 /* ----------------------------------------------------------------------------- the walking */
 
 const isBook = f => /\.xlsx$/i.test(f) && !basename(f).startsWith('~$');
@@ -128,8 +206,13 @@ if (skippedKinds.size) {
 }
 if (DRY) console.log('dry run: reading and planning only, nothing is sent\n');
 
-const who = DRY ? { name: 'nobody' } : await signIn();
-if (!DRY) console.log(`signed in as ${who.name} (${who.role})\n`);
+const who = (DRY || SQL) ? { name: 'nobody' } : await signIn();
+if (!DRY && !SQL) console.log(`signed in as ${who.name} (${who.role})\n`);
+if (SQL) {
+  mkdirSync(String(SQL), { recursive: true });
+  mkdirSync(join(String(SQL), 'assets'), { recursive: true });
+  console.log('writing SQL to ' + SQL + ', nothing is sent\n');
+}
 
 // The folders, made as they are first needed, so an empty directory never appears.
 const folderIds = new Map();
@@ -139,13 +222,19 @@ async function folderFor(dir) {
   if (folderIds.has(key)) return folderIds.get(key);
   const parent = rel ? await folderFor(join(dir, '..')) : null;
   const name = rel ? basename(dir) : basename(root);
-  const out = DRY ? { folder: { id: 'dry_' + key } } : await api('POST', '/folders', { name, parentId: parent });
+  let out;
+  if (SQL) {
+    const id = newRowId('fd');
+    sqlFolder(id, parent, name, new Date().toISOString());
+    out = { folder: { id } };
+  } else if (DRY) out = { folder: { id: 'dry_' + key } };
+  else out = await api('POST', '/folders', { name, parentId: parent });
   folderIds.set(key, out.folder.id);
   return out.folder.id;
 }
 
 let tree = { folders: [], files: [] };
-if (!DRY) tree = await api('GET', '/tree');
+if (!DRY && !SQL) tree = await api('GET', '/tree');
 const existing = new Map(tree.files.map(f => [(f.folder_id || '') + '/' + f.name, f]));
 
 const report = [];
@@ -175,7 +264,21 @@ for (const path of files) {
   const bytes = plan.sheets.reduce((n, s) => n + s.bands.reduce((b, x) => b + x.bytes, 0), 0);
   const imageBytes = plan.assets.reduce((n, a) => n + a.bytes.length, 0);
 
-  if (!DRY) {
+  if (SQL) {
+    const at = new Date().toISOString();
+    const fileId = newRowId('fl');
+    const report = sqlFile(plan, fileId, folderId, at);
+    for (const sheet of plan.sheets) sqlSheet(sheet, newRowId('sh'), fileId);
+    say(`UPDATE files SET ready = 1, sheets = (SELECT COUNT(*) FROM sheets WHERE file_id = ${q(fileId)}), `
+      + `cells = (SELECT COALESCE(SUM(cells), 0) FROM sheets WHERE file_id = ${q(fileId)}), `
+      + `report = CAST(X'${report}' AS TEXT) WHERE id = ${q(fileId)};`);
+    for (const asset of plan.assets) {
+      const ext = (asset.mime.split('/')[1] || 'png').replace('jpeg', 'jpg');
+      writeFileSync(join(String(SQL), 'assets', asset.id + '.' + ext), Buffer.from(asset.bytes));
+      say(`INSERT OR IGNORE INTO assets (id, mime, bytes, created_at, created_by) `
+        + `VALUES (${q(asset.id)}, ${q(asset.mime)}, ${asset.bytes.length}, ${q(at)}, NULL);`);
+    }
+  } else if (!DRY) {
     await sendImport(plan, api, {
       putAsset: asset => api('PUT', '/assets/' + asset.id, Buffer.from(asset.bytes),
         { raw: true, headers: { 'content-type': asset.mime } }),
@@ -206,6 +309,15 @@ console.log(`formulas               ${num(T.formulas)} kept · ${num(T.google)} 
 console.log(`already showing errors ${T.errors}`);
 if (T.skipped) console.log(`skipped                ${T.skipped} already in the app`);
 console.log(`took                   ${(T.ms / 1000).toFixed(1)}s`);
+
+if (SQL) {
+  const file = join(String(SQL), 'backload.sql');
+  writeFileSync(file, statements.join('\n') + '\n');
+  const longest = statements.reduce((m, x) => Math.max(m, x.length), 0);
+  console.log(`\n${statements.length.toLocaleString('en')} statements in ${file}`);
+  console.log(`longest statement ${longest.toLocaleString('en')} bytes (D1 allows 100,000)`);
+  console.log(`pictures written to ${join(String(SQL), 'assets')}`);
+}
 
 const out = flag('report');
 if (out && out !== true) {
