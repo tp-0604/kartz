@@ -29,3 +29,11 @@ database_id = "32834df7-8b13-40e1-b6cb-517285302496"
 # Every five minutes: editing sessions that have gone quiet become one sentence in the log.
 [triggers]
 crons = ["*/5 * * * *"]
+
+# The pictures pasted into the imported sheets. Seventy of the eighty-eight megabytes in the
+# TW 2698 folder are screenshots sitting on top of cells, which is no business of a database:
+# the bytes live here under the hash of their contents, and D1 keeps only the row that says
+# which sheet anchors which picture where.
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "kartz-files"
