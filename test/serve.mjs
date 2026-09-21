@@ -52,6 +52,27 @@ const env = {
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   AI_MODEL: process.env.AI_MODEL,
   AI_GATEWAY: process.env.AI_GATEWAY,
+  // A stand-in for R2: the pictures pasted into imported sheets, on disk under .wrangler so a
+  // restart keeps them and git never sees them.
+  FILES: (() => {
+    const dir = path.join(process.cwd(), '.wrangler', 'local-r2');
+    fs.mkdirSync(dir, { recursive: true });
+    const meta = f => f + '.type';
+    return {
+      async put(key, body, opts) {
+        fs.writeFileSync(path.join(dir, key), Buffer.from(body));
+        fs.writeFileSync(meta(path.join(dir, key)),
+          (opts && opts.httpMetadata && opts.httpMetadata.contentType) || 'application/octet-stream');
+      },
+      async get(key) {
+        const f = path.join(dir, key);
+        if (!f.startsWith(dir) || !fs.existsSync(f)) return null;
+        const body = fs.readFileSync(f);
+        return { body, size: body.length,
+                 httpMetadata: { contentType: fs.existsSync(meta(f)) ? fs.readFileSync(meta(f), 'utf8') : null } };
+      },
+    };
+  })(),
   ASSETS: {
     fetch: req => {
       const p = new URL(req.url).pathname.replace(/^\/kartz/, '') || '/';
