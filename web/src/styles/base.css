@@ -338,3 +338,24 @@ details.disclosure[open] > summary { margin-bottom: var(--s3); }
   background: var(--panel); color: var(--ink);
   box-shadow: 0 1px 3px var(--shade), inset 0 1px 0 var(--glassedge);
 }
+
+/* People: the accounts, and the buttons only the owner sees. */
+.people td { vertical-align: top; }
+.people .hint { font-size: 11.5px; }
+.people td:nth-child(2) { width: 42%; }
+.people__do { display: flex; flex-wrap: nowrap; gap: 6px; justify-content: flex-end; white-space: nowrap; }
+.people tr.is-busy { opacity: .55; }
+@media (max-width: 560px) {
+  /* Not a table at this width: a card each, so a name is not squeezed into a column. */
+  .people, .people tbody { display: block; width: 100%; }
+  .people thead { display: none; }
+  .people td:nth-child(2) { width: auto; }
+  .people tbody tr { display: block; padding: var(--s2) 0; border-bottom: 1px solid var(--line2); }
+  .people tbody tr:last-child { border-bottom: 0; }
+  .people tbody tr:hover td { background: none; }
+  .people tbody td { display: block; border: 0; padding: 1px var(--s3); width: auto; }
+  .people tbody td:not(:first-child):empty { display: none; }
+  .people .num { text-align: left; }
+  .people .num::after { content: ' boards'; color: var(--ink2); }
+  .people__do { padding-top: var(--s2); justify-content: flex-start; flex-wrap: wrap; }
+}

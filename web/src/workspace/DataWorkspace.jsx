@@ -16,6 +16,7 @@ import DataGrid from '../grid/DataGrid.jsx';
 import { VIEWS } from '../app/views.js';
 import Portal from '../components/shared/Portal.jsx';
 import { useDark } from '../utils/theme.js';
+import { isAdmin } from '../utils/roles.js';
 import Toolbar from './Toolbar.jsx';
 import ImportDialog from './ImportDialog.jsx';
 import BoardBar from './BoardBar.jsx';
@@ -85,7 +86,7 @@ export default function DataWorkspace({ active, onClose }) {
 
   // What this account may do here. The Worker decides; this only keeps the page from offering
   // what it would refuse.
-  const admin = !!user && user.role === 'admin';
+  const admin = isAdmin(user);
   const mayManageBoard = !!ds.dataset && ds.dataset.kind === 'board'
     && (admin || (!!user && ds.dataset.ownerId === user.id));
   const canReplace = admin || mayManageBoard;

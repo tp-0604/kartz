@@ -113,13 +113,15 @@ async function handleData(seg, parts, request, env, reply) {
     if (method === 'PUT') return reply(await Data.saveSheet(env, sub, await body()), 200);
   }
 
-  // ---- accounts, for an admin deciding who owns a board ------------------------------------------
+  // ---- accounts: an admin sees who is here, the owner decides what they may do -------------------
   if (seg === 'users' && method === 'GET' && !sub) {
     Auth.requireAdmin(env.user, 'list the accounts');
-    const { results } = await env.DB.prepare(
-      'SELECT id, name, role, created_at, last_seen FROM users ORDER BY name_key').all();
-    return reply({ users: results || [] }, 200);
+    return reply(await Auth.listUsers(env), 200);
   }
+  if (seg === 'users' && sub && method === 'PATCH')
+    return reply(await Auth.setRole(env, env.user, sub, str((await body()).role)), 200);
+  if (seg === 'users' && sub && method === 'DELETE')
+    return reply(await Auth.removeUser(env, env.user, sub), 200);
 
   // ---- the roster, read and replaced whole --------------------------------------------------
   // The extractor mirrors this into the browser so a bad connection cannot stop a run, and an

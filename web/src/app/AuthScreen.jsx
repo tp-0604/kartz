@@ -3,7 +3,8 @@
  *
  * Everyone has an account: an in-game name, written plainly, and a password. The name goes on the
  * boards you send and the edits you make, so it is the one people know you by, and it belongs to
- * one account only. An admin signs up the same way and brings the admin code. The Worker checks
+ * one account only. An admin signs up the same way and brings the admin code — and whoever runs
+ * Kartz brings their own code, on the same one box, which makes them the owner. The Worker checks
  * all of it; the checks here only save a round trip.
  */
 import { useState } from 'react';
@@ -40,11 +41,12 @@ export default function AuthScreen() {
       if (password !== confirm) return setError('The two passwords are different.');
       if (admin && !code.trim()) return setError('Enter the admin code, or untick “I’m an admin”.');
     } else if (!password) return setError('Enter your password.');
+    else if (admin && !code.trim()) return setError('Enter your code, or untick “I have a code”.');
     setBusy(true);
     try {
       const out = signup
         ? await API.signUp({ name: clean, password, admin, adminCode: admin ? code.trim() : undefined })
-        : await API.signIn({ name: clean, password });
+        : await API.signIn({ name: clean, password, ...(admin && code.trim() ? { adminCode: code.trim() } : {}) });
       acceptSession(out);
     } catch (err) {
       setError(sentence(err.message || String(err)));
@@ -87,24 +89,25 @@ export default function AuthScreen() {
             <input id="authconfirm" type="password" value={confirm} onChange={edit(setConfirm)} autoComplete="new-password" />
           </div>
         )}
-        {signup && (
-          <label className="check">
-            <input type="checkbox" checked={admin} onChange={e => { setAdmin(e.target.checked); setError(''); }} />
-            <span>I’m an admin</span>
-          </label>
-        )}
-        {signup && admin && (
+        <label className="check">
+          <input type="checkbox" checked={admin} onChange={e => { setAdmin(e.target.checked); setError(''); }} />
+          <span>{signup ? 'I’m an admin' : 'I have a code'}</span>
+        </label>
+        {admin && (
           <div className="field">
             <label className="label" htmlFor="authcode">Admin code</label>
             <input id="authcode" type="password" value={code} onChange={edit(setCode)} autoComplete="off" />
-            <span className="hint">Whoever runs Kartz has it. It is checked by the server.</span>
+            <span className="hint">{signup
+              ? 'Whoever runs Kartz has it. It is checked by the server, and the code decides what the account can do.'
+              : 'A code here gives this account what the code is for, from now on. Leave it unticked to just sign in.'}</span>
           </div>
         )}
 
         {error && <div className="note note--bad" role="alert">{error}</div>}
 
         <button className="btn btn--primary btn--lg btn--block" type="submit" disabled={busy}>
-          {busy ? 'One moment…' : signup ? (admin ? 'Create admin account' : 'Create account') : 'Sign in'}
+          {busy ? 'One moment…' : signup ? (admin ? 'Create admin account' : 'Create account')
+                                             : (admin ? 'Sign in with the code' : 'Sign in')}
         </button>
         <p className="hint auth__foot">
           {signup ? 'Already have an account? ' : 'New here? '}

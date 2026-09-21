@@ -67,6 +67,10 @@ export const signUp = body => api('/auth/signup', json('POST', body));
 export const signIn = body => api('/auth/signin', json('POST', body));
 export const signOut = () => api('/auth/signout', json('POST', {}));
 export const whoAmI = () => api('/auth/me');
+// The accounts. Any admin may read them; only the owner may change a role or remove one.
+export const listUsers = () => api('/users');
+export const setUserRole = (id, role) => api('/users/' + encodeURIComponent(id), json('PATCH', { role }));
+export const removeUser = id => api('/users/' + encodeURIComponent(id), { method: 'DELETE' });
 
 // ---- extraction into the database -----------------------------------------------------------
 // mode 'preview' writes nothing and says what would happen; the rest commit.

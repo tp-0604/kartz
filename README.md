@@ -48,8 +48,10 @@ device decides unless a theme is chosen in the app.
 
 Everyone signs up on first open: an in-game name, written plainly (letters, numbers, spaces and
 `- _ . '`, no fancy text), and a password. A name belongs to one account however it is typed, so
-"Amy" is one person everywhere. An admin signs up the same way and brings the admin code, a Worker
-secret (`wrangler secret put ADMIN_CODE`); without it set, admin sign-up is refused.
+"Amy" is one person everywhere. An admin signs up the same way and brings a code, a Worker secret;
+the code decides what the account is. `ADMIN_CODE` makes an admin, and `OWNER_CODE` makes the one
+owner — whoever runs Kartz. Without a code set, that sign-up is refused, and once an owner exists
+the owner code makes no more of them.
 
 The Worker enforces all of it — the page only avoids offering what would be refused:
 
@@ -59,6 +61,11 @@ The Worker enforces all of it — the page only avoids offering what would be re
   extraction. Boards from before accounts have no sender, so those are an admin's.
 - **Admins** can do all of that on every board, open and save the spreadsheet engine, replace the
   roster or a whole board from an import, import a whole workbook, and change who owns a board.
+- **The owner** can do everything an admin can, and is the only account that decides who else may:
+  People, in the account menu, makes somebody an admin or a member again, removes an account, or
+  hands Kartz over to somebody else — which is also the way back in if the owner loses the account.
+  Removing an account ends its sessions and leaves the boards it sent with no sender, so they go
+  back to being an admin's until somebody is given them.
 
 Every save is logged under the name of whoever made it, with the values before and after. Every
 five minutes a cron trigger turns each editing session that has gone quiet — one person, one
