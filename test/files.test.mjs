@@ -280,9 +280,13 @@ console.log('\n# deleting');
 r = await call('DELETE', '/folders/' + root);
 ok('a folder with files in it is not deleted by accident', r.status === 400 && /still holds/.test(r.json.error.message), r.json);
 r = await call('DELETE', '/files/' + file);
-ok('the file goes, and its sheets with it', r.status === 200 && r.json.sheets === 2, r.json);
-const left = DB._raw.prepare('SELECT (SELECT COUNT(*) FROM slabs) AS slabs, (SELECT COUNT(*) FROM sheet_meta) AS meta, (SELECT COUNT(*) FROM styles) AS styles').get();
-ok('and nothing of it is left behind', left.slabs === 0 && left.meta === 0 && left.styles === 0, left);
+ok('the file goes, and its sheets with it', r.status === 200 && r.json.sheets === 3, r.json);
+const left = DB._raw.prepare(
+  `SELECT (SELECT COUNT(*) FROM slabs) AS slabs, (SELECT COUNT(*) FROM sheet_meta) AS meta,
+          (SELECT COUNT(*) FROM styles) AS styles, (SELECT COUNT(*) FROM tables) AS tables,
+          (SELECT COUNT(*) FROM table_rows) AS rows`).get();
+ok('and nothing of it is left behind — slabs, styles, meta and the projection',
+   left.slabs === 0 && left.meta === 0 && left.styles === 0 && left.tables === 0 && left.rows === 0, left);
 r = await call('DELETE', '/folders/' + seal);
 ok('an empty folder goes', r.status === 200, r.json);
 
