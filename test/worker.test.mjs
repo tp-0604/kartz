@@ -5,7 +5,7 @@ import { summarizeSessions } from '../worker/summaries.js';
 
 const schema = readSchema();
 const DB = makeDb(schema);
-const env = { DB, ASSETS: null, ADMIN_CODE: 'test-admin-code' };
+const env = { DB, ASSETS: null, ADMIN_CODE: 'test-admin-code', OWNER_CODE: 'test-owner-code' };
 let SESSION = null;          // the admin's, once signed up; each call sends it unless told otherwise
 
 let pass = 0, fail = 0;
@@ -349,6 +349,79 @@ ok('after which its owner can delete it', m.status === 200, m.json);
 m = await call('POST', '/auth/signout', {}, AMY);
 m = await call('GET', '/boards', undefined, AMY);
 ok('a signed-out session is refused', m.status === 401, m);
+
+// ---- the owner: one account that decides what everybody else may do ------------------------
+console.log('\n# the owner');
+let o = await call('POST', '/auth/signup', { name: 'Tess', password: 'tess-pass-1', admin: true,
+                                             adminCode: 'test-owner-code' }, null);
+ok('the owner code makes the owner, on the same box as the admin code',
+   o.status === 200 && o.json.user.role === 'owner', o.json);
+const OWNER = o.json.token;
+
+o = await call('POST', '/auth/signup', { name: 'Rival', password: 'rival-pass', admin: true,
+                                         adminCode: 'test-owner-code' }, null);
+ok('there is only ever one owner', o.status === 403 && /already has an owner/.test(o.json.error.message), o.json);
+
+o = await call('GET', `/datasets/${encodeURIComponent('board:' + boardId)}/sheet`, undefined, OWNER);
+ok('the owner may do everything an admin may', o.status === 200, o.json);
+
+o = await call('POST', '/auth/signin', { name: 'Amy', password: 'amy-pass' }, null);
+const AMY2 = o.json.token;
+o = await call('POST', '/commit', { mode: 'new', date: '2026-09-12', alliance: '698C', label: 'Day 2',
+  rows: [{ place: 1, search: 'Amp', ingame: 'Amp', alliance: '698C', points: 410 }] }, AMY2);
+const amyBoard2 = o.json.board;
+
+o = await call('PATCH', '/users/u_whoever', { role: 'admin' }, AMY2);
+ok('a member cannot hand out roles', o.status === 403, o.json);
+o = await call('GET', '/users', undefined, OWNER);
+const amy = o.json.users.find(u => u.name === 'Amy');
+ok('the owner sees everybody, and what they have sent',
+   o.status === 200 && amy && amy.role === 'member' && amy.boards === 1, o.json.users);
+o = await call('PATCH', '/users/' + amy.id, { role: 'admin' }, SESSION);
+ok('an admin cannot make another admin', o.status === 403 && /owns Kartz/.test(o.json.error.message), o.json);
+
+o = await call('PATCH', '/users/' + amy.id, { role: 'admin' }, OWNER);
+ok('the owner makes somebody an admin', o.status === 200 && o.json.user.role === 'admin', o.json);
+o = await call('GET', `/datasets/${encodeURIComponent('board:' + boardId)}/sheet`, undefined, AMY2);
+ok('and that is true at once, on her own session', o.status === 200, o.json);
+o = await call('PATCH', '/users/' + amy.id, { role: 'member' }, OWNER);
+ok('and takes it back again', o.status === 200 && o.json.user.role === 'member', o.json);
+o = await call('GET', `/datasets/${encodeURIComponent('board:' + boardId)}/sheet`, undefined, AMY2);
+ok('after which the spreadsheet is shut to her', o.status === 403, o.json);
+
+const ownerRow = (await call('GET', '/users', undefined, OWNER)).json.users.find(u => u.role === 'owner');
+o = await call('PATCH', '/users/' + ownerRow.id, { role: 'member' }, OWNER);
+ok('the owner cannot demote themselves', o.status === 400, o.json);
+o = await call('DELETE', '/users/' + ownerRow.id, undefined, OWNER);
+ok('nor remove themselves', o.status === 400, o.json);
+
+o = await call('DELETE', '/users/' + amy.id, undefined, OWNER);
+ok('the owner removes an account', o.status === 200 && o.json.removed === 'Amy' && o.json.boards === 1, o.json);
+o = await call('GET', '/boards', undefined, OWNER);
+ok('the boards she sent are still there', o.json.boards.some(b => b.id === amyBoard2), o.json.boards.length);
+o = await call('GET', '/datasets', undefined, OWNER);
+ok('with nobody\u2019s name on them now',
+   o.json.boards.find(b => b.id === amyBoard2).owner === null
+   || o.json.boards.find(b => b.id === amyBoard2).owner === undefined, o.json.boards.find(b => b.id === amyBoard2));
+o = await call('GET', '/boards', undefined, AMY2);
+ok('and her session is over', o.status === 401, o);
+
+o = await call('GET', '/activity?limit=20', undefined, OWNER);
+ok('the log says what the owner did', (o.json.activity || []).some(a => a.kind === 'account'
+   && a.actor_name === 'Tess' && /removed the account Amy/.test(a.summary)), o.json.activity && o.json.activity[0]);
+
+// Handing Kartz over is the way back in if the owner ever loses the account.
+o = await call('POST', '/auth/signup', { name: 'Dev', password: 'dev-pass-1' }, null);
+const DEV = o.json.token;
+const devId = o.json.user.id;
+o = await call('PATCH', '/users/' + devId, { role: 'owner' }, OWNER);
+ok('the owner can hand Kartz over', o.status === 200 && o.json.handedOver === true, o.json);
+o = await call('GET', '/auth/me', undefined, OWNER);
+ok('and stays on as an admin', o.json.user.role === 'admin', o.json.user);
+o = await call('PATCH', '/users/' + ownerRow.id, { role: 'member' }, OWNER);
+ok('but decides no more roles', o.status === 403, o.json);
+o = await call('PATCH', '/users/' + ownerRow.id, { role: 'member' }, DEV);
+ok('the new owner does', o.status === 200 && o.json.user.role === 'member', o.json);
 
 console.log('\n# AI status without a provider');
 r = await call('GET', '/ai/status');

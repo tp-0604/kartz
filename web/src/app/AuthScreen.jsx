@@ -3,7 +3,8 @@
  *
  * Everyone has an account: an in-game name, written plainly, and a password. The name goes on the
  * boards you send and the edits you make, so it is the one people know you by, and it belongs to
- * one account only. An admin signs up the same way and brings the admin code. The Worker checks
+ * one account only. An admin signs up the same way and brings the admin code — and whoever runs
+ * Kartz brings their own code, on the same one box, which makes them the owner. The Worker checks
  * all of it; the checks here only save a round trip.
  */
 import { useState } from 'react';
@@ -97,7 +98,8 @@ export default function AuthScreen() {
           <div className="field">
             <label className="label" htmlFor="authcode">Admin code</label>
             <input id="authcode" type="password" value={code} onChange={edit(setCode)} autoComplete="off" />
-            <span className="hint">Whoever runs Kartz has it. It is checked by the server.</span>
+            <span className="hint">Whoever runs Kartz has it. It is checked by the server, and the
+              code decides what the account can do.</span>
           </div>
         )}
 

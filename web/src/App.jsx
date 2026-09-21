@@ -16,11 +16,13 @@ import HomeCanvas from './home/HomeCanvas.jsx';
 import SetupDialog from './app/SetupDialog.jsx';
 import CommandPalette from './app/CommandPalette.jsx';
 import AuthScreen from './app/AuthScreen.jsx';
+import PeopleDialog from './app/PeopleDialog.jsx';
 import Dropdown from './components/shared/Dropdown.jsx';
 import AiPopup from './ai/AiPopup.jsx';
 import { useAnalyst } from './ai/useAnalyst.js';
 import { VIEWS } from './app/views.js';
 import { isDark, setTheme, themeChoice, useDark } from './utils/theme.js';
+import { isAdmin, isOwner, roleLabel } from './utils/roles.js';
 
 // The workspace is the larger half of the bundle and the extractor is what a phone opens.
 const DataWorkspace = lazy(() => import('./workspace/DataWorkspace.jsx'));
@@ -36,7 +38,9 @@ function Shell() {
   const { open: openAnalyst } = analyst;
   const [aiOpen, setAiOpen] = useState(false);
   const [dataMounted, setDataMounted] = useState(mode === 'data');
-  const admin = user.role === 'admin';
+  const [peopleOpen, setPeopleOpen] = useState(false);
+  const admin = isAdmin(user);
+  const owner = isOwner(user);
   useEffect(() => { if (mode === 'data') setDataMounted(true); }, [mode]);
   useEffect(() => { if (aiOpen) openAnalyst(); }, [aiOpen, openAnalyst]);
 
@@ -74,6 +78,7 @@ function Shell() {
     toggleTheme: () => setTheme(isDark() ? 'light' : 'dark'),
     followDevice: () => setTheme(null),
     setup: () => setSetupOpen(true),
+    people: () => setPeopleOpen(true),
     signOut,
   }), [go, openInData, setImportRequest, setSetupOpen, signOut]);
 
@@ -94,13 +99,16 @@ function Shell() {
         run: actions.setup },
       { id: 'signout', group: 'Do', kind: 'action', label: `Sign out ${user.name}`, run: actions.signOut },
     ];
+    if (admin)
+      out.splice(out.length - 1, 0, { id: 'people', group: 'Do', kind: 'action', label: 'People and what they may do',
+                                      where: owner ? 'yours to decide' : '', run: actions.people });
     for (const b of boards)
       out.push({ id: b.key, group: 'Boards', kind: 'board',
                  label: `${b.alliance} · ${b.date}${b.label ? ' · ' + b.label : ''}`,
                  where: `${b.rows} rows`,
                  run: () => openInData({ kind: 'dataset', key: b.key }) });
     return out;
-  }, [actions, boards, dark, datasets, go, openInData, user.name]);
+  }, [actions, admin, boards, dark, datasets, go, openInData, owner, user.name]);
 
   return (
     <div className="shell">
@@ -156,7 +164,13 @@ function Shell() {
                              <span className="me__name">{user.name}</span></>}>
             {close => (
               <>
-                <div className="menu__head">{user.name} · {admin ? 'admin' : 'member'}</div>
+                <div className="menu__head">{user.name} · {roleLabel(user)}</div>
+                {admin && (
+                  <button type="button" className="menu__item" onClick={() => { close(); actions.people(); }}>
+                    <span>People</span>
+                    <span className="menu__hint">{owner ? 'who may do what' : 'who is here'}</span>
+                  </button>
+                )}
                 <button type="button" className="menu__item" onClick={() => { close(); actions.signOut(); }}>
                   <span>Sign out</span>
                 </button>
@@ -200,6 +214,7 @@ function Shell() {
         </div>
       )}
       {setupOpen && <SetupDialog onClose={() => setSetupOpen(false)} />}
+      {peopleOpen && <PeopleDialog onClose={() => setPeopleOpen(false)} />}
       <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} commands={commands} />
     </div>
   );

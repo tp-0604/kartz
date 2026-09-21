@@ -6,11 +6,15 @@
  * sent by Amy is Amy's. An admin is an account that brought the admin code when it signed up —
  * a Worker secret, checked here and never trusted from the page.
  *
+ * Kartz has one owner: whoever runs it. They sign in like anybody else, but they brought the owner
+ * code instead of the admin code, and they alone decide who else is an admin. Everything an admin
+ * may do, the owner may do too.
+ *
  * A signed-in browser holds a random token; the database holds only its hash, so a copy of the
  * database is not a way in. Passwords are PBKDF2-SHA256, salted, at the iteration count Workers
  * allow.
  */
-import { HttpError, bad, now, str } from './util.js';
+import { HttpError, bad, logActivity, now, str } from './util.js';
 
 const NAME_RE = /^[A-Za-z0-9 _.'-]{2,24}$/;
 const ITERATIONS = 100000;
@@ -69,12 +73,20 @@ export async function signUp(env, body) {
   if (password.length < 6) throw bad('choose a password of at least 6 characters.');
   if (password.length > 200) throw bad('that password is too long.');
 
+  // One box on the form, and the code decides which it is: the owner's code makes the owner,
+  // the admin code makes an admin. Neither is ever checked anywhere but here.
   let role = 'member';
   if (body && body.admin) {
-    if (!env.ADMIN_CODE)
+    const code = str(body.adminCode);
+    if (!env.ADMIN_CODE && !env.OWNER_CODE)
       throw forbidden('admin sign-up is not set up on this Worker yet. Whoever runs it sets ADMIN_CODE.');
-    if (!same(str(body.adminCode), env.ADMIN_CODE)) throw forbidden('that admin code is not right.');
-    role = 'admin';
+    if (env.OWNER_CODE && same(code, env.OWNER_CODE)) {
+      const owner = await env.DB.prepare("SELECT name FROM users WHERE role = 'owner'").first();
+      if (owner)
+        throw forbidden(`Kartz already has an owner — “${owner.name}”. Sign in as them, or ask them to hand it over.`);
+      role = 'owner';
+    } else if (env.ADMIN_CODE && same(code, env.ADMIN_CODE)) role = 'admin';
+    else throw forbidden('that admin code is not right.');
   }
 
   const key = nameKey(name);
@@ -123,7 +135,11 @@ export async function who(env, request) {
   return { id: row.id, name: row.name, role: row.role };
 }
 
-export const isAdmin = user => !!user && user.role === 'admin';
+/** The one account that runs Kartz. There is never more than one. */
+export const isOwner = user => !!user && user.role === 'owner';
+
+/** Everything an admin may do, the owner may do as well. */
+export const isAdmin = user => !!user && (user.role === 'admin' || user.role === 'owner');
 
 /** An admin, or whoever sent this board. A board from before accounts is an admin's alone. */
 export const mayManage = (user, board) =>
@@ -138,4 +154,70 @@ export function requireManage(user, board, what) {
 
 export function requireAdmin(user, what) {
   if (!isAdmin(user)) throw forbidden(`only an admin can ${what}.`);
+}
+
+export function requireOwner(user, what) {
+  if (!isOwner(user)) throw forbidden(`only whoever owns Kartz can ${what}.`);
+}
+
+/** Everyone, with what they have sent — an admin reads this, the owner acts on it. */
+export async function listUsers(env) {
+  const { results } = await env.DB.prepare(
+    `SELECT u.id, u.name, u.role, u.created_at, u.last_seen,
+            (SELECT COUNT(*) FROM boards b WHERE b.created_by = u.id) AS boards
+       FROM users u ORDER BY u.name_key`).all();
+  return { users: results || [] };
+}
+
+async function target(env, actor, id, what, notYourself) {
+  requireOwner(actor, what);
+  const user = await env.DB.prepare('SELECT id, name, role FROM users WHERE id = ?').bind(str(id)).first();
+  if (!user) throw new HttpError(404, 'no such account.');
+  if (user.id === actor.id) throw bad(notYourself);
+  return user;
+}
+
+/**
+ * Who may do what. Making somebody else the owner hands Kartz over — there is one owner, so the
+ * old one stays on as an admin. That is also the way back in if the owner ever loses the account.
+ */
+export async function setRole(env, actor, id, role) {
+  const user = await target(env, actor, id, 'change what somebody may do',
+                            'your own role is not yours to change. Hand Kartz over to somebody else instead.');
+  if (!['member', 'admin', 'owner'].includes(role)) throw bad('a role is member, admin or owner.');
+  if (user.role === role) return { user: publicUser(user) };
+
+  if (role === 'owner') {
+    await env.DB.batch([
+      env.DB.prepare("UPDATE users SET role = 'owner' WHERE id = ?").bind(user.id),
+      env.DB.prepare("UPDATE users SET role = 'admin' WHERE id = ?").bind(actor.id),
+    ]);
+    await logActivity(env, 'account', null, `handed Kartz over to ${user.name}`, { user: user.id, role });
+    return { user: { id: user.id, name: user.name, role }, handedOver: true };
+  }
+
+  await env.DB.prepare('UPDATE users SET role = ? WHERE id = ?').bind(role, user.id).run();
+  await logActivity(env, 'account', null,
+    role === 'admin' ? `made ${user.name} an admin` : `made ${user.name} a member again`,
+    { user: user.id, role });
+  return { user: { id: user.id, name: user.name, role } };
+}
+
+/**
+ * An account, gone: its sessions end at once. The boards it sent stay, with nobody's name on
+ * them, which puts them back in an admin's hands until somebody is given them again.
+ */
+export async function removeUser(env, actor, id) {
+  const user = await target(env, actor, id, 'remove an account',
+                            'you cannot remove your own account.');
+  const { count } = (await env.DB.prepare('SELECT COUNT(*) AS count FROM boards WHERE created_by = ?')
+    .bind(user.id).first()) || { count: 0 };
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(user.id),
+    env.DB.prepare('UPDATE boards SET created_by = NULL WHERE created_by = ?').bind(user.id),
+    env.DB.prepare('UPDATE extraction_runs SET created_by = NULL WHERE created_by = ?').bind(user.id),
+    env.DB.prepare('DELETE FROM users WHERE id = ?').bind(user.id),
+  ]);
+  await logActivity(env, 'account', null, `removed the account ${user.name}`, { user: user.id, boards: count });
+  return { removed: user.name, boards: count };
 }

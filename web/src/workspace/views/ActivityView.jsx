@@ -8,7 +8,7 @@ import { fmtTime } from '../../utils/format.js';
 
 const KIND = {
   edit: 'edited', insert: 'added', delete: 'deleted', import: 'imported',
-  extract: 'from a recording', columns: 'columns', 'delete-board': 'deleted', summary: 'session',
+  extract: 'from a recording', columns: 'columns', 'delete-board': 'deleted', summary: 'session', account: 'people',
 };
 
 export default function ActivityView({ onOpen }) {
