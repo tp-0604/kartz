@@ -51,9 +51,16 @@ export async function listTree(env) {
        FROM files f LEFT JOIN users u ON u.id = f.created_by
       WHERE f.ready = 1
       ORDER BY f.name`).all();
+  // Tab names come down with the tree: three hundred and twenty-eight of them is twenty
+  // kilobytes, and it is what lets the command palette find a tab by name without a round trip.
+  const sheets = await env.DB.prepare(
+    `SELECT s.id, s.file_id, s.name, s.idx, s.shape, s.rows, s.cells
+       FROM sheets s JOIN files f ON f.id = s.file_id
+      WHERE f.ready = 1 ORDER BY s.file_id, s.idx`).all();
   return {
     folders: folders.results || [],
     files: (files.results || []).map(f => ({ ...f, cover: parseJson(f.cover, null) })),
+    sheets: sheets.results || [],
   };
 }
 
@@ -290,6 +297,13 @@ const bytesToB64 = buf => {
 export async function putSlab(env, sheetId, body) {
   const sheet = await readSheetRow(env, sheetId);
   if (!sheet) throw new HttpError(404, 'no such sheet.');
+
+  // An edit says which version of the tab it was made against. A save built on a copy somebody
+  // else has already written over is refused rather than landing on top of their work.
+  if (body && body.version !== undefined && body.version !== null && +body.version !== sheet.version) {
+    throw new HttpError(409, 'somebody else changed this sheet while you were editing. '
+      + 'Open it again to see their version.', { version: sheet.version, sent: +body.version });
+  }
   const band = Math.max(0, +(body && body.band) || 0);
   const bytes = b64ToBytes(body && body.cells);
   if (!bytes.length) throw bad('that band has no bytes in it.');
@@ -305,9 +319,27 @@ export async function putSlab(env, sheetId, body) {
 
   const tally = await env.DB.prepare(
     'SELECT SUM(count) AS cells FROM slabs WHERE sheet_id = ?').bind(sheet.id).first();
-  await env.DB.prepare('UPDATE sheets SET cells = ? WHERE id = ?')
-    .bind((tally && tally.cells) || 0, sheet.id).run();
-  return { band, bytes: bytes.length, count };
+  const version = sheet.version + 1;
+  const cover = body && body.cover && typeof body.cover === 'object' ? body.cover : null;
+  await env.DB.prepare(
+    `UPDATE sheets SET cells = ?, version = ?, rows = MAX(rows, ?), cols = MAX(cols, ?),
+                       cover = COALESCE(?, cover), face = ?
+      WHERE id = ?`)
+    .bind((tally && tally.cells) || 0, version,
+          Math.max(sheet.rows, +(body && body.rows) || 0),
+          Math.max(sheet.cols, +(body && body.cols) || 0),
+          cover ? JSON.stringify(cover) : null,
+          cover ? faceScore(cover) : sheet.face,
+          sheet.id).run();
+  await env.DB.prepare('UPDATE files SET updated_at = ? WHERE id = ?').bind(now(), sheet.file_id).run();
+
+  // An edit says what it was; an import says nothing, because finishing the file says it once.
+  const what = str(body && body.summary);
+  if (what) {
+    await logActivity(env, 'edit', 'sheet:' + sheet.id, what,
+      { file: sheet.file_id, sheet: sheet.name, band });
+  }
+  return { band, bytes: bytes.length, count, version };
 }
 
 /** The bands covering rows `from`..`to`, still compressed — the browser unzips them. */

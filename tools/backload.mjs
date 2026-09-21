@@ -239,7 +239,7 @@ const existing = new Map(tree.files.map(f => [(f.folder_id || '') + '/' + f.name
 
 const report = [];
 const T = { sheets: 0, cells: 0, bands: 0, bytes: 0, formulas: 0, google: 0, errors: 0,
-            images: 0, imageBytes: 0, tables: 0, layouts: 0, skipped: 0, ms: 0 };
+            images: 0, imageBytes: 0, tables: 0, layouts: 0, rows: 0, skipped: 0, ms: 0 };
 
 for (const path of files) {
   const rel = relative(root, path);
@@ -289,7 +289,8 @@ for (const path of files) {
   T.sheets += plan.report.sheets; T.cells += plan.report.cells; T.bands += bands; T.bytes += bytes;
   T.formulas += plan.report.formulas; T.google += plan.report.google; T.errors += plan.report.errors;
   T.images += plan.assets.length; T.imageBytes += imageBytes;
-  T.tables += plan.report.tables; T.layouts += plan.report.layouts; T.ms += ms;
+  T.tables += plan.report.tables; T.layouts += plan.report.layouts;
+  T.rows += plan.report.rows || 0; T.ms += ms;
 
   console.log(`${String(plan.report.sheets).padStart(3)} tabs  ${num(plan.report.cells).padStart(9)} cells  `
     + `${(bytes / 1024).toFixed(0).padStart(6)} KB  `
@@ -304,6 +305,7 @@ console.log(`${files.length - T.skipped} workbooks · ${T.sheets} tabs · ${num(
 console.log(`grid in the database   ${mb(T.bytes)} in ${T.bands} bands`);
 console.log(`pictures in the bucket ${mb(T.imageBytes)} in ${T.images} objects`);
 console.log(`tabs judged            ${T.tables} table or mixed · ${T.layouts} layout`);
+console.log(`rows projected         ${num(T.rows)} — what the analyst and the filters read`);
 console.log(`formulas               ${num(T.formulas)} kept · ${num(T.google)} were Sheets-only, `
   + 'value kept and formula noted');
 console.log(`already showing errors ${T.errors}`);

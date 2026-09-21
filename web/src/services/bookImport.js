@@ -304,10 +304,16 @@ export async function planImport(book, { name, sourceName, folderId } = {}) {
       defaults: sheet.defaults || {},
       bands: packBands(sheet.cells || []),
       meta,
-      table: table ? { ...table, project: shape !== 'layout' } : null,
+      // A drawing gets no projection: there is nothing in a calendar to ask a question of.
+      table: table && shape !== 'layout'
+        ? { name: sheet.name, headerRow: table.headerRow, firstRow: table.firstRow,
+            lastRow: table.lastRow, firstCol: table.firstCol, lastCol: table.lastCol,
+            columns: table.columns, rows: projectRows(sheet.cells || [], table) }
+        : null,
     });
   }
 
+  const projected = sheets.reduce((n, s) => n + (s.table ? s.table.rows.length : 0), 0);
   const r = book.report || {};
   if (r.google) notes.push(`${r.google.toLocaleString('en')} cells came from a Sheets-only function `
     + '— the value is kept, the formula is a note');
@@ -320,7 +326,7 @@ export async function planImport(book, { name, sourceName, folderId } = {}) {
     sheets,
     assets: [...assets.values()],
     report: {
-      sheets: sheets.length, cells, tables, layouts,
+      sheets: sheets.length, cells, tables, layouts, rows: projected,
       formulas: r.formulas || 0, google: r.google || 0, errors: r.errors || 0,
       images: assets.size, notes,
     },
@@ -364,6 +370,9 @@ export async function sendImport(plan, api, { onStep = () => {}, putAsset } = {}
     }
     for (const [kind, json] of Object.entries(sheet.meta)) {
       await api('PUT', `/sheets/${sheetId}/meta`, { kind, json });
+    }
+    if (sheet.table && sheet.table.rows.length) {
+      await api('PUT', `/sheets/${sheetId}/table`, sheet.table);
     }
     onStep({ step: 'sheet', name: sheet.name, cells: sheet.bands.reduce((n, b) => n + b.count, 0) });
   }

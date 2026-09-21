@@ -20,6 +20,7 @@ import * as Auth from './worker/auth.js';
 import { summarizeSessions } from './worker/summaries.js';
 import * as Data from './worker/datasets.js';
 import * as Files from './worker/files.js';
+import * as Tables from './worker/tables.js';
 import * as Boards from './worker/boards.js';
 import * as Views from './worker/views.js';
 import { handleCsv } from './worker/csv.js';
@@ -63,7 +64,7 @@ async function runWorkersAI(env, model, body) {
 const DATA_SEGMENTS = new Set([
   'datasets', 'runs', 'commit', 'boards', 'board', 'score', 'month', 'player', 'all',
   'roster', 'activity', 'views', 'ai', 'auth', 'users',
-  'tree', 'folders', 'files', 'sheets', 'assets',
+  'tree', 'folders', 'files', 'sheets', 'assets', 'tables',
 ]);
 
 async function handleData(seg, parts, request, env, reply) {
@@ -174,8 +175,20 @@ async function handleData(seg, parts, request, env, reply) {
     if (method === 'GET' && leaf === 'meta') return reply(await Files.readMeta(env, sub), 200);
     if (method === 'PUT' && leaf === 'slab') { mine('write to'); return reply(await Files.putSlab(env, sub, await body()), 200); }
     if (method === 'PUT' && leaf === 'meta') { mine('write to'); return reply(await Files.putMeta(env, sub, await body()), 200); }
+    if (method === 'GET' && leaf === 'tables') return reply(await Tables.readTables(env, sub), 200);
+    if (method === 'PUT' && leaf === 'table') { mine('write to'); return reply(await Tables.putTable(env, sub, await body()), 200); }
     if (method === 'PATCH' && !leaf) { mine('rename a sheet in'); return reply(await Files.patchSheet(env, sub, await body()), 200); }
     if (method === 'DELETE' && !leaf) { mine('delete a sheet from'); return reply(await Files.deleteSheet(env, sub), 200); }
+  }
+
+  if (seg === 'tables') {
+    if (method === 'GET' && !sub)
+      return reply(await Tables.listTables(env, { search: q.get('q') || '', limit: toInt(q.get('limit'), 60) }), 200);
+    if (method === 'GET' && sub && !leaf)
+      return reply(await Tables.readRows(env, sub,
+        { limit: toInt(q.get('limit'), 200), offset: toInt(q.get('offset'), 0) }), 200);
+    if (method === 'POST' && sub && leaf === 'query')
+      return reply(await Tables.queryTable(env, sub, await body()), 200);
   }
 
   if (seg === 'assets') {

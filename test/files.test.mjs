@@ -165,6 +165,69 @@ ok('and the middle one can be read on its own',
 r = await call('GET', `/sheets/${big}/cells?from=0&to=1199`);
 ok('or all three together', r.json.bands.map(b => b.band).join() === '0,1,2', r.json.bands.length);
 
+/* ------------------------------------------------------------- the part that is a table */
+console.log('\n# the projection: the part of a sheet you can ask about');
+r = await call('POST', `/files/${file}/sheets`, { name: 'Form Responses', idx: 2, shape: 'table', rows: 4, cols: 3 });
+const tsheet = r.json.sheet.id;
+r = await call('PUT', `/sheets/${tsheet}/table`, {
+  name: 'Form Responses', headerRow: 0, firstRow: 1, lastRow: 3, firstCol: 0, lastCol: 2,
+  columns: [{ col: 0, header: 'Name' }, { col: 1, header: 'Alliance' }, { col: 2, header: 'CP' }],
+  rows: [
+    { idx: 0, r: 1, data: { Name: 'Nubi', Alliance: '698W', CP: 101 } },
+    { idx: 1, r: 2, data: { Name: 'Cein', Alliance: '698N', CP: 94 } },
+    { idx: 2, r: 3, data: { Name: 'Amcia', Alliance: '698C', CP: 87 } },
+  ],
+});
+ok('a sheet gets a projection', r.status === 200 && r.json.rows === 3 && r.json.columns === 3, r.json);
+
+r = await call('GET', `/sheets/${tsheet}/tables`);
+ok('which the sheet knows about', r.json.tables.length === 1
+   && r.json.tables[0].columns.map(c => c.header).join() === 'Name,Alliance,CP', r.json.tables);
+const tableId = r.json.tables[0].id;
+
+r = await call('GET', '/tables?limit=10');
+const listed2 = r.json.tables.find(t => t.id === tableId);
+ok('and so does the catalogue, with the file it came from',
+   listed2 && listed2.file === 'Calendar' && listed2.sheet === 'Form Responses', listed2);
+r = await call('GET', '/tables?q=alliance');
+ok('the catalogue can be searched by the columns a table has',
+   (r.json.tables || []).some(t => t.id === tableId), r.json.tables && r.json.tables.length);
+
+r = await call('POST', `/tables/${tableId}/query`, { filters: [{ field: 'Alliance', op: 'eq', value: '698N' }] });
+ok('a filter runs over the JSON, whatever the columns are',
+   r.json.matched === 1 && r.json.rows[0].Name === 'Cein', r.json);
+r = await call('POST', `/tables/${tableId}/query`, { filters: [{ field: 'CP', op: 'gte', value: 90 }], sort: 'CP', desc: true });
+ok('numbers compare as numbers', r.json.matched === 2 && r.json.rows[0].CP === 101, r.json.rows);
+r = await call('POST', `/tables/${tableId}/query`, { filters: [{ field: 'Name', op: 'contains', value: 'ei' }] });
+ok('and text contains as text', r.json.matched === 1 && r.json.rows[0].Name === 'Cein', r.json.rows);
+r = await call('GET', `/tables/${tableId}?limit=2`);
+ok('rows come back a page at a time', r.json.rows.length === 2 && r.json.table.rows === 3, r.json.table);
+
+r = await call('PUT', `/sheets/${tsheet}/table`, {
+  name: 'Form Responses', headerRow: 0, firstRow: 1, lastRow: 2, firstCol: 0, lastCol: 2,
+  columns: [{ col: 0, header: 'Name' }], rows: [{ idx: 0, r: 1, data: { Name: 'Nubi' } }],
+});
+r = await call('GET', `/sheets/${tsheet}/tables`);
+ok('re-projecting replaces what was there rather than doubling it',
+   r.json.tables.length === 1 && r.json.tables[0].rows === 1, r.json.tables);
+
+/* -------------------------------------------------------------------- editing a band */
+console.log('\n# an edit, and two people editing at once');
+let read = await call('GET', '/files/' + file);
+const v = read.json.sheets.find(s => s.id === sheet).version;
+r = await call('PUT', `/sheets/${sheet}/slab`,
+  { band: 0, count: 1, cells: packBand([[0, 0, 'Edited', 'str', null, 1]]), version: v,
+    summary: 'changed A1 on August 2026' });
+ok('an edit against the version it was made on is written',
+   r.status === 200 && r.json.version === v + 1, r.json);
+r = await call('PUT', `/sheets/${sheet}/slab`,
+  { band: 0, count: 1, cells: packBand([[0, 0, 'Clobber', 'str', null, 1]]), version: v });
+ok('and one made against an older copy is refused rather than landing on top',
+   r.status === 409 && /somebody else changed/.test(r.json.error.message), r.json);
+r = await call('GET', '/activity?limit=5');
+ok('what the edit was is in the log',
+   (r.json.activity || []).some(a => /changed A1 on August 2026/.test(a.summary || '')), r.json.activity);
+
 /* ------------------------------------------------------------------------------ pictures */
 console.log('\n# the pictures that came with the sheet');
 const hash = 'a'.repeat(40);
