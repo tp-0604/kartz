@@ -143,6 +143,72 @@ export function projectRows(cells, table, { max = 20000 } = {}) {
     .map(([r, data], idx) => ({ idx, r, data }));
 }
 
+/* ----------------------------------------------------------------------------- the cover */
+
+// A sheet seen from far enough away that a cell is a pixel. Sixty-four values fit the
+// alphabet below, which is enough for the fills one workbook uses; past that, a cell falls
+// back to the plain "painted" tone rather than inventing a colour.
+export const COVER_W = 72, COVER_H = 36;
+const ALPHA = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/';
+const RANK = { fill: 4, formula: 3, text: 2, number: 2, paint: 1 };
+
+/**
+ * What a tab looks like from above: the fills it really has, and a tone for everything else.
+ *
+ * This is the sheet's face in the app — in the rail, on the section wall, beside a file. It is
+ * computed once, where the file is read, because a browser should not have to pull a grid down
+ * to draw a thumbnail of it.
+ */
+export function makeCover(cells, styles) {
+  if (!cells || !cells.length) return null;
+  let maxR = 0, maxC = 0;
+  for (const c of cells) { if (c[0] > maxR) maxR = c[0]; if (c[1] > maxC) maxC = c[1]; }
+  const rows = Math.min(maxR + 1, 4000), cols = Math.min(maxC + 1, 400);
+  const scaleR = rows / COVER_H, scaleC = cols / COVER_W;
+  const grid = new Array(COVER_W * COVER_H).fill(null);
+
+  for (const c of cells) {
+    if (c[0] >= rows || c[1] >= cols) continue;
+    const st = (styles && styles[c[5]]) || {};
+    const has = c[2] !== null && c[2] !== '';
+    let kind = null, colour = null;
+    if (st.fill && st.fill !== '#FFFFFF') { kind = 'fill'; colour = st.fill; }
+    else if (c[4]) kind = 'formula';
+    else if (has) kind = typeof c[2] === 'number' ? 'number' : 'text';
+    else if (st.border) kind = 'paint';
+    if (!kind) continue;
+    const at = Math.min(COVER_H - 1, Math.floor(c[0] / scaleR)) * COVER_W
+             + Math.min(COVER_W - 1, Math.floor(c[1] / scaleC));
+    const now = grid[at];
+    if (!now || RANK[kind] > RANK[now.kind]) grid[at] = { kind, colour };
+  }
+
+  const palette = ['', 'text', 'number', 'formula', 'paint'];
+  const index = new Map(palette.map((p, i) => [p, i]));
+  let map = '', ink = 0;
+  for (const g of grid) {
+    if (!g) { map += ALPHA[0]; continue; }
+    ink++;
+    const key = g.kind === 'fill' ? g.colour : g.kind;
+    if (!index.has(key)) {
+      if (palette.length >= ALPHA.length) { map += ALPHA[index.get('paint')]; continue; }
+      index.set(key, palette.length);
+      palette.push(key);
+    }
+    map += ALPHA[index.get(key)];
+  }
+  if (!ink) return null;
+  // ink is a percentage to one decimal: a sparse tab is not the same as an empty one.
+  return { w: COVER_W, h: COVER_H, palette, map, ink: Math.round(ink / grid.length * 1000) / 10 };
+}
+
+/**
+ * Which tab is the face of a file, and which file is the face of a section: the one with the
+ * most to look at. Colour counts for more than size, so a planning sheet beats a long list.
+ */
+export const coverScore = cover =>
+  !cover ? -1 : cover.palette.filter(p => p.charAt(0) === '#').length * 2 + cover.ink * 0.6;
+
 /* ------------------------------------------------------------------------------ the bands */
 
 const b64 = bytes => {
@@ -232,6 +298,7 @@ export async function planImport(book, { name, sourceName, folderId } = {}) {
     cells += (sheet.cells || []).length;
     sheets.push({
       name: sheet.name, idx: sheet.idx, shape, hidden: !!sheet.hidden,
+      cover: makeCover(sheet.cells, book.styles),
       rows: sheet.dim.rows, cols: sheet.dim.cols,
       frozen: sheet.frozen || null, tabColor: sheet.tabColor || null,
       defaults: sheet.defaults || {},
@@ -288,7 +355,7 @@ export async function sendImport(plan, api, { onStep = () => {}, putAsset } = {}
     const out = await api('POST', `/files/${fileId}/sheets`, {
       name: sheet.name, idx: sheet.idx, shape: sheet.shape, hidden: sheet.hidden,
       rows: sheet.rows, cols: sheet.cols, frozen: sheet.frozen,
-      tabColor: sheet.tabColor, defaults: sheet.defaults,
+      tabColor: sheet.tabColor, defaults: sheet.defaults, cover: sheet.cover,
     });
     const sheetId = out.sheet.id;
     for (const band of sheet.bands) {

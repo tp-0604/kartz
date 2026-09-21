@@ -7,7 +7,9 @@
 .shell {
   position: relative; isolation: isolate;
   height: 100dvh; display: grid; grid-template-rows: var(--topbar-h) minmax(0, 1fr);
-  grid-template-columns: minmax(0, 1fr);   /* the window's width, never the widest thing in it */
+  /* The rail, then everything else. minmax(0, 1fr) is the window's width, never the widest
+     thing in it — without it a wide sheet pushes the top bar off the screen. */
+  grid-template-columns: var(--rail-w) minmax(0, 1fr);
   overflow: hidden; background: var(--bg);
 }
 /* The light behind the glass. Painted once and never animated: it is what the blur works with. */
@@ -22,6 +24,7 @@
 
 /* ---- the floating bar ----------------------------------------------------------------------- */
 .topbar {
+  grid-column: 1 / -1;
   position: relative; z-index: 30;
   display: flex; align-items: center; gap: var(--s3);
   margin: 10px 14px 0; height: 46px; padding: 0 6px 0 14px;
@@ -89,7 +92,7 @@
 .palette__empty { padding: var(--s5); text-align: center; color: var(--muted); font-size: 13px; }
 
 /* ---- the stage: the canvas, and a sheet when one is open --------------------------------------- */
-.stage { position: relative; min-height: 0; }
+.stage { position: relative; min-height: 0; grid-row: 2; grid-column: 2; }
 /* Its own layer, so nothing sticky or raised on the canvas can come up through a sheet. */
 .stage > .home { position: absolute; inset: 0; z-index: 0; }
 

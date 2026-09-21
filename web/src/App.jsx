@@ -19,6 +19,8 @@ import AuthScreen from './app/AuthScreen.jsx';
 import PeopleDialog from './app/PeopleDialog.jsx';
 import Dropdown from './components/shared/Dropdown.jsx';
 import AiPopup from './ai/AiPopup.jsx';
+import Rail from './files/Rail.jsx';
+import FilesScreen from './files/FilesScreen.jsx';
 import { useAnalyst } from './ai/useAnalyst.js';
 import { VIEWS } from './app/views.js';
 import { isDark, setTheme, themeChoice, useDark } from './utils/theme.js';
@@ -32,7 +34,8 @@ const MOD = typeof navigator !== 'undefined'
 
 function Shell() {
   const { mode, go, notice, setupOpen, setSetupOpen, paletteOpen, setPaletteOpen,
-          boards, datasets, openInData, setImportRequest, user, signOut, aiContext } = useApp();
+          boards, datasets, openInData, setImportRequest, user, signOut, aiContext,
+          refreshTree, openSection } = useApp();
   const dark = useDark();
   const analyst = useAnalyst();
   const { open: openAnalyst } = analyst;
@@ -42,6 +45,8 @@ function Shell() {
   const admin = isAdmin(user);
   const owner = isOwner(user);
   useEffect(() => { if (mode === 'data') setDataMounted(true); }, [mode]);
+  // The tree is what the rail is made of, so it is read once, as soon as anybody is signed in.
+  useEffect(() => { refreshTree(); }, [refreshTree]);
   useEffect(() => { if (aiOpen) openAnalyst(); }, [aiOpen, openAnalyst]);
 
   useEffect(() => {
@@ -78,15 +83,18 @@ function Shell() {
     toggleTheme: () => setTheme(isDark() ? 'light' : 'dark'),
     followDevice: () => setTheme(null),
     setup: () => setSetupOpen(true),
+    files: () => openSection(null),
     people: () => setPeopleOpen(true),
     signOut,
-  }), [go, openInData, setImportRequest, setSetupOpen, signOut]);
+  }), [go, openInData, openSection, setImportRequest, setSetupOpen, signOut]);
 
   const commands = useMemo(() => {
     const out = [
       { id: 'ask', group: 'Do', kind: 'action', label: 'Ask Kartz a question', where: MOD + 'J', run: actions.ask },
       { id: 'go-home', group: 'Go', kind: 'screen', label: 'Boards', where: 'the month canvas', run: () => go('home') },
       { id: 'go-extract', group: 'Go', kind: 'screen', label: 'Extract a recording', run: actions.extract },
+      { id: 'go-files', group: 'Go', kind: 'screen', label: 'Files', where: 'folders and workbooks',
+        run: actions.files },
       { id: 'open-roster', group: 'Go', kind: 'dataset', label: 'Roster',
         where: datasets ? `${datasets.roster.rows} players` : '', run: actions.roster },
       ...VIEWS.map(v => ({ id: 'view-' + v.id, group: 'Go', kind: 'view', label: v.label,
@@ -143,6 +151,7 @@ function Shell() {
               return (
                 <>
                   {item('Extract a recording', actions.extract)}
+                  {item('Files', actions.files, 'folders and workbooks')}
                   {item('Roster', actions.roster, datasets ? String(datasets.roster.rows) : '')}
                   <hr className="menu__sep" />
                   <div className="menu__head">Views</div>
@@ -180,8 +189,14 @@ function Shell() {
         </div>
       </header>
 
+      <Rail narrow={mode === 'data' || mode === 'extract'} />
+
       <main className="stage">
         <HomeCanvas inert={mode !== 'home'} />
+
+        <section className="sheet" hidden={mode !== 'files'} aria-label="Files">
+          <div className="sheet__body">{mode === 'files' && <FilesScreen />}</div>
+        </section>
 
         <section className="sheet" hidden={mode !== 'extract'} aria-label="Extract a recording">
           <div className="sheet__bar">

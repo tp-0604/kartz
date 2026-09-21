@@ -226,6 +226,8 @@ CREATE TABLE IF NOT EXISTS sheets (
   frozen    TEXT,                            -- {"rows":2,"cols":1}
   tab_color TEXT,
   defaults  TEXT,                            -- {"colWidth":100,"rowHeight":21}
+  cover     TEXT,                            -- the tab seen from above: {w,h,palette,map,ink}
+  face      INTEGER NOT NULL DEFAULT 0,      -- how much it is worth looking at
   version   INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS sheets_by_file ON sheets(file_id, idx);

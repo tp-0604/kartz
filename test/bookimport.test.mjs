@@ -1,6 +1,6 @@
 // Deciding what a sheet is, finding the table in it, and packing the grid to be sent.
 import { gunzipSync, strFromU8 } from '../web/node_modules/fflate/esm/browser.js';
-import { findTable, detectShape, projectRows, packBands, planImport, sendImport }
+import { findTable, detectShape, projectRows, packBands, planImport, sendImport, makeCover, coverScore }
   from '../web/src/services/bookImport.js';
 
 let pass = 0, fail = 0;
@@ -102,6 +102,34 @@ ok('each one is gzipped and comes back as it went in',
 ok('and is far smaller than the JSON it holds', bands[0].bytes < 3000, bands[0].bytes);
 ok('a sheet with no cells packs to nothing', packBands([]).length === 0);
 
+/* -------------------------------------------------------------------------- the cover */
+console.log('\n# the face of a tab');
+const styles = [{}, { fill: '#00FF00' }, { fill: '#FF0000' }, { border: { top: { style: 'thin' } } }];
+const painty = [
+  [0, 0, 'Squad A', 'str', null, 1], [0, 1, 'Finest', 'str', null, 1],
+  [1, 0, 'Tech 1', 'str', null, 2], [1, 1, 'Phil', 'str', null, 2],
+  [2, 0, null, '', null, 3], [3, 3, 42, 'n', null, 0], [4, 4, null, '', null, 0],
+];
+let cov = makeCover(painty, styles);
+ok('a cover is the size the app draws it', cov.w === 72 && cov.h === 36
+   && cov.map.length === 72 * 36, cov && { w: cov.w, h: cov.h, len: cov.map.length });
+ok('the fills the sheet really has are in its palette',
+   cov.palette.includes('#00FF00') && cov.palette.includes('#FF0000'), cov.palette);
+ok('and the rest are tones, not colours',
+   cov.palette.slice(0, 5).join() === ',text,number,formula,paint', cov.palette.slice(0, 5));
+ok('it knows how much of itself is filled', cov.ink > 0 && cov.ink <= 100, cov.ink);
+ok('an empty tab has no face at all', makeCover([], styles) === null);
+
+const plain = makeCover([[0, 0, 'a', 'str', null, 0], [1, 0, 'b', 'str', null, 0]], styles);
+ok('a sheet with colour is a better face than one without',
+   coverScore(cov) > coverScore(plain), [coverScore(cov), coverScore(plain)]);
+ok('and anything is better than nothing', coverScore(plain) > coverScore(null));
+
+const veryWide = [];
+for (let c = 0; c < 400; c++) veryWide.push([0, c, 'x', 'str', null, 1]);
+ok('a sheet wider than the cover still fits in it',
+   makeCover(veryWide, styles).map.length === 72 * 36, makeCover(veryWide, styles).map.length);
+
 /* --------------------------------------------------------------------- planning and sending */
 console.log('\n# a whole workbook, planned and sent');
 const book = {
@@ -120,6 +148,10 @@ const book = {
 };
 const plan = await planImport(book, { name: 'Titan Sign Up', sourceName: 'Titan Sign Up.xlsx' });
 ok('a plan has one entry per tab that was read', plan.sheets.length === 2, plan.sheets.map(s => s.name));
+ok('every tab carries its face',
+   !!plan.sheets[0].cover && !!plan.sheets[1].cover
+   && plan.sheets[1].cover.palette.includes('#00FF00'), plan.sheets[1].cover
+     && plan.sheets[1].cover.palette);
 ok('each with the shape it was judged to be',
    plan.sheets[0].shape === 'table' && plan.sheets[1].shape === 'layout',
    plan.sheets.map(s => [s.name, s.shape]));

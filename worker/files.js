@@ -21,6 +21,13 @@ const SLAB_MAX = 1_000_000;                    // bytes, gzipped; D1's own ceili
 const NAME_MAX = 120;
 const SHAPES = new Set(['table', 'layout', 'mixed', 'empty']);
 
+/** How much a tab is worth looking at: colour first, then how much of it is filled. */
+const faceScore = cover => {
+  if (!cover || !Array.isArray(cover.palette)) return 0;
+  const colours = cover.palette.filter(p => typeof p === 'string' && p.charAt(0) === '#').length;
+  return Math.round(colours * 20 + (Number(cover.ink) || 0) * 6);
+};
+
 const nameOf = (raw, what = 'a name') => {
   const name = str(raw).replace(/\s+/g, ' ');
   if (!name) throw bad(`${what} is required.`);
@@ -34,13 +41,20 @@ const nameOf = (raw, what = 'a name') => {
 export async function listTree(env) {
   const folders = await env.DB.prepare(
     'SELECT id, parent_id, name, sort, created_at FROM folders ORDER BY sort, name').all();
+  // A file's face is the tab with the most to look at, picked at import and kept on the sheet.
   const files = await env.DB.prepare(
     `SELECT f.id, f.folder_id, f.name, f.source, f.sheets, f.cells, f.updated_at, f.ready,
-            f.created_by, u.name AS owner
+            f.created_by, u.name AS owner,
+            (SELECT s.cover FROM sheets s
+               WHERE s.file_id = f.id AND s.cover IS NOT NULL
+               ORDER BY s.face DESC, s.cells DESC LIMIT 1) AS cover
        FROM files f LEFT JOIN users u ON u.id = f.created_by
       WHERE f.ready = 1
       ORDER BY f.name`).all();
-  return { folders: folders.results || [], files: files.results || [] };
+  return {
+    folders: folders.results || [],
+    files: (files.results || []).map(f => ({ ...f, cover: parseJson(f.cover, null) })),
+  };
 }
 
 export async function makeFolder(env, body) {
@@ -90,14 +104,14 @@ export async function readFile(env, id) {
     ? await env.DB.prepare('SELECT name FROM users WHERE id = ?').bind(file.created_by).first()
     : null;
   const sheets = await env.DB.prepare(
-    `SELECT id, name, idx, shape, rows, cols, cells, hidden, frozen, tab_color, defaults, version
+    `SELECT id, name, idx, shape, rows, cols, cells, hidden, frozen, tab_color, defaults, cover, version
        FROM sheets WHERE file_id = ? ORDER BY idx`).bind(file.id).all();
   const styles = await env.DB.prepare(
     'SELECT idx, json FROM styles WHERE file_id = ? ORDER BY idx').bind(file.id).all();
 
   const list = (sheets.results || []).map(s => ({
     id: s.id, name: s.name, idx: s.idx, shape: s.shape, rows: s.rows, cols: s.cols,
-    cells: s.cells, hidden: !!s.hidden, version: s.version,
+    cells: s.cells, hidden: !!s.hidden, version: s.version, cover: parseJson(s.cover, null),
     frozen: parseJson(s.frozen, null), tabColor: s.tab_color, defaults: parseJson(s.defaults, {}),
     bands: Math.max(1, Math.ceil((s.rows || 1) / BAND)),
   }));
@@ -197,16 +211,19 @@ export async function addSheet(env, fileId, body) {
   const idx = Number.isFinite(+(body && body.idx)) ? +body.idx
     : ((await env.DB.prepare('SELECT MAX(idx) AS m FROM sheets WHERE file_id = ?')
         .bind(file.id).first()) || {}).m + 1 || 0;
+  const cover = body && body.cover && typeof body.cover === 'object' ? body.cover : null;
   const id = newId('sh');
   await env.DB.prepare(
-    `INSERT INTO sheets (id, file_id, name, idx, shape, rows, cols, cells, hidden, frozen, tab_color, defaults)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`)
+    `INSERT INTO sheets (id, file_id, name, idx, shape, rows, cols, cells, hidden, frozen, tab_color,
+                         defaults, cover, face)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .bind(id, file.id, name, idx, shape,
           Math.max(0, +(body && body.rows) || 0), Math.max(0, +(body && body.cols) || 0), 0,
           body && body.hidden ? 1 : 0,
           body && body.frozen ? JSON.stringify(body.frozen) : null,
           nullable(body && body.tabColor),
-          body && body.defaults ? JSON.stringify(body.defaults) : null).run();
+          body && body.defaults ? JSON.stringify(body.defaults) : null,
+          cover ? JSON.stringify(cover) : null, faceScore(cover)).run();
   await env.DB.prepare('UPDATE files SET sheets = sheets + 1, updated_at = ? WHERE id = ?')
     .bind(now(), file.id).run();
   return { sheet: { id, fileId: file.id, name, idx, shape } };

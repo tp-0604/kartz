@@ -14,6 +14,7 @@ export const MODES = [
   { id: 'home',    label: 'Boards',  hint: 'the month canvas' },
   { id: 'extract', label: 'Extract', hint: 'recording → rows' },
   { id: 'data',    label: 'Data',    hint: 'a board, the roster or a view' },
+  { id: 'files',   label: 'Files',   hint: 'folders, workbooks and their tabs' },
 ];
 
 const modeFromHash = () => {
@@ -57,6 +58,14 @@ export function AppProvider({ children }) {
   const [importRequest, setImportRequest] = useState(null);
   // What the AI is told the screen shows: set by the workspace while a board is open.
   const [aiContext, setAiContext] = useState(null);
+
+  // The file tree: every folder and every file, with the face of each. One small answer that
+  // the rail, the section wall and the command palette all read from, loaded once per session.
+  const [tree, setTree] = useState(null);
+  const [treeError, setTreeError] = useState(null);
+  // Where you are inside the files: a section, and a file open in it.
+  const [section, setSection] = useState(null);
+  const [fileOpen, setFileOpen] = useState(null);
 
   // ---- who is signed in. Nothing below loads until somebody is -------------------------------
   const [user, setUser] = useState(null);
@@ -138,6 +147,30 @@ export function AppProvider({ children }) {
 
   const boards = datasets ? datasets.boards : [];
 
+  const refreshTree = useCallback(async () => {
+    try {
+      const out = await API.tree();
+      setTree(out);
+      setTreeError(null);
+      return out;
+    } catch (e) {
+      setTreeError(e.message || String(e));
+      return null;
+    }
+  }, []);
+
+  /** Open a section, or a file inside one. Both keep the rail where it is. */
+  const openSection = useCallback(id => {
+    setSection(id);
+    setFileOpen(null);
+    go('files');
+  }, [go]);
+
+  const openFile = useCallback((id, sheetIdx = 0) => {
+    setFileOpen({ id, sheetIdx });
+    go('files');
+  }, [go]);
+
   /** Extract → Data: open this dataset, in that mode. */
   const openInData = useCallback(target => {
     setOpenTarget(target);
@@ -153,6 +186,7 @@ export function AppProvider({ children }) {
     openTarget, setOpenTarget, openInData,
     pendingFiles, setPendingFiles, importRequest, setImportRequest,
     user, authChecked, acceptSession, signOut, aiContext, setAiContext,
+    tree, treeError, refreshTree, section, openSection, fileOpen, openFile, setFileOpen,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
