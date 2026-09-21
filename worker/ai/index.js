@@ -12,7 +12,7 @@
  */
 import { HttpError, str } from '../util.js';
 import { chat, describeProvider } from './providers.js';
-import { TOOLS, TOOL_BY_NAME, workspaceTool } from './tools.js';
+import { TOOLS, FILE_TOOLS, TOOL_BY_NAME, workspaceTool } from './tools.js';
 
 const MAX_ROUNDS = 6;
 const TABLE_ROWS = 200, CHART_ROWS = 60;
@@ -96,6 +96,13 @@ A month usually holds three boards per alliance: Day 1, Day 4 and Final. "Snapsh
 Datasets you can name: "roster", "scores" (every board at once), "month:YYYY-MM", and
 "board:<id>" (ids come from list_datasets).
 
+Beside the boards there are imported spreadsheets: thirty-odd workbooks of sign-ups, rosters,
+trackers, transfers and planning sheets, each with columns of its own that you have not seen.
+Anything that is not a board or the roster lives there. Find it with list_tables, ask what its
+columns are called with describe_table, then read it with query_table — in that order, because
+these files name things their own way and guessing a column name wastes a turn. A tab that is a
+drawing (a calendar, a squad map) has no table and will not appear.
+
 HOW TO WORK
 - Use the tools. Every number you state must have come out of one. Never estimate, never fill a
   gap from memory, never carry a figure over from an earlier question.
@@ -121,7 +128,7 @@ summary and one metric. Do not add a chart because a chart is available.
 Name the dataset and the row count in sources so the answer can be checked against the rows.`;
 
 function toolList(context) {
-  return [workspaceTool(context), ...TOOLS];
+  return [workspaceTool(context), ...TOOLS, ...FILE_TOOLS];
 }
 
 const toolSpec = t => ({ name: t.name, description: t.description, schema: t.schema });
@@ -359,7 +366,7 @@ export function aiStatus(env) {
     provider: info.name || null,
     model: info.available ? info.model : null,
     gateway: info.gateway,
-    tools: TOOLS.map(t => t.name),
+    tools: [...TOOLS, ...FILE_TOOLS].map(t => t.name),
     reason: info.available ? null
       : 'no AI provider is configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY or GEMINI_KEY as a '
         + 'Worker secret, or add an [ai] binding. Everything else in the app works without one.',

@@ -466,7 +466,98 @@ export const TOOLS = [
   },
 ];
 
-export const TOOL_BY_NAME = new Map(TOOLS.map(t => [t.name, t]));
+/* ---------------------------------------------------------------------------------------
+   The imported spreadsheets.
+
+   The boards above are one shape the analyst knows by heart. These are not: thirty-seven
+   workbooks with no schema in common, whose columns it has to be told. So the three tools
+   here go find-out first, then read — list what tables exist, ask what columns one has, then
+   query it. A sheet that is a drawing has no table and never appears.
+   --------------------------------------------------------------------------------------- */
+export const FILE_TOOLS = [
+  {
+    name: 'list_tables',
+    description: 'Every imported spreadsheet table you can query, with the file and tab it came '
+      + 'from and the columns it has. Call this first for any question about a file, a workbook, '
+      + 'a sign-up sheet, a tracker or anything that is not a board or the roster. Pass `search` '
+      + 'to narrow by file name, tab name or a column you hope exists.',
+    schema: { type: 'object', properties: {
+      search: { type: 'string', description: 'part of a file name, tab name or column name' },
+      limit: { type: 'integer', description: 'how many tables, default 40' },
+    } },
+    async run(env, args) {
+      const { listTables } = await import('../tables.js');
+      const out = await listTables(env, { search: str(args.search), limit: toInt(args.limit, 40) || 40 });
+      return {
+        tables: out.tables.map(t => ({
+          table: t.id, name: t.name, file: t.file, folder: t.folder, tab: t.sheet,
+          rows: t.rows, columns: t.columns.slice(0, 30),
+          columnsNotShown: Math.max(0, t.columns.length - 30),
+        })),
+        note: out.tables.length ? 'Pass one of these `table` ids to query_table.'
+                                : 'Nothing matched. Try a shorter search, or no search at all.',
+      };
+    },
+  },
+  {
+    name: 'describe_table',
+    description: 'What one imported table holds: every column name, how many rows, and a few '
+      + 'rows as they really are. Call this before querying a table whose columns you are '
+      + 'guessing at — these files name things their own way.',
+    schema: { type: 'object', properties: {
+      table: { type: 'string', description: 'a table id from list_tables' },
+    }, required: ['table'] },
+    async run(env, args) {
+      const { readRows } = await import('../tables.js');
+      const out = await readRows(env, str(args.table), { limit: 3 });
+      return {
+        table: out.table.id, name: out.table.name, rows: out.table.rows,
+        columns: out.table.columns.map(c => c.header || c.key),
+        sample: out.rows.map(r => r.data),
+      };
+    },
+  },
+  {
+    name: 'query_table',
+    description: 'Rows of one imported table, filtered and sorted. Filters run over the columns '
+      + 'that table actually has, so use describe_table first if you are unsure of a name. '
+      + 'Operators: eq, ne, gt, gte, lt, lte, contains, starts, empty, notempty.',
+    schema: {
+      type: 'object',
+      properties: {
+        table: { type: 'string', description: 'a table id from list_tables' },
+        filters: { type: 'array', description: 'conditions, all of which must hold', items: {
+          type: 'object',
+          properties: {
+            field: { type: 'string', description: 'a column name, exactly as describe_table gave it' },
+            op: { type: 'string', description: 'eq, ne, gt, gte, lt, lte, contains, starts, empty, notempty' },
+            value: { type: 'string', description: 'what to compare against' },
+          },
+          required: ['field'],
+        } },
+        sort: { type: 'string', description: 'a column to sort by' },
+        desc: { type: 'boolean', description: 'largest first' },
+        limit: { type: 'integer', description: 'how many rows, default 50' },
+      },
+      required: ['table'],
+    },
+    async run(env, args) {
+      const { queryTable } = await import('../tables.js');
+      const out = await queryTable(env, str(args.table), {
+        filters: Array.isArray(args.filters) ? args.filters : [],
+        sort: args.sort ? str(args.sort) : null,
+        desc: !!args.desc,
+        limit: toInt(args.limit, 50) || 50,
+      });
+      return {
+        table: out.table.id, name: out.table.name, matched: out.matched, rows: out.rows,
+        source: { table: out.table.id, name: out.table.name, matched: out.matched },
+      };
+    },
+  },
+];
+
+export const TOOL_BY_NAME = new Map([...TOOLS, ...FILE_TOOLS].map(t => [t.name, t]));
 
 /** The workspace as the browser last described it. Not a query — it is the client's own state. */
 export function workspaceTool(context) {
