@@ -19,6 +19,8 @@ import { HttpError, str, toInt } from './worker/util.js';
 import * as Auth from './worker/auth.js';
 import { summarizeSessions } from './worker/summaries.js';
 import * as Data from './worker/datasets.js';
+import * as Files from './worker/files.js';
+import * as Tables from './worker/tables.js';
 import * as Boards from './worker/boards.js';
 import * as Views from './worker/views.js';
 import { handleCsv } from './worker/csv.js';
@@ -62,6 +64,7 @@ async function runWorkersAI(env, model, body) {
 const DATA_SEGMENTS = new Set([
   'datasets', 'runs', 'commit', 'boards', 'board', 'score', 'month', 'player', 'all',
   'roster', 'activity', 'views', 'ai', 'auth', 'users',
+  'tree', 'folders', 'files', 'sheets', 'assets', 'tables',
 ]);
 
 async function handleData(seg, parts, request, env, reply) {
@@ -91,7 +94,13 @@ async function handleData(seg, parts, request, env, reply) {
   // Everything else needs somebody signed in. The request gets its own copy of env that says who,
   // so the log can record who did what and the rules below can say who may.
   const user = await Auth.who(env, request);
-  if (!user && !(seg === 'ai' && sub === 'status')) throw new HttpError(401, 'sign in to use Kartz.');
+  // A picture is fetched by an <img> tag, which cannot carry a session header. Its id is the
+  // hash of its own bytes — forty hex characters nobody can guess and which only a signed-in
+  // read of a sheet hands out — and the origin check above still applies, so the hash is the
+  // capability. Everything else needs an account.
+  const openAsset = seg === 'assets' && method === 'GET' && !!sub;
+  if (!user && !openAsset && !(seg === 'ai' && sub === 'status'))
+    throw new HttpError(401, 'sign in to use Kartz.');
   env = { ...env, user };
 
   // ---- the analyst ----------------------------------------------------------------------
@@ -122,6 +131,90 @@ async function handleData(seg, parts, request, env, reply) {
     return reply(await Auth.setRole(env, env.user, sub, str((await body()).role)), 200);
   if (seg === 'users' && sub && method === 'DELETE')
     return reply(await Auth.removeUser(env, env.user, sub), 200);
+
+  // ---- files: folders, workbooks, tabs, and the grid ---------------------------------------
+  //
+  // Anyone signed in may make a folder or a file and fill it. Writing over a file that already
+  // exists is for whoever added it, or an admin — the same rule boards have. Importing a whole
+  // workbook, and the pictures that come with it, is an admin's.
+  if (seg === 'tree' && method === 'GET') return reply(await Files.listTree(env), 200);
+
+  if (seg === 'folders') {
+    if (method === 'POST' && !sub) return reply(await Files.makeFolder(env, await body()), 200);
+    if (method === 'PATCH' && sub) {
+      Auth.requireAdmin(env.user, 'rename a folder');
+      return reply(await Files.renameFolder(env, sub, await body()), 200);
+    }
+    if (method === 'DELETE' && sub) {
+      Auth.requireAdmin(env.user, 'delete a folder');
+      return reply(await Files.deleteFolder(env, sub), 200);
+    }
+  }
+
+  if (seg === 'files') {
+    if (method === 'POST' && !sub) {
+      const b = await body();
+      if (str(b.source) && str(b.source) !== 'new')
+        Auth.requireAdmin(env.user, 'import a whole workbook');
+      return reply(await Files.makeFile(env, b), 200);
+    }
+    if (sub) {
+      const file = await Files.readFileRow(env, sub);
+      if (!file) throw new HttpError(404, 'no such file.');
+      const mine = what => Auth.requireManage(env.user, file, what);
+      if (method === 'GET' && !leaf) return reply(await Files.readFile(env, sub), 200);
+      if (method === 'PATCH' && !leaf) { mine('rename or move'); return reply(await Files.patchFile(env, sub, await body()), 200); }
+      if (method === 'DELETE' && !leaf) { mine('delete'); return reply(await Files.deleteFile(env, sub), 200); }
+      if (method === 'PUT' && leaf === 'styles') { mine('write to'); return reply(await Files.putStyles(env, sub, await body()), 200); }
+      if (method === 'POST' && leaf === 'sheets') { mine('add a sheet to'); return reply(await Files.addSheet(env, sub, await body()), 200); }
+      if (method === 'POST' && leaf === 'done') { mine('write to'); return reply(await Files.finishFile(env, sub, await body()), 200); }
+    }
+  }
+
+  if (seg === 'sheets' && sub) {
+    const sheet = await Files.readSheetRow(env, sub);
+    if (!sheet) throw new HttpError(404, 'no such sheet.');
+    const file = await Files.readFileRow(env, sheet.file_id);
+    const mine = what => Auth.requireManage(env.user, file, what);
+    if (method === 'GET' && leaf === 'cells')
+      return reply(await Files.readBands(env, sub, q.get('from'), q.get('to')), 200);
+    if (method === 'GET' && leaf === 'meta') return reply(await Files.readMeta(env, sub), 200);
+    // Editing a cell is not the same as owning the file. Anyone signed in may correct a value
+    // on a sheet that is a table — the same rule boards have always had — but a sheet that is a
+    // drawing, and a file still being imported, stay with whoever owns them.
+    if (method === 'PUT' && leaf === 'slab') {
+      if (sheet.shape === 'layout' || !file || !file.ready) mine('write to');
+      return reply(await Files.putSlab(env, sub, await body()), 200);
+    }
+    if (method === 'PUT' && leaf === 'meta') { mine('write to'); return reply(await Files.putMeta(env, sub, await body()), 200); }
+    if (method === 'GET' && leaf === 'tables') return reply(await Tables.readTables(env, sub), 200);
+    if (method === 'PUT' && leaf === 'table') { mine('write to'); return reply(await Tables.putTable(env, sub, await body()), 200); }
+    if (method === 'PATCH' && !leaf) { mine('rename a sheet in'); return reply(await Files.patchSheet(env, sub, await body()), 200); }
+    if (method === 'DELETE' && !leaf) { mine('delete a sheet from'); return reply(await Files.deleteSheet(env, sub), 200); }
+  }
+
+  if (seg === 'tables') {
+    if (method === 'GET' && !sub)
+      return reply(await Tables.listTables(env, { search: q.get('q') || '', limit: toInt(q.get('limit'), 60) }), 200);
+    if (method === 'GET' && sub && !leaf)
+      return reply(await Tables.readRows(env, sub,
+        { limit: toInt(q.get('limit'), 200), offset: toInt(q.get('offset'), 0) }), 200);
+    if (method === 'POST' && sub && leaf === 'query')
+      return reply(await Tables.queryTable(env, sub, await body()), 200);
+  }
+
+  if (seg === 'assets') {
+    if (method === 'POST' && sub === 'have') return reply(await Files.haveAssets(env, await body()), 200);
+    if (method === 'GET' && sub) {
+      const res = await Files.getAsset(env, sub);
+      for (const [k, v] of Object.entries(reply.cors || {})) res.headers.set(k, v);
+      return res;
+    }
+    if (method === 'PUT' && sub) {
+      Auth.requireAdmin(env.user, 'add a picture');
+      return reply(await Files.putAsset(env, sub, request), 200);
+    }
+  }
 
   // ---- the roster, read and replaced whole --------------------------------------------------
   // The extractor mirrors this into the browser so a bad connection cannot stop a run, and an
@@ -314,6 +407,8 @@ export default {
     const cors = corsHeaders(origin);
     const reply = (body, status) => new Response(JSON.stringify(body),
       { status, headers: { ...cors, 'content-type': 'application/json' } });
+    // A picture comes back as itself rather than as JSON, and still needs the same headers.
+    reply.cors = cors;
 
     // The data routes come first: "runs" and "player" would otherwise pass for model names and
     // be forwarded to Google.

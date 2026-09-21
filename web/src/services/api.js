@@ -72,6 +72,37 @@ export const listUsers = () => api('/users');
 export const setUserRole = (id, role) => api('/users/' + encodeURIComponent(id), json('PATCH', { role }));
 export const removeUser = id => api('/users/' + encodeURIComponent(id), { method: 'DELETE' });
 
+// ---- files: folders, workbooks, tabs, and the grid --------------------------------------------
+//
+// The tree is one small answer for the whole app — every folder and every file, with the face
+// of each. A tab's grid comes down a band at a time, still compressed, and is unzipped here.
+export const tree = () => api('/tree');
+export const makeFolder = body => api('/folders', json('POST', body));
+export const renameFolder = (id, name) => api('/folders/' + encodeURIComponent(id), json('PATCH', { name }));
+export const deleteFolder = id => api('/folders/' + encodeURIComponent(id), { method: 'DELETE' });
+
+export const makeFile = body => api('/files', json('POST', body));
+export const readFile = id => api('/files/' + encodeURIComponent(id));
+export const patchFile = (id, body) => api('/files/' + encodeURIComponent(id), json('PATCH', body));
+export const deleteFile = id => api('/files/' + encodeURIComponent(id), { method: 'DELETE' });
+export const putStyles = (id, styles) => api('/files/' + encodeURIComponent(id) + '/styles', json('PUT', { styles }));
+export const addSheet = (id, body) => api('/files/' + encodeURIComponent(id) + '/sheets', json('POST', body));
+export const finishFile = (id, report) => api('/files/' + encodeURIComponent(id) + '/done', json('POST', { report }));
+
+export const patchSheet = (id, body) => api('/sheets/' + encodeURIComponent(id), json('PATCH', body));
+export const deleteSheet = id => api('/sheets/' + encodeURIComponent(id), { method: 'DELETE' });
+export const putSlab = (id, body) => api('/sheets/' + encodeURIComponent(id) + '/slab', json('PUT', body));
+export const sheetMeta = id => api('/sheets/' + encodeURIComponent(id) + '/meta');
+export const putSheetMeta = (id, kind, data) =>
+  api('/sheets/' + encodeURIComponent(id) + '/meta', json('PUT', { kind, json: data }));
+export const sheetCells = (id, from, to) =>
+  api(`/sheets/${encodeURIComponent(id)}/cells?from=${from | 0}&to=${to | 0}`);
+
+export const haveAssets = ids => api('/assets/have', json('POST', { ids }));
+export const assetUrl = id => apiUrl('/assets/' + encodeURIComponent(id));
+export const putAsset = (id, bytes, mime) => api('/assets/' + encodeURIComponent(id),
+  { method: 'PUT', headers: { 'content-type': mime }, body: bytes });
+
 // ---- extraction into the database -----------------------------------------------------------
 // mode 'preview' writes nothing and says what would happen; the rest commit.
 export const commit = body => api('/commit', json('POST', body));

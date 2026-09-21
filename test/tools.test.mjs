@@ -125,5 +125,55 @@ ok('reading twice is stable', again.rows[0]['x:CP'] === '9.4M', again.rows);
 ok('and the recovered marking is stable too',
    again.rows[0].__style.search.bg === 'yellow', again.rows[0].__style);
 
+/* ------------------------------------------------ the imported spreadsheets, which have no shape */
+console.log('\n# the tools for a file the analyst has never seen');
+const { putTable } = await import('../worker/tables.js');
+raw.exec(`INSERT INTO folders (id,parent_id,name,sort,created_at) VALUES ('fd1',NULL,'TC',0,'x')`);
+raw.exec(`INSERT INTO files (id,folder_id,name,source,sheets,cells,ready,created_at,updated_at)
+          VALUES ('fl1','fd1','Titan Sign Up','xlsx',1,10,1,'x','x')`);
+raw.exec(`INSERT INTO sheets (id,file_id,name,idx,shape,rows,cols,cells)
+          VALUES ('sh1','fl1','Form Responses',0,'table',5,4,20)`);
+await putTable(env, 'sh1', {
+  name: 'Form Responses', headerRow: 0, firstRow: 1, lastRow: 4, firstCol: 0, lastCol: 3,
+  columns: [{ col: 0, header: 'in game name' }, { col: 1, header: 'Current Alliance' },
+            { col: 2, header: 'Class' }, { col: 3, header: 'Attendance' }],
+  rows: [
+    { idx: 0, r: 1, data: { 'in game name': 'Sandeep', 'Current Alliance': '698C', Class: 'Combat Elite', Attendance: '' } },
+    { idx: 1, r: 2, data: { 'in game name': 'Niya', 'Current Alliance': '698C', Class: 'Mechanical Master', Attendance: 'Yes' } },
+    { idx: 2, r: 3, data: { 'in game name': 'Cein', 'Current Alliance': '698N', Class: 'Combat Elite', Attendance: 'Yes' } },
+    { idx: 3, r: 4, data: { 'in game name': 'Nubi', 'Current Alliance': '698W', Class: 'Combat Elite', Attendance: '' } },
+  ],
+});
+const fileTool = (name, args) => TOOL_BY_NAME.get(name).run(env, args);
+
+let ft = await fileTool('list_tables', {});
+ok('a table says which file and folder it came from',
+   ft.tables.length === 1 && ft.tables[0].file === 'Titan Sign Up' && ft.tables[0].folder === 'TC'
+   && ft.tables[0].rows === 4, ft.tables);
+ok('and what its columns are called, in the file\'s own words',
+   ft.tables[0].columns.join() === 'in game name,Current Alliance,Class,Attendance', ft.tables[0].columns);
+const tid = ft.tables[0].table;
+
+ft = await fileTool('list_tables', { search: 'attendance' });
+ok('the list can be searched by a column somebody hopes exists', ft.tables.length === 1, ft.tables);
+ft = await fileTool('list_tables', { search: 'nothing like this' });
+ok('and says so plainly when nothing matches',
+   ft.tables.length === 0 && /Nothing matched/.test(ft.note), ft);
+
+ft = await fileTool('describe_table', { table: tid });
+ok('describing one hands back real rows rather than a schema',
+   ft.rows === 4 && ft.sample[0]['in game name'] === 'Sandeep', ft.sample);
+
+ft = await fileTool('query_table', { table: tid, filters: [{ field: 'Attendance', op: 'empty' }] });
+ok('an empty cell is a filter the analyst can use — who signed up and did not show',
+   ft.matched === 2 && ft.rows.map(r => r['in game name']).join() === 'Sandeep,Nubi', ft.rows);
+ft = await fileTool('query_table', { table: tid, filters: [{ field: 'Class', op: 'contains', value: 'combat' }] });
+ok('text matches without minding case', ft.matched === 3, ft.rows.length);
+ft = await fileTool('query_table', { table: tid, filters: [{ field: 'Current Alliance', op: 'eq', value: '698C' }] });
+ok('a column whose name has a space in it still works', ft.matched === 2, ft.rows);
+ft = await fileTool('query_table', { table: tid, filters: [{ field: 'Nonsense', op: 'eq', value: 'x' }] });
+ok('a column that does not exist matches nothing rather than throwing', ft.matched === 0, ft);
+ok('every answer carries where it came from', !!ft.source && ft.source.table === tid, ft.source);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

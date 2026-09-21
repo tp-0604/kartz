@@ -9,3 +9,5 @@ web/dist/
 
 # what the browser suites draw
 shots/
+# the local stand-in for R2, written by test/serve.mjs
+.wrangler/local-r2/

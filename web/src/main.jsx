@@ -7,6 +7,7 @@ import './styles/shell.css';
 import './styles/home.css';
 import './styles/grid.css';
 import './styles/workspace.css';
+import './styles/files.css';
 import './styles/ai.css';
 import './styles/extract.css';
 
