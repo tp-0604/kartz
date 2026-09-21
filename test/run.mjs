@@ -18,7 +18,7 @@
  */
 import { spawn } from 'node:child_process';
 
-const SUITES = ['worker.test.mjs', 'tools.test.mjs', 'export.test.mjs', 'sheet.test.mjs', 'providers.test.mjs', 'xlsxbook.test.mjs', 'bookimport.test.mjs', 'files.test.mjs'];
+const SUITES = ['worker.test.mjs', 'tools.test.mjs', 'export.test.mjs', 'sheet.test.mjs', 'providers.test.mjs', 'xlsxbook.test.mjs', 'bookimport.test.mjs', 'sheetview.test.mjs', 'files.test.mjs'];
 
 let failed = 0;
 for (const suite of SUITES) {
