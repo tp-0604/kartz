@@ -103,9 +103,19 @@ const statements = [];
 const say = sql => statements.push(sql);
 
 /** A long value, written as a first statement and then appended to. */
-function writeLong(table, cols, key, column, hex, asText) {
+function writeLong(table, cols, key, column, hex, asText, updateOnly) {
   const wrap = h => (asText ? `CAST(X'${h}' AS TEXT)` : `X'${h}'`);
   const first = hex.slice(0, CHUNK);
+  if (updateOnly) {
+    // The row is already there; this fills one of its columns.
+    say(`UPDATE ${table.replace(/_[a-z]+$/, '')} SET ${column} = ${wrap(first)} WHERE ${key};`);
+    table = table.replace(/_[a-z]+$/, '');
+    for (let i = CHUNK; i < hex.length; i += CHUNK) {
+      const part = hex.slice(i, i + CHUNK);
+      say(`UPDATE ${table} SET ${column} = ${column} || ${wrap(part)} WHERE ${key};`);
+    }
+    return;
+  }
   say(`INSERT INTO ${table} (${cols.names.join(', ')}) VALUES (${cols.values(wrap(first))});`);
   for (let i = CHUNK; i < hex.length; i += CHUNK) {
     const part = hex.slice(i, i + CHUNK);
@@ -136,13 +146,24 @@ function sqlFile(plan, fileId, folderId, at) {
   return report;
 }
 
+const faceScore = cover => {
+  if (!cover || !Array.isArray(cover.palette)) return 0;
+  const colours = cover.palette.filter(p => typeof p === 'string' && p.charAt(0) === '#').length;
+  return Math.round(colours * 20 + (Number(cover.ink) || 0) * 6);
+};
+
 function sqlSheet(sheet, sheetId, fileId) {
+  const cover = sheet.cover ? hexOf(Buffer.from(JSON.stringify(sheet.cover))) : null;
   say(`INSERT INTO sheets (id, file_id, name, idx, shape, rows, cols, cells, hidden, frozen, `
-    + `tab_color, defaults, version) VALUES (${q(sheetId)}, ${q(fileId)}, ${q(sheet.name)}, `
+    + `tab_color, defaults, face, version) VALUES (${q(sheetId)}, ${q(fileId)}, ${q(sheet.name)}, `
     + `${n(sheet.idx)}, ${q(sheet.shape)}, ${n(sheet.rows)}, ${n(sheet.cols)}, `
     + `${sheet.bands.reduce((t, b) => t + b.count, 0)}, ${sheet.hidden ? 1 : 0}, `
     + `${sheet.frozen ? q(JSON.stringify(sheet.frozen)) : 'NULL'}, ${q(sheet.tabColor)}, `
-    + `${sheet.defaults && Object.keys(sheet.defaults).length ? q(JSON.stringify(sheet.defaults)) : 'NULL'}, 1);`);
+    + `${sheet.defaults && Object.keys(sheet.defaults).length ? q(JSON.stringify(sheet.defaults)) : 'NULL'}, `
+    + `${faceScore(sheet.cover)}, 1);`);
+  if (cover) {
+    writeLong('sheets_cover', null, `id = ${q(sheetId)}`, 'cover', cover, true, sheetId);
+  }
 
   for (const band of sheet.bands) {
     const bytes = Buffer.from(band.cells, 'base64');
@@ -159,6 +180,25 @@ function sqlSheet(sheet, sheetId, fileId) {
       names: ['sheet_id', 'kind', 'json'],
       values: first => `${q(sheetId)}, ${q(kind)}, ${first}`,
     }, `sheet_id = ${q(sheetId)} AND kind = ${q(kind)}`, 'json', hex, true);
+  }
+
+  // The projection: the part of the sheet that is really a table.
+  if (sheet.table && sheet.table.rows.length) {
+    const tableId = newRowId('tb');
+    const columns = hexOf(Buffer.from(JSON.stringify(sheet.table.columns)));
+    say(`INSERT INTO tables (id, sheet_id, name, header_row, first_row, last_row, first_col, `
+      + `last_col, rows, columns) VALUES (${q(tableId)}, ${q(sheetId)}, ${q(sheet.table.name)}, `
+      + `${n(sheet.table.headerRow)}, ${n(sheet.table.firstRow)}, ${n(sheet.table.lastRow)}, `
+      + `${n(sheet.table.firstCol)}, ${n(sheet.table.lastCol)}, ${sheet.table.rows.length}, `
+      + `CAST(X'${columns}' AS TEXT));`);
+    // Twenty rows to a statement keeps every one of them well inside D1's limit.
+    for (let i = 0; i < sheet.table.rows.length; i += 8) {
+      const group = sheet.table.rows.slice(i, i + 8);
+      const values = group.map(row =>
+        `(${q(newRowId('tr'))}, ${q(tableId)}, ${n(row.idx)}, ${n(row.r)}, `
+        + `CAST(X'${hexOf(Buffer.from(JSON.stringify(row.data)))}' AS TEXT))`).join(',');
+      say(`INSERT INTO table_rows (id, table_id, idx, r, data) VALUES ${values};`);
+    }
   }
 }
 
