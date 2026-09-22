@@ -1,49 +1,60 @@
 /**
- * Kartz — the API, and the key holder.
+ * Kartz — the key holder.
  *
- * Two jobs in one deployment. It keeps the model key off the page: a static site cannot hold a
- * secret, so the browser talks to this and this talks to the model. And it owns the database:
- * the boards, the roster, the columns somebody added, the activity trail, and the controlled
- * tools the analytics layer is allowed to run against D1.
+ * One job now: keep the model key out of the spreadsheet. The dialog is a page Google serves
+ * from googleusercontent.com, and a page cannot hold a secret — anyone who can open the add-on
+ * could read it. So the page sends frames here, this Worker adds the key, and the model answers
+ * back through it. The same door answers questions about a tab.
  *
- * The routes live in worker/. This file is the door: who may knock, what the path means, and
- * what to do with anything that is not a data route — which is a model call.
+ * There is no database and no account system. Who may do what is decided by Google, in the
+ * sharing settings of the spreadsheet the add-on is bound to: if you can open the sheet you can
+ * open the dialog, and the dialog is handed the shared phrase by Apps Script when it starts.
+ * The phrase is the only thing this Worker checks, because it is the only thing it can check.
  *
  *   wrangler deploy
- *   wrangler secret put GEMINI_KEY      <- required for the extractor
- *   wrangler secret put SHARED_PASS     <- the phrase, when the page is hosted elsewhere
- *   wrangler secret put ANTHROPIC_API_KEY | OPENAI_API_KEY   <- optional: the analyst
- *   wrangler secret put ADMIN_CODE      <- the code an account brings to sign up as an admin
+ *   wrangler secret put GEMINI_KEY      <- required: reading a recording
+ *   wrangler secret put SHARED_PASS     <- required: the phrase the spreadsheet brings
+ *   wrangler secret put ANTHROPIC_API_KEY | OPENAI_API_KEY   <- optional: asking about a tab
  */
-import { HttpError, str, toInt } from './worker/util.js';
-import * as Auth from './worker/auth.js';
-import { summarizeSessions } from './worker/summaries.js';
-import * as Data from './worker/datasets.js';
-import * as Files from './worker/files.js';
-import * as Tables from './worker/tables.js';
-import * as Boards from './worker/boards.js';
-import * as Views from './worker/views.js';
-import { handleCsv } from './worker/csv.js';
+import { HttpError } from './worker/util.js';
 import { ask, aiStatus } from './worker/ai/index.js';
-
-// Extra origins allowed to call this, for when the page is hosted somewhere else — GitHub
-// Pages, say. Anything served from this same deployment is allowed automatically.
-const ALLOWED_ORIGINS = [
-  'http://localhost:8731',
-  'http://localhost:5173',              // `npm run dev` in web/ (it proxies /api, but just in case)
-  'https://tp-0604.github.io',          // the React build on GitHub Pages
-];
 
 const UPSTREAM = 'https://generativelanguage.googleapis.com/v1beta/models';
 
-// Cloudflare's own models can be reached from inside a Worker through the AI binding. They are
-// deliberately NOT reachable from the page: the Workers AI REST API answers a CORS preflight
-// with 405 and sets no allow-origin header on the response either, so a static site cannot call
-// it however the request is shaped. Running it here sidesteps that and keeps the account token
-// out of the browser at the same time.
-//
-// The page always speaks the Gemini request shape, so translate in both directions rather than
-// teaching the page a third dialect.
+// Where a request may come from. The add-on's page is served by Google from a subdomain of
+// googleusercontent.com that changes, so the host is matched rather than listed. Apps Script's
+// own UrlFetchApp sends no Origin at all, which is fine: the phrase is what actually decides.
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173',                    // npm run dev in web/
+  'http://localhost:8788',                    // tools/serve-dialog.mjs
+];
+const ALLOWED_HOSTS = /(^|\.)googleusercontent\.com$/;
+
+function originOk(origin) {
+  if (!origin) return false;
+  if (ALLOWED_ORIGINS.includes(origin)) return true;
+  try { return ALLOWED_HOSTS.test(new URL(origin).hostname); } catch { return false; }
+}
+
+function corsHeaders(origin) {
+  return {
+    'access-control-allow-origin': origin || '*',
+    'access-control-allow-methods': 'GET, POST, OPTIONS',
+    'access-control-allow-headers': 'content-type, x-kartz-pass',
+    'access-control-max-age': '86400',
+    'vary': 'Origin',
+  };
+}
+
+/**
+ * Cloudflare's own models, reached through the AI binding.
+ *
+ * They are deliberately not reachable from the page: the Workers AI REST API answers a CORS
+ * preflight with 405 and sets no allow-origin header, so a browser cannot call it however the
+ * request is shaped. Running it here sidesteps that and keeps the account token out of the
+ * browser at the same time. The page always speaks the Gemini request shape, so translate in
+ * both directions rather than teaching it a third dialect.
+ */
 async function runWorkersAI(env, model, body) {
   if (!env.AI) throw new Error('This Worker has no AI binding. Add [ai]\nbinding = "AI" to wrangler.toml.');
   const parts = body?.contents?.[0]?.parts || [];
@@ -58,385 +69,61 @@ async function runWorkersAI(env, model, body) {
   return { candidates: [{ content: { parts: [{ text: typeof reply === 'string' ? reply : JSON.stringify(reply) }] } }] };
 }
 
-// ---------------------------------------------------------------------------------------
-// The data routes
-// ---------------------------------------------------------------------------------------
-const DATA_SEGMENTS = new Set([
-  'datasets', 'runs', 'commit', 'boards', 'board', 'score', 'month', 'player', 'all',
-  'roster', 'activity', 'views', 'ai', 'auth', 'users',
-  'tree', 'folders', 'files', 'sheets', 'assets', 'tables',
-]);
-
-async function handleData(seg, parts, request, env, reply) {
-  if (!env.DB) return reply({ error: { code: 500,
-    message: 'This Worker has no DB binding. Create the database with "wrangler d1 create '
-           + 'kartz-db", put the id in wrangler.toml, and deploy again.' } }, 500);
-  const url = new URL(request.url);
-  const q = url.searchParams;
-  const method = request.method;
-  const sub = parts[1] || '';
-  const leaf = parts[2] || '';
-  const body = async () => {
-    const j = await request.json().catch(() => null);
-    if (!j) throw new HttpError(400, 'a JSON body is required.');
-    return j;
-  };
-
-  // ---- accounts --------------------------------------------------------------------------------
-  if (seg === 'auth') {
-    if (sub === 'signup' && method === 'POST') return reply(await Auth.signUp(env, await body()), 200);
-    if (sub === 'signin' && method === 'POST') return reply(await Auth.signIn(env, await body()), 200);
-    if (sub === 'signout' && method === 'POST') return reply(await Auth.signOut(env, request), 200);
-    if (sub === 'me' && method === 'GET') return reply({ user: await Auth.who(env, request) }, 200);
-    return null;
-  }
-
-  // Everything else needs somebody signed in. The request gets its own copy of env that says who,
-  // so the log can record who did what and the rules below can say who may.
-  const user = await Auth.who(env, request);
-  // A picture is fetched by an <img> tag, which cannot carry a session header. Its id is the
-  // hash of its own bytes — forty hex characters nobody can guess and which only a signed-in
-  // read of a sheet hands out — and the origin check above still applies, so the hash is the
-  // capability. Everything else needs an account.
-  const openAsset = seg === 'assets' && method === 'GET' && !!sub;
-  if (!user && !openAsset && !(seg === 'ai' && sub === 'status'))
-    throw new HttpError(401, 'sign in to use Kartz.');
-  env = { ...env, user };
-
-  // ---- the analyst ----------------------------------------------------------------------
-  if (seg === 'ai') {
-    if (sub === 'status' && method === 'GET') return reply(aiStatus(env), 200);
-    if (sub === 'ask' && method === 'POST') return reply(await ask(env, await body()), 200);
-    return null;
-  }
-
-  // ---- datasets: what the workspace opens and edits ---------------------------------------
-  if (seg === 'datasets' && method === 'GET' && !sub) return reply(await Data.listDatasets(env), 200);
-  if (seg === 'datasets' && method === 'GET' && sub && !leaf)
-    return reply(await Data.readDataset(env, sub), 200);
-  if (seg === 'datasets' && method === 'POST' && sub && leaf === 'ops')
-    return reply(await Data.applyOps(env, sub, await body()), 200);
-  if (seg === 'datasets' && sub && leaf === 'sheet') {
-    Auth.requireAdmin(env.user, 'use the spreadsheet');
-    if (method === 'GET') return reply(await Data.readSheet(env, sub), 200);
-    if (method === 'PUT') return reply(await Data.saveSheet(env, sub, await body()), 200);
-  }
-
-  // ---- accounts: an admin sees who is here, the owner decides what they may do -------------------
-  if (seg === 'users' && method === 'GET' && !sub) {
-    Auth.requireAdmin(env.user, 'list the accounts');
-    return reply(await Auth.listUsers(env), 200);
-  }
-  if (seg === 'users' && sub && method === 'PATCH')
-    return reply(await Auth.setRole(env, env.user, sub, str((await body()).role)), 200);
-  if (seg === 'users' && sub && method === 'DELETE')
-    return reply(await Auth.removeUser(env, env.user, sub), 200);
-
-  // ---- files: folders, workbooks, tabs, and the grid ---------------------------------------
-  //
-  // Anyone signed in may make a folder or a file and fill it. Writing over a file that already
-  // exists is for whoever added it, or an admin — the same rule boards have. Importing a whole
-  // workbook, and the pictures that come with it, is an admin's.
-  if (seg === 'tree' && method === 'GET') return reply(await Files.listTree(env), 200);
-
-  if (seg === 'folders') {
-    if (method === 'POST' && !sub) return reply(await Files.makeFolder(env, await body()), 200);
-    if (method === 'PATCH' && sub) {
-      Auth.requireAdmin(env.user, 'rename a folder');
-      return reply(await Files.renameFolder(env, sub, await body()), 200);
-    }
-    if (method === 'DELETE' && sub) {
-      Auth.requireAdmin(env.user, 'delete a folder');
-      return reply(await Files.deleteFolder(env, sub), 200);
-    }
-  }
-
-  if (seg === 'files') {
-    if (method === 'POST' && !sub) {
-      const b = await body();
-      if (str(b.source) && str(b.source) !== 'new')
-        Auth.requireAdmin(env.user, 'import a whole workbook');
-      return reply(await Files.makeFile(env, b), 200);
-    }
-    if (sub) {
-      const file = await Files.readFileRow(env, sub);
-      if (!file) throw new HttpError(404, 'no such file.');
-      const mine = what => Auth.requireManage(env.user, file, what);
-      if (method === 'GET' && !leaf) return reply(await Files.readFile(env, sub), 200);
-      if (method === 'PATCH' && !leaf) { mine('rename or move'); return reply(await Files.patchFile(env, sub, await body()), 200); }
-      if (method === 'DELETE' && !leaf) { mine('delete'); return reply(await Files.deleteFile(env, sub), 200); }
-      if (method === 'PUT' && leaf === 'styles') { mine('write to'); return reply(await Files.putStyles(env, sub, await body()), 200); }
-      if (method === 'POST' && leaf === 'sheets') { mine('add a sheet to'); return reply(await Files.addSheet(env, sub, await body()), 200); }
-      if (method === 'POST' && leaf === 'done') { mine('write to'); return reply(await Files.finishFile(env, sub, await body()), 200); }
-    }
-  }
-
-  if (seg === 'sheets' && sub) {
-    const sheet = await Files.readSheetRow(env, sub);
-    if (!sheet) throw new HttpError(404, 'no such sheet.');
-    const file = await Files.readFileRow(env, sheet.file_id);
-    const mine = what => Auth.requireManage(env.user, file, what);
-    if (method === 'GET' && leaf === 'cells')
-      return reply(await Files.readBands(env, sub, q.get('from'), q.get('to')), 200);
-    if (method === 'GET' && leaf === 'meta') return reply(await Files.readMeta(env, sub), 200);
-    // Editing a cell is not the same as owning the file. Anyone signed in may correct a value
-    // on a sheet that is a table — the same rule boards have always had — but a sheet that is a
-    // drawing, and a file still being imported, stay with whoever owns them.
-    if (method === 'PUT' && leaf === 'slab') {
-      if (sheet.shape === 'layout' || !file || !file.ready) mine('write to');
-      return reply(await Files.putSlab(env, sub, await body()), 200);
-    }
-    if (method === 'PUT' && leaf === 'meta') { mine('write to'); return reply(await Files.putMeta(env, sub, await body()), 200); }
-    if (method === 'GET' && leaf === 'tables') return reply(await Tables.readTables(env, sub), 200);
-    if (method === 'PUT' && leaf === 'table') { mine('write to'); return reply(await Tables.putTable(env, sub, await body()), 200); }
-    if (method === 'PATCH' && !leaf) { mine('rename a sheet in'); return reply(await Files.patchSheet(env, sub, await body()), 200); }
-    if (method === 'DELETE' && !leaf) { mine('delete a sheet from'); return reply(await Files.deleteSheet(env, sub), 200); }
-  }
-
-  if (seg === 'tables') {
-    if (method === 'GET' && !sub)
-      return reply(await Tables.listTables(env, { search: q.get('q') || '', limit: toInt(q.get('limit'), 60) }), 200);
-    if (method === 'GET' && sub && !leaf)
-      return reply(await Tables.readRows(env, sub,
-        { limit: toInt(q.get('limit'), 200), offset: toInt(q.get('offset'), 0) }), 200);
-    if (method === 'POST' && sub && leaf === 'query')
-      return reply(await Tables.queryTable(env, sub, await body()), 200);
-  }
-
-  if (seg === 'assets') {
-    if (method === 'POST' && sub === 'have') return reply(await Files.haveAssets(env, await body()), 200);
-    if (method === 'GET' && sub) {
-      const res = await Files.getAsset(env, sub);
-      for (const [k, v] of Object.entries(reply.cors || {})) res.headers.set(k, v);
-      return res;
-    }
-    if (method === 'PUT' && sub) {
-      Auth.requireAdmin(env.user, 'add a picture');
-      return reply(await Files.putAsset(env, sub, request), 200);
-    }
-  }
-
-  // ---- the roster, read and replaced whole --------------------------------------------------
-  // The extractor mirrors this into the browser so a bad connection cannot stop a run, and an
-  // import replaces the list in one write. Editing a player is a dataset op like any other.
-  if (seg === 'roster' && sub === 'rows' && method === 'GET') {
-    const out = await Data.readDataset(env, 'roster');
-    const rows = out.rows.map(r => {
-      const extra = {};
-      for (const c of out.columns) if (c.role === 'extra' && r[c.key]) extra[c.header] = r[c.key];
-      return { id: r.id, search: r.search, ingame: r.ingame, alliance: r.alliance, extra };
-    });
-    return reply({ rows, columns: out.columns.map(c => c.header), mapping: out.dataset.mapping,
-                   version: out.version, savedAt: out.dataset.savedAt }, 200);
-  }
-  if (seg === 'roster' && sub === 'rows' && method === 'PUT') {
-    Auth.requireAdmin(env.user, 'replace the whole roster');
-    return reply(await Data.replaceRoster(env, await body()), 200);
-  }
-
-  // The single page in public/ still asks for /api/roster: the old shape, where a Google Sheet
-  // was the roster and this database held only the differences against it. That stopped being
-  // true two versions ago. Saying so is better than falling through to the model proxy, which
-  // would go and ask Google for a model called "roster".
-  if (seg === 'roster')
-    return reply({ error: { code: 410, message:
-      'the roster is no longer a set of differences against a Google Sheet — it is these rows. '
-      + 'Read it at /api/roster/rows, or open it in the app.' } }, 410);
-
-  // ---- boards --------------------------------------------------------------------------------
-  if (seg === 'boards' && method === 'GET' && !sub) {
-    const { results } = await env.DB.prepare(
-      `SELECT b.id, b.event, b.date, b.alliance, b.label, b.saved_at, b.version,
-              COUNT(s.id) AS players, MAX(s.points) AS best
-         FROM boards b LEFT JOIN scores s ON s.board_id = b.id
-        GROUP BY b.id ORDER BY b.date DESC, b.alliance ASC`).all();
-    return reply({ boards: results || [] }, 200);
-  }
-
-  if ((seg === 'board' && method === 'GET') || (seg === 'boards' && method === 'GET' && sub && !leaf)) {
-    const id = seg === 'board' ? (q.get('id') || '') : sub;
-    const board = await env.DB.prepare('SELECT * FROM boards WHERE id = ?').bind(id).first();
-    if (!board) return reply({ error: { code: 404, message: 'no such board' } }, 404);
-    if (seg === 'board') {
-      const { results } = await env.DB.prepare(
-        'SELECT place, search, ingame, alliance, points, edited FROM scores WHERE board_id = ? ORDER BY place')
-        .bind(id).all();
-      return reply({ board, rows: results || [], version: board.version }, 200);
-    }
-    const out = await Data.readDataset(env, 'board:' + id);
-    return reply({ board, rows: out.rows, columns: out.columns, version: out.version }, 200);
-  }
-
-  // The extractor's own save: replaces the board, keeps rows somebody corrected by hand.
-  if (seg === 'runs' && method === 'POST')
-    return reply(await Boards.saveBoard(env, { ...(await body()), mode: 'merge' }), 200);
-  if (seg === 'runs' && method === 'GET')
-    return reply(await Boards.listRuns(env, toInt(q.get('limit'), 60)), 200);
-
-  // Extraction → data, with a preview first.
-  if (seg === 'commit' && method === 'POST')
-    return reply(await Boards.commitExtraction(env, await body()), 200);
-
-  if (seg === 'boards' && method === 'POST' && !sub) {
-    const b = await body();
-    const id = Boards.boardId(str(b.event) || 'kartz', str(b.date), str(b.alliance));
-    const existing = await env.DB.prepare('SELECT version FROM boards WHERE id = ?').bind(id).first();
-    if (existing && !b.replace)
-      return reply({ error: { code: 409, message: `a board already exists for ${b.alliance} on ${b.date}.` },
-                     board: id, version: existing.version }, 409);
-    return reply(await Boards.saveBoard(env, { ...b, mode: b.replace ? 'replace' : 'merge',
-                                              rows: Array.isArray(b.rows) ? b.rows : [],
-                                              allowEmpty: !!b.allowEmpty }), 200);
-  }
-
-  if (seg === 'boards' && method === 'PUT' && sub && !leaf) {
-    const b = await body();
-    const board = await env.DB.prepare('SELECT * FROM boards WHERE id = ?').bind(sub).first();
-    if (!board) return reply({ error: { code: 404, message: 'no such board' } }, 404);
-    return reply(await Boards.saveBoard(env, {
-      event: board.event, date: board.date, alliance: board.alliance,
-      label: b.label === undefined ? board.label : b.label,
-      rows: b.rows, columns: b.columns, mode: 'replace', expectVersion: b.version,
-    }), 200);
-  }
-
-  if ((seg === 'board' && method === 'PATCH') || (seg === 'boards' && method === 'PATCH' && sub && !leaf)) {
-    const b = await body();
-    return reply(await Boards.patchBoard(env, seg === 'board' ? str(b.id) : sub, b), 200);
-  }
-  if ((seg === 'board' && method === 'DELETE') || (seg === 'boards' && method === 'DELETE' && sub && !leaf))
-    return reply(await Boards.deleteBoard(env, seg === 'board' ? (q.get('id') || '') : sub), 200);
-
-  if (seg === 'boards' && sub && leaf === 'rows') {
-    const board = await env.DB.prepare('SELECT id FROM boards WHERE id = ?').bind(sub).first();
-    if (!board) return reply({ error: { code: 404, message: 'no such board' } }, 404);
-    const place = parts[3] !== undefined ? Number(parts[3]) : NaN;
-    if (method === 'POST' && parts[3] === undefined)
-      return reply(await Boards.addRows(env, sub, (await body()).rows), 200);
-    if (method === 'PATCH' && Number.isFinite(place))
-      return reply(await Boards.editRow(env, sub, place, await body()), 200);
-    if (method === 'DELETE' && Number.isFinite(place))
-      return reply(await Boards.deleteRowAt(env, sub, place), 200);
-    return reply({ error: { code: 405, message: 'unsupported method for rows.' } }, 405);
-  }
-
-  if (seg === 'score' && method === 'PATCH') {
-    const b = await body();
-    return reply(await Boards.editRow(env, str(b.board), Number(b.place), b), 200);
-  }
-
-  // ---- reading across boards ------------------------------------------------------------------
-  if (seg === 'month' && method === 'GET')
-    return reply(await Views.monthView(env, { month: q.get('month') || '', alliance: q.get('alliance') || '',
-                                              event: q.get('event') || 'kartz' }), 200);
-  if (seg === 'player' && method === 'GET') return reply(await Views.playerView(env, q.get('search') || ''), 200);
-  if (seg === 'all' && method === 'GET') return reply(await Views.allRows(env, toInt(q.get('limit'), 20000)), 200);
-  if (seg === 'activity' && method === 'GET') return reply(await Views.activity(env, toInt(q.get('limit'), 80)), 200);
-
-  if (seg === 'views' && method === 'GET') return reply(await Views.listViews(env, q.get('dataset') || ''), 200);
-  if (seg === 'views' && method === 'POST') return reply(await Views.saveView(env, await body()), 200);
-  if (seg === 'views' && method === 'DELETE' && sub) return reply(await Views.deleteView(env, sub), 200);
-
-  return null;                              // not a data route; fall through to the model
-}
-
-function corsHeaders(origin) {
-  return {
-    'access-control-allow-origin': origin,
-    'access-control-allow-methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-    'access-control-allow-headers': 'content-type, x-kartz-pass, x-kartz-session',
-    'access-control-max-age': '86400',
-    'vary': 'Origin',
-  };
-}
-
 export default {
-  // Every five minutes (wrangler.toml): editing sessions that have gone quiet become one log entry.
-  async scheduled(event, env, ctx) {
-    ctx.waitUntil(summarizeSessions(env));
-  },
-
   async fetch(request, env) {
     const url = new URL(request.url);
-
-    // Anything that is not the API is the site itself. Static files are normally served before
-    // this script ever runs; this covers the rest, so one deployment answers for both halves
-    // and there is no second origin to authorise.
-    if (!url.pathname.replace(/^\/+/, '').startsWith('api')) {
-      if (env.ASSETS) return env.ASSETS.fetch(request);
-      return new Response('No ASSETS binding: add [assets] to wrangler.toml.', { status: 500 });
-    }
-
-    // The CSV route runs ahead of the origin check, because the thing that reads it cannot
-    // satisfy one: Apps Script fetches from Google's servers with no Origin, no cookies and
-    // nothing to identify itself. It carries a token instead — its own, not SHARED_PASS.
-    //
-    // Two secrets rather than one, because they are not the same permission. SHARED_PASS opens
-    // the whole API: the model, and writes to the database. A token that only ever unlocks a
-    // read of one table can be pasted into a spreadsheet script, shared with whoever maintains
-    // the workbook, and rotated without anyone re-authorising anything.
-    if (url.pathname.replace(/^\/+/, '').replace(/^api\/+/, '').split('/')[0] === 'csv') {
-      const token = request.headers.get('x-kartz-token') || url.searchParams.get('token') || '';
-      const browser = !!request.headers.get('Origin') || !!request.headers.get('Sec-Fetch-Site');
-      const ok = (env.SHEET_TOKEN && token === env.SHEET_TOKEN)
-              || (browser && (!request.headers.get('Origin')
-                   || request.headers.get('Origin') === url.origin
-                   || ALLOWED_ORIGINS.includes(request.headers.get('Origin'))));
-      if (!ok) return new Response('a token is required for this route', { status: 403 });
-      try { return await handleCsv(request, env); }
-      catch (e) { return new Response('error: ' + String((e && e.message) || e), { status: 500 }); }
-    }
-
     const origin = request.headers.get('Origin') || '';
-    const knownOrigin = !!origin && (origin === url.origin || ALLOWED_ORIGINS.includes(origin));
-    // A request with no Origin at all is not a browser — curl, or a script. Those are fine, but
-    // only when they bring the shared phrase: otherwise an unconfigured deployment is an open AI
-    // proxy for anyone who finds the URL. An origin header proves nothing on its own (it is
-    // trivially forged), so the phrase is the real gate.
-    const hasPass = !!env.SHARED_PASS && request.headers.get('x-kartz-pass') === env.SHARED_PASS;
-    // A same-origin GET carries no Origin header at all — browsers only send one for POST and
-    // the other unsafe methods. Sec-Fetch-Site is set by the browser and cannot be written by
-    // script, so it says what Origin cannot here.
-    const sameSite = request.headers.get('Sec-Fetch-Site') === 'same-origin';
-    const allowed = knownOrigin || sameSite || hasPass;
-
-    if (request.method === 'OPTIONS')
-      return new Response(null, { status: allowed ? 204 : 403, headers: allowed ? corsHeaders(origin) : {} });
-    if (!allowed) return new Response('origin not allowed', { status: 403 });
-
     const cors = corsHeaders(origin);
     const reply = (body, status) => new Response(JSON.stringify(body),
       { status, headers: { ...cors, 'content-type': 'application/json' } });
-    // A picture comes back as itself rather than as JSON, and still needs the same headers.
-    reply.cors = cors;
 
-    // The data routes come first: "runs" and "player" would otherwise pass for model names and
-    // be forwarded to Google.
-    const parts = url.pathname.replace(/^\/+/, '').replace(/^api\/+/, '')
-      .split('/').map(x => { try { return decodeURIComponent(x); } catch { return x; } });
-    const seg = parts[0];
-    if (DATA_SEGMENTS.has(seg)) {
+    // The preflight cannot carry the phrase — a browser sends it before the real request and
+    // without its headers — so this one is decided on the origin alone. The request that
+    // follows it still has to bring the phrase.
+    if (request.method === 'OPTIONS') {
+      return new Response(null, originOk(origin)
+        ? { status: 204, headers: cors }
+        : { status: 403 });
+    }
+
+    // The phrase, and nothing else. An Origin header proves nothing — it is trivially forged —
+    // and without a gate of some kind a deployment with a model key is an open AI proxy for
+    // whoever finds the URL.
+    if (!env.SHARED_PASS) {
+      return reply({ error: { code: 501, message:
+        'this Worker has no SHARED_PASS secret set, so it will not answer. Set one with: '
+        + 'wrangler secret put SHARED_PASS — then put the same phrase in Kartz → Settings.' } }, 501);
+    }
+    if (request.headers.get('x-kartz-pass') !== env.SHARED_PASS) {
+      return reply({ error: { code: 403, message:
+        'wrong shared phrase. Put the phrase this Worker was given into Kartz → Settings.' } }, 403);
+    }
+
+    // `/api/ai/ask` and `/ai/ask` are the same route: the page is configured with the Worker's
+    // address and nothing else, and both spellings of it are easy to end up with.
+    const path = url.pathname.replace(/^\/+/, '').replace(/^api\/+/, '');
+    const parts = path.split('/').map(x => { try { return decodeURIComponent(x); } catch { return x; } });
+
+    if (parts[0] === 'ai') {
       try {
-        const out = await handleData(seg, parts, request, env, reply);
-        if (out) return out;
+        if (parts[1] === 'status' && request.method === 'GET') return reply(aiStatus(env), 200);
+        if (parts[1] === 'ask' && request.method === 'POST') {
+          const body = await request.json().catch(() => null);
+          if (!body) throw new HttpError(400, 'a JSON body is required.');
+          return reply(await ask(env, body), 200);
+        }
+        return reply({ error: { code: 404, message: 'no such route' } }, 404);
       } catch (e) {
-        if (e instanceof HttpError)
-          return reply({ error: { code: e.status, message: e.message }, ...e.extra }, e.status);
-        const status = e && e.status >= 400 && e.status < 600 ? e.status : 500;
+        const status = e instanceof HttpError ? e.status
+          : (e && e.status >= 400 && e.status < 600 ? e.status : 500);
         return reply({ error: { code: status, message: String((e && e.message) || e) } }, status);
       }
     }
 
-    // Everything past this point is a model call, which is always a POST.
-    if (request.method !== 'POST') return reply({ error: 'POST only' }, 405);
-    // Reading a recording costs money on the model key, so it is for signed-in accounts only.
-    if (!(await Auth.who(env, request)))
-      return reply({ error: { code: 401, message: 'sign in to use Kartz.' } }, 401);
+    // Everything else is a model call by name — reading a recording — which is always a POST.
+    if (request.method !== 'POST') return reply({ error: { code: 405, message: 'POST only' } }, 405);
 
-    // No separate phrase check here. The gate above already decided: a request either came from
-    // an origin this deployment recognises — the site itself — or it brought the shared phrase.
-
-    const model = decodeURIComponent(url.pathname.replace(/^\/+/, '').replace(/^api\/+/, ''));
+    const model = path;
     const isCf = model.startsWith('@cf/');
     if (!(isCf ? /^@cf\/[a-zA-Z0-9._/-]{1,80}$/ : /^[a-zA-Z0-9.-]{1,64}$/).test(model))
       return reply({ error: { code: 400, message: 'Bad model name.' } }, 400);

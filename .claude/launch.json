@@ -1,0 +1,13 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "kartz-sidebar",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "tools/serve-sidebar.mjs"
+      ],
+      "port": 8788
+    }
+  ]
+}

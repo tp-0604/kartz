@@ -32,7 +32,7 @@ export async function runExtraction({
   ctx.log = onLog; ctx.progress = onProgress; ctx.frames = onFrames;
   try {
     const index = buildIndex(roster);
-    const skipIndex = [];              // nothing is filtered out any more; see roster.js
+    const skipIndex = [];              // nothing is filtered out any more
 
     ctx.log('decoding video…'); ctx.progress(0);
     // How many sample points the minute's allowance actually affords, rather than a fixed

@@ -1,18 +1,16 @@
-import React from 'react';
+// The dialog, mounted. Two stylesheets: the palette and primitives the whole project shares,
+// and the layout built for a small floating window over the spreadsheet.
+import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App.jsx';
 import './styles/tokens.css';
-import './styles/base.css';
-import './styles/shell.css';
-import './styles/home.css';
-import './styles/grid.css';
-import './styles/workspace.css';
-import './styles/files.css';
-import './styles/ai.css';
-import './styles/extract.css';
+import './styles/dialog.css';
+import Dialog from './dialog/Dialog.jsx';
+import Boundary from './components/shared/Boundary.jsx';
 
 createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+  <StrictMode>
+    <Boundary label="Kartz">
+      <Dialog />
+    </Boundary>
+  </StrictMode>,
 );

@@ -1,13 +1,11 @@
-_test.mov
-_roster.tsv
-*.mov
-.DS_Store
-_sheet.txt
-.wrangler/
 node_modules/
 web/dist/
+.wrangler/
+.DS_Store
 
-# what the browser suites draw
-shots/
-# the local stand-in for R2, written by test/serve.mjs
-.wrangler/local-r2/
+# recordings and database dumps: large, and none of them belong in the repository
+*.mov
+*.sql
+_test.mov
+_roster.tsv
+_sheet.txt

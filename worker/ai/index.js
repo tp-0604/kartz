@@ -1,24 +1,18 @@
 /**
- * Asking the data a question.
+ * Asking a spreadsheet a question.
  *
- *   question → the model picks tools → this Worker runs them against D1 → the model writes an
- *   analysis in a fixed shape → the browser draws it with its own components
+ *   question + the rows on screen → one model call → an analysis in a fixed shape → the sidebar
+ *   draws it with its own components
  *
- * Three things are deliberate. The dataset is never sent to the model: it asks for a count, a
- * group, a page of rows. The model never writes SQL or markup: it fills in arguments that are
- * checked against columns that exist, and returns an object that is checked against a schema
- * before anything is drawn. And nothing here is load-bearing for the rest of the app — if no
- * provider is configured, the workspace loses a panel and keeps everything else.
+ * Two things are deliberate. The model never writes markup: it returns an object that is checked
+ * against a schema before a single component is drawn. And nothing is stored — the rows arrive
+ * with the question, are answered from, and are dropped, so the answer is exactly as current as
+ * the sheet and there is no second copy of anybody's data anywhere.
  */
 import { HttpError, str } from '../util.js';
 import { chat, describeProvider } from './providers.js';
-import { TOOLS, FILE_TOOLS, TOOL_BY_NAME, workspaceTool } from './tools.js';
 
-const MAX_ROUNDS = 6;
 const TABLE_ROWS = 200, CHART_ROWS = 60;
-// How many rows of one lookup the model is shown. A 200-row result is ~11k tokens, re-sent on every
-// round after it; fifty is plenty to answer from and keeps the worst question near 25k, not 68k.
-const MODEL_ROWS = 50;
 
 const COMPONENT_TYPES = ['text', 'metric', 'table', 'list', 'bar_chart', 'line_chart', 'comparison'];
 
@@ -78,60 +72,32 @@ const ANALYSIS_SCHEMA = {
   required: ['title', 'summary'],
 };
 
-const SYSTEM = `You are the analyst inside Kartz, a tool for tracking a mobile game's monthly
-scoring boards. You answer questions about the user's own data by querying it.
+const SYSTEM = `You are the analyst inside Kartz, a sidebar that lives in a Google spreadsheet.
 
-THE DATA
-A *board* is one alliance's ranking list on one day, filmed as a screen recording and read into
-rows. A row has: place (the rank the game showed), search (the player's roster name — their
-identity, null for someone not on the roster), ingame (the name the video drew, which changes),
-alliance (the player's own alliance, which is not always the board's), points (their score),
-and possibly extra columns the user added, named "x:Whatever".
-The alliances are 698W, 698S, 698N and 698C. An alliance value such as z1.Transferred, z3.?,
-Unknown or an empty one is not an alliance: it marks a player who left, transferred or could not
-be placed. Leave those out when comparing or ranking alliances, and say in the summary that you
+WHAT YOU ARE LOOKING AT
+The rows of the tab the person has open, exactly as the sheet shows them, with the headings
+they chose. Nothing else. There is no database behind this and no other table to consult: if
+the answer is not in the rows you were given, say so and set confidence to "unavailable".
+
+The columns are whatever that sheet happens to have. Do not assume a column exists because it
+usually would, and do not rename one to something tidier — quote the heading as written.
+
+Many of these sheets are about a mobile game's alliances, named 698W, 698S, 698N and 698C. A
+value like z1.Transferred, z3.? or Unknown is not an alliance: it marks somebody who left or
+could not be placed. Leave those out of an alliance comparison, and say in the summary that you
 did.
-A month usually holds three boards per alliance: Day 1, Day 4 and Final. "Snapshot", "day" and
-"board" all mean a board. The *roster* is the list of players.
-Datasets you can name: "roster", "scores" (every board at once), "month:YYYY-MM", and
-"board:<id>" (ids come from list_datasets).
-
-Beside the boards there are imported spreadsheets: thirty-odd workbooks of sign-ups, rosters,
-trackers, transfers and planning sheets, each with columns of its own that you have not seen.
-Anything that is not a board or the roster lives there. Find it with list_tables, ask what its
-columns are called with describe_table, then read it with query_table — in that order, because
-these files name things their own way and guessing a column name wastes a turn. A tab that is a
-drawing (a calendar, a squad map) has no table and will not appear.
-
-HOW TO WORK
-- Use the tools. Every number you state must have come out of one. Never estimate, never fill a
-  gap from memory, never carry a figure over from an earlier question.
-- Aggregate in the database with aggregate_records rather than fetching rows and adding up.
-- Keep query_records limits small — you are looking at rows, not reading the dataset.
-- Call get_workspace_context whenever the question says "these", "this board", "selected" or
-  "currently". "These players" means the rows the user's filters leave, so apply the same
-  filters in your own query.
-- If the data needed does not exist, say so plainly and set confidence to "unavailable". "There
-  is no board for August, so I cannot compare with it" is a good answer. An invented number is
-  not an answer at all.
-- If a tool refuses an argument, read what it says and try the argument it suggests. Do not
-  invent column or dataset names.
 
 HOW TO ANSWER
-Answer the question that was asked, at the size it was asked. "What is the average power?" is a
-summary and one metric. Do not add a chart because a chart is available.
+- Every figure you state must come from the rows you were given. Never estimate, never fill a
+  gap from memory.
+- Answer the question that was asked, at the size it was asked. A single figure is a summary
+  and one metric. Do not add a chart because a chart is available.
 - ranking → a table or a horizontal bar chart
 - change over time → a line chart
 - distribution → a bar chart, not a pie
-- comparing categories → a bar chart or a table
-- a single figure → a metric, and a comparison only if it is genuinely informative
-Name the dataset and the row count in sources so the answer can be checked against the rows.`;
-
-function toolList(context) {
-  return [workspaceTool(context), ...TOOLS, ...FILE_TOOLS];
-}
-
-const toolSpec = t => ({ name: t.name, description: t.description, schema: t.schema });
+- a single figure → a metric
+- Say how many rows you read in sources, so the answer can be checked against the sheet.
+`;
 
 // ---------------------------------------------------------------------------------------
 // Validation. Model output is untrusted: it decides what to say, never what may be drawn.
@@ -283,80 +249,65 @@ function extractJson(text) {
 // ---------------------------------------------------------------------------------------
 // The ask
 // ---------------------------------------------------------------------------------------
+/**
+ * A question about the tab in front of somebody.
+ *
+ * One call. The rows travel with the question rather than being fetched, because there is
+ * nothing to fetch them from — the spreadsheet is the data now. That makes the answer exactly
+ * as current as the sheet, and it means nothing is stored here: the rows are read, answered
+ * from, and dropped.
+ *
+ * The rows are capped. A sheet with four thousand of them would cost more to ask about than
+ * the answer is worth, so the newest are sent and the answer says how many were left out.
+ */
+const ASK_ROWS = 300;
+
 export async function ask(env, body) {
   const question = str(body && body.question);
-  if (!question) throw new HttpError(400, 'ask a question.');
-  if (question.length > 2000) throw new HttpError(400, 'that question is too long.');
-  const context = body && typeof body.context === 'object' ? body.context : null;
-  const history = (Array.isArray(body && body.history) ? body.history : []).slice(-6)
-    .filter(m => m && (m.role === 'user' || m.role === 'assistant') && str(m.content))
-    .map(m => ({ role: m.role, content: str(m.content).slice(0, 4000) }));
+  if (!question) throw new HttpError(400, 'ask something.');
 
-  const tools = toolList(context);
-  const specs = tools.map(toolSpec);
-  const messages = [...history, { role: 'user', content: question }];
-  const trace = [];
-
-  let rounds = 0;
-  let answerText = '';
-  let model = null, provider = null;
-  // What the answer cost, as the provider counted it, for the meter under it.
-  const usage = { input: 0, output: 0, calls: 0 };
-  const tally = o => {
-    usage.calls++;
-    if (o && o.usage) { usage.input += o.usage.input || 0; usage.output += o.usage.output || 0; }
-  };
-
-  while (rounds < MAX_ROUNDS) {
-    rounds++;
-    const out = await chat(env, { system: SYSTEM, messages, tools: specs, maxTokens: 6000 });
-    tally(out);
-    model = out.model; provider = out.provider;
-    if (out.stop === 'refusal')
-      return { analysis: cleanAnalysis({ title: 'Not answered', summary: out.refusal,
-                                         confidence: 'unavailable' }), trace, model, provider };
-    if (!out.toolCalls.length) { answerText = out.text; break; }
-
-    messages.push({ role: 'assistant', content: out.text || '', toolCalls: out.toolCalls });
-    for (const call of out.toolCalls.slice(0, 5)) {
-      const tool = tools.find(t => t.name === call.name);
-      let result;
-      if (!tool) {
-        result = { error: `there is no tool called “${call.name}”. Available: ${tools.map(t => t.name).join(', ')}.` };
-      } else {
-        try { result = await tool.run(env, call.args || {}); }
-        catch (e) { result = { error: String((e && e.message) || e) }; }
-      }
-      trace.push({ tool: call.name, args: call.args || {},
-                   ok: !result.error, error: result.error || null,
-                   rows: Array.isArray(result.rows) ? result.rows.length
-                       : Array.isArray(result.groups) ? result.groups.length : undefined });
-      const shown = Array.isArray(result.rows) && result.rows.length > MODEL_ROWS
-        ? { ...result, rows: result.rows.slice(0, MODEL_ROWS), rowsNotShown: result.rows.length - MODEL_ROWS }
-        : result;
-      messages.push({ role: 'tool', toolCallId: call.id, name: call.name,
-                      content: JSON.stringify(shown).slice(0, 60000) });
-    }
+  const sheet = (body && body.sheet) || {};
+  const headers = Array.isArray(sheet.headers) ? sheet.headers.map(str).filter(Boolean) : [];
+  const all = Array.isArray(sheet.rows) ? sheet.rows : [];
+  const rows = all.slice(0, ASK_ROWS);
+  if (!rows.length) {
+    throw new HttpError(400, 'there are no rows on that tab to answer from.');
   }
 
-  // The render pass. Tools are dropped here so the schema can be attached: some providers will
-  // not constrain the output format and offer functions in the same request.
-  const render = await chat(env, {
-    system: SYSTEM,
-    messages: [...messages, { role: 'user', content:
-      'Now write the analysis as JSON in the required shape. Use only figures that came back '
-      + 'from the tools above. Include a sources entry for each result you used. Add a chart '
-      + 'only where it makes the answer easier to read.' }],
-    schema: ANALYSIS_SCHEMA,
-    maxTokens: 8000,
-  }).catch(e => ({ text: '', error: e }));
-  tally(render);
+  const table = [headers.join(' | '), ...rows.map(r => (Array.isArray(r) ? r : []).map(str).join(' | '))]
+    .join('\n');
 
-  const parsed = extractJson(render && render.text) || extractJson(answerText);
-  const analysis = cleanAnalysis(parsed, (render && render.text) || answerText);
-  if (!parsed && !answerText && render && render.error) throw render.error;
-  return { analysis, trace, model: (render && render.model) || model,
-           provider: (render && render.provider) || provider, rounds, usage };
+  const context = [
+    `Spreadsheet: ${str(sheet.spreadsheet) || 'untitled'}`,
+    `Tab: ${str(sheet.sheet) || 'untitled'}`,
+    `${all.length} rows on the tab${all.length > rows.length ? `, the first ${rows.length} shown below` : ''}`,
+    '',
+    table,
+  ].join('\n');
+
+  const out = await chat(env, {
+    system: SYSTEM,
+    schema: ANALYSIS_SCHEMA,
+    messages: [
+      { role: 'user', content: context },
+      { role: 'user', content: question },
+    ],
+  });
+
+  let parsed = null;
+  try { parsed = JSON.parse(out.text); } catch { parsed = extractJson(out.text); }
+  const analysis = cleanAnalysis(parsed, out.text);
+  if (!analysis.sources || !analysis.sources.length) {
+    analysis.sources = [{ dataset: str(sheet.sheet) || 'this tab', rows: rows.length }];
+  }
+  return {
+    ...analysis,
+    provider: out.provider,
+    model: out.model,
+    usage: out.usage || null,
+    rowsRead: rows.length,
+    rowsNotRead: Math.max(0, all.length - rows.length),
+  };
 }
 
 export function aiStatus(env) {
@@ -366,7 +317,6 @@ export function aiStatus(env) {
     provider: info.name || null,
     model: info.available ? info.model : null,
     gateway: info.gateway,
-    tools: [...TOOLS, ...FILE_TOOLS].map(t => t.name),
     reason: info.available ? null
       : 'no AI provider is configured. Set ANTHROPIC_API_KEY, OPENAI_API_KEY or GEMINI_KEY as a '
         + 'Worker secret, or add an [ai] binding. Everything else in the app works without one.',

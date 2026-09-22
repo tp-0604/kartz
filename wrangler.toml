@@ -2,38 +2,12 @@ name = "kartz"
 main = "worker.js"
 compatibility_date = "2026-01-01"
 
-# The page and its API are one deployment. Requests that match a file in ./public are
-# served straight from it; everything else — /api/* — runs worker.js. Same origin, so
-# Workers AI's missing CORS headers never come into it.
-[assets]
-directory = "./public"
-binding = "ASSETS"
-
 # Lets the Worker call Cloudflare's own models as env.AI, with no token in the browser. It is
-# also the last provider the analytics layer falls back to, so a deployment with no model key at
-# all still has one.
+# also the last provider a question about a tab falls back to, so a deployment with no model
+# key of its own still has one.
 [ai]
 binding = "AI"
 
-# Kartz history. One SQLite database on the Worker, so the scores live somewhere that can be
-# queried rather than only in a spreadsheet tab per month.
-#
-# database_id is filled in by Cloudflare when the database is created:
-#   npx wrangler d1 create kartz-db
-# and the id it prints goes below. Local development uses its own copy and ignores the id.
-[[d1_databases]]
-binding = "DB"
-database_name = "kartz-db"
-database_id = "32834df7-8b13-40e1-b6cb-517285302496"
-
-# Every five minutes: editing sessions that have gone quiet become one sentence in the log.
-[triggers]
-crons = ["*/5 * * * *"]
-
-# The pictures pasted into the imported sheets. Seventy of the eighty-eight megabytes in the
-# TW 2698 folder are screenshots sitting on top of cells, which is no business of a database:
-# the bytes live here under the hash of their contents, and D1 keeps only the row that says
-# which sheet anchors which picture where.
-[[r2_buckets]]
-binding = "FILES"
-bucket_name = "kartz-files"
+# Nothing else. The site, the database and the picture store went with the spreadsheet app —
+# the spreadsheet is the database now, and Google holds the files. What is left is the model
+# key, which is the one thing a page cannot hold for itself.
